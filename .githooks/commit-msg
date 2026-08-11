@@ -1,0 +1,29 @@
+#!/bin/bash
+# Hook para filtrar mensajes de coautoria de IA
+#
+# No bloquea el commit: retira las lineas y deja continuar.
+# Las comparaciones son insensibles a mayusculas (flag I de GNU sed) porque
+# GitHub genera "Co-authored-by:" en minusculas y el filtro sensible no lo veia.
+#
+# Se activa con:  git config core.hooksPath .githooks
+
+COMMIT_MSG_FILE=$1
+
+# Firmas de generacion
+sed -i '/🤖 Generated with/Id' "$COMMIT_MSG_FILE"
+sed -i '/Generated with \[Claude/Id' "$COMMIT_MSG_FILE"
+sed -i '/Generated with Claude Code/Id' "$COMMIT_MSG_FILE"
+
+# Coautorias de IA, por proveedor
+sed -i '/Co-Authored-By:.*claude/Id' "$COMMIT_MSG_FILE"
+sed -i '/Co-Authored-By:.*anthropic/Id' "$COMMIT_MSG_FILE"
+sed -i '/Co-Authored-By:.*copilot/Id' "$COMMIT_MSG_FILE"
+sed -i '/Co-Authored-By:.*cursor/Id' "$COMMIT_MSG_FILE"
+sed -i '/Co-Authored-By:.*openai/Id' "$COMMIT_MSG_FILE"
+sed -i '/Co-Authored-By:.*codex/Id' "$COMMIT_MSG_FILE"
+sed -i '/Co-Authored-By:.*gemini/Id' "$COMMIT_MSG_FILE"
+sed -i '/Co-Authored-By:.*devin/Id' "$COMMIT_MSG_FILE"
+sed -i '/Co-Authored-By:.*noreply@anthropic/Id' "$COMMIT_MSG_FILE"
+
+# Eliminar lineas vacias consecutivas al final
+sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' "$COMMIT_MSG_FILE"

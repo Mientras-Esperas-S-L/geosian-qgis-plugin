@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Geosian">
+  <!-- Marcador de mapa con una hoja dentro. Sin degradados ni fuentes: tiene
+       que verse igual en la barra de herramientas de cualquier sistema. -->
+  <path d="M32 4C21 4 12 12.8 12 23.6c0 14.4 17.4 34.2 18.2 35a2.5 2.5 0 0 0 3.6 0c.8-.8 18.2-20.6 18.2-35C52 12.8 43 4 32 4z"
+        fill="#2e7d32"/>
+  <path d="M32 9.5c-8 0-14.5 6.4-14.5 14.1 0 10.1 10.7 24.6 14.5 29.4 3.8-4.8 14.5-19.3 14.5-29.4C46.5 15.9 40 9.5 32 9.5z"
+        fill="#43a047"/>
+  <path d="M41 16c-9.5-.8-16.6 3.4-16.6 10.6 0 2.4.9 4.5 2.4 6.1L23 36.5l2.1 2.1 3.8-3.8c1.6 1 3.5 1.6 5.6 1.6 0 0-1.9-6.6 1.5-11.4-2.9 1.2-5.6 3.6-7.2 6.6-.4-.8-.6-1.7-.6-2.6 0-4.8 5.1-7.8 12.8-7.2z"
+        fill="#ffffff"/>
+</svg>

@@ -1,0 +1,25 @@
+[general]
+name=Geosian
+qgisMinimumVersion=3.34
+qgisMaximumVersion=4.99
+description=Trabaja en QGIS directamente contra Geosian: las capas se leen y se escriben a través de su API, respetando permisos, esquemas y lógica de negocio.
+about=Geosian (GreenCityControl) es una plataforma de gestión de datos geoespaciales para servicios urbanos. Este complemento convierte QGIS en un cliente más de la plataforma: registra un proveedor de datos propio que habla con la API de Geosian, de modo que las capas no son ficheros ni una conexión directa a la base de datos, sino datos vivos del servidor. Los formularios se generan a partir del esquema dinámico de cada capa.
+version=0.1.0-dev
+author=Mientras Esperas S.L.
+email=desarrollo@greencitycontrol.com
+
+tracker=https://github.com/Mientras-Esperas-S-L/geosian-qgis-plugin/issues
+repository=https://github.com/Mientras-Esperas-S-L/geosian-qgis-plugin
+homepage=https://github.com/Mientras-Esperas-S-L/geosian-qgis-plugin
+
+tags=geosian,greencity,api,rest,web,vector,urban,gis
+category=Plugins
+icon=resources/icon.svg
+experimental=True
+deprecated=False
+server=False
+hasProcessingProvider=False
+
+changelog=0.1.0-dev
+    - Fase 1: lectura. Conexión, árbol de mapas y capas, proveedor de solo
+      lectura y soporte del esquema dinámico de atributos.

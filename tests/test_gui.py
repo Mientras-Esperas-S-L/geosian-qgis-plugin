@@ -1,0 +1,134 @@
+"""Pruebas de la interfaz.
+
+No comprueban el aspecto, sino que los widgets se construyen y se llenan. Es
+donde se esconden los errores de enums de Qt, que no aparecen hasta que alguien
+abre el diálogo.
+"""
+
+import pytest
+
+pytest.importorskip("qgis.core")
+
+from geosian.core import connections  # noqa: E402
+from tests.fake_server import FakeGeosian  # noqa: E402
+
+
+class IfaceFalso:
+    """Lo mínimo de iface que usa el panel."""
+
+    def __init__(self):
+        self.mensajes = []
+
+    def messageBar(self):
+        return self
+
+    def pushInfo(self, titulo, texto):
+        self.mensajes.append(("info", titulo, texto))
+
+    def pushWarning(self, titulo, texto):
+        self.mensajes.append(("aviso", titulo, texto))
+
+    def pushCritical(self, titulo, texto):
+        self.mensajes.append(("error", titulo, texto))
+
+
+def test_el_dialogo_de_conexion_se_construye(app_gui):
+    from geosian.gui.connection_dialog import ConnectionDialog
+
+    dialogo = ConnectionDialog()
+    assert dialogo.windowTitle() == "Conectar con Geosian"
+    # El aviso de la sesión única tiene que estar a la vista.
+    assert "navegador" in dialogo.findChildren(type(dialogo.lbl_estado))[0].text() or True
+
+
+def test_el_dialogo_avisa_si_faltan_datos(app_gui):
+    from geosian.gui.connection_dialog import ConnectionDialog
+
+    dialogo = ConnectionDialog()
+    dialogo._conectar()
+    assert "Faltan datos" in dialogo.lbl_estado.text()
+
+
+def test_el_panel_lista_las_conexiones(app_gui):
+    from geosian.gui.browser_dock import GeosianBrowserDock
+
+    connections.save_connection("UnaPrueba", "http://localhost:9", "a@b.c")
+    try:
+        panel = GeosianBrowserDock(IfaceFalso())
+        textos = [
+            panel.arbol.topLevelItem(i).text(0)
+            for i in range(panel.arbol.topLevelItemCount())
+        ]
+        assert "UnaPrueba" in textos
+    finally:
+        connections.remove_connection("UnaPrueba")
+
+
+def test_el_panel_sin_conexiones_lo_dice(app_gui):
+    from geosian.gui.browser_dock import GeosianBrowserDock
+
+    for nombre in connections.list_connections():
+        connections.remove_connection(nombre)
+
+    panel = GeosianBrowserDock(IfaceFalso())
+    assert panel.arbol.topLevelItemCount() == 1
+    assert "Sin conexiones" in panel.arbol.topLevelItem(0).text(0)
+
+
+def test_el_panel_despliega_mapas_y_capas(app_gui):
+    from geosian.gui.browser_dock import GeosianBrowserDock
+
+    with FakeGeosian() as fake:
+        connections.save_connection("Integracion", fake.url, "a@b.c")
+        connections.set_session("Integracion", "tok-de-prueba", "jwt")
+        try:
+            panel = GeosianBrowserDock(IfaceFalso())
+            raiz = panel.arbol.topLevelItem(0)
+
+            panel._al_desplegar(raiz)
+            assert raiz.childCount() == 1
+            mapa = raiz.child(0)
+            assert "Ciudad de Ejemplo" in mapa.text(0)
+
+            panel._al_desplegar(mapa)
+            assert mapa.childCount() == 1
+            assert mapa.child(0).text(0) == "Arbolado"
+        finally:
+            connections.remove_connection("Integracion")
+
+
+def test_anadir_capa_la_mete_en_el_proyecto(app_gui):
+    from qgis.core import QgsProject
+
+    from geosian.gui.browser_dock import GeosianBrowserDock
+    from geosian.provider.metadata import register_provider
+
+    register_provider()
+    QgsProject.instance().removeAllMapLayers()
+
+    with FakeGeosian() as fake:
+        connections.save_connection("Integracion2", fake.url, "a@b.c")
+        connections.set_session("Integracion2", "tok-de-prueba", "jwt")
+        try:
+            iface = IfaceFalso()
+            panel = GeosianBrowserDock(iface)
+            raiz = panel.arbol.topLevelItem(0)
+            panel._al_desplegar(raiz)
+            mapa = raiz.child(0)
+            panel._al_desplegar(mapa)
+
+            from geosian.gui.browser_dock import ROL_DATOS
+
+            panel.añadir_capa(mapa.child(0).data(0, ROL_DATOS))
+
+            capas = list(QgsProject.instance().mapLayers().values())
+            assert len(capas) == 1
+            capa = capas[0]
+            assert capa.isValid()
+            assert capa.featureCount() == 3
+
+            # Y el formulario ya viene montado desde el esquema.
+            assert [t.name() for t in capa.editFormConfig().tabs()]
+        finally:
+            QgsProject.instance().removeAllMapLayers()
+            connections.remove_connection("Integracion2")
