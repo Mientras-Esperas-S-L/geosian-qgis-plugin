@@ -59,7 +59,8 @@ def test_la_libreria_se_baja_una_vez_y_el_icono_queda_en_disco(tmp_path):
     transporte = TransporteContado()
     tienda = IconStore(carpeta=str(tmp_path), transport=transporte)
     ruta = tienda.path("fa", "FaTree")
-    assert ruta and open(ruta).read().startswith("<svg ")
+    with open(ruta) as fichero:
+        assert fichero.read().startswith("<svg ")
     assert tienda.path("fa", "FaTrain")
     assert len(transporte.pedidas) == 1
 

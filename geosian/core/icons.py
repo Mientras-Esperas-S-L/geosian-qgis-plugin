@@ -43,7 +43,7 @@ def extract_tree(modulo, nombre):
         return None
     patron = re.compile(
         r"export function " + re.escape(nombre) + r" \(props\) \{\s*return GenIcon\((.*?)\)\(props\);",
-        re.S,
+        re.DOTALL,
     )
     encontrado = patron.search(modulo or "")
     if not encontrado:

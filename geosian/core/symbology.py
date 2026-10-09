@@ -240,7 +240,7 @@ def view_renderer(style_config, geometry_type, schema, resolver, iconos=None):
     if icono and familia == "point":
         ruta = iconos(icono["lib"], icono["name"]) if iconos else None
         if ruta:
-            def fabrica(color):  # noqa: F811 (el icono sustituye al círculo)
+            def fabrica(color):  # el icono sustituye al círculo
                 return make_icon_symbol(ruta, color, icono["size"], icono["size_min"])
         else:
             avisos.append(
