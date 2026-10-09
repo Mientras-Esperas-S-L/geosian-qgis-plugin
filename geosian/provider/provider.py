@@ -15,6 +15,7 @@ import threading
 import time
 
 from qgis.core import (
+    Qgis,
     QgsCoordinateReferenceSystem,
     QgsDataProvider,
     QgsExpressionContext,
@@ -25,7 +26,6 @@ from qgis.core import (
     QgsRectangle,
     QgsVectorDataProvider,
     QgsWkbTypes,
-    Qgis,
 )
 from qgis.PyQt.QtCore import QCoreApplication, QObject, Qt, QTimeZone, pyqtSignal
 
@@ -99,7 +99,7 @@ GEOMETRY_TYPES = {
 class CachedFeature:
     """Un elemento tal y como lo guarda el proveedor."""
 
-    __slots__ = ("geometry", "attributes", "object_id")
+    __slots__ = ("attributes", "geometry", "object_id")
 
     def __init__(self, geometry, attributes, object_id=None):
         self.geometry = geometry
@@ -123,7 +123,9 @@ class GeosianProvider(QgsVectorDataProvider):
         return PROVIDER_DESCRIPTION
 
     @classmethod
-    def createProvider(cls, uri, providerOptions, flags=QgsDataProvider.ReadFlags()):
+    def createProvider(cls, uri, providerOptions, flags=None):
+        if flags is None:
+            flags = QgsDataProvider.ReadFlags()
         return GeosianProvider(uri, providerOptions, flags)
 
     # ------------------------------------------------------------------
@@ -846,9 +848,7 @@ class GeosianProvider(QgsVectorDataProvider):
             if valor is None:
                 continue
             try:
-                if mejor is None:
-                    mejor = valor
-                elif (valor < mejor) if minimo else (valor > mejor):
+                if mejor is None or ((valor < mejor) if minimo else (valor > mejor)):
                     mejor = valor
             except TypeError:
                 continue

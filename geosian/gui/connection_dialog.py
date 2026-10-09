@@ -112,9 +112,9 @@ class ConnectionDialog(QDialog):
             cliente = GeosianClient(url)
             resultado = cliente.login(email, password)
 
-            if resultado.get("mfa_required") or resultado.get("mfa_setup_required"):
-                if not self._resolver_2fa(cliente, resultado):
-                    return
+            doble_factor = resultado.get("mfa_required") or resultado.get("mfa_setup_required")
+            if doble_factor and not self._resolver_2fa(cliente, resultado):
+                return
 
             if not cliente.authenticated:
                 self.lbl_estado.setText("El servidor no devolvió ninguna credencial.")

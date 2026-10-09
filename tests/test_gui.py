@@ -9,9 +9,10 @@ import pytest
 
 pytest.importorskip("qgis.core")
 
-from geosian.core import connections  # noqa: E402
-from qgis.core import QgsFeature, QgsMapLayerType  # noqa: E402
-from tests.fake_server import FakeGeosian  # noqa: E402
+from qgis.core import QgsFeature, QgsMapLayerType
+
+from geosian.core import connections
+from tests.fake_server import FakeGeosian
 
 
 class IfaceFalso:
@@ -483,7 +484,8 @@ def test_el_panel_de_fotos_ensena_las_del_elemento(app_gui, monkeypatch, tmp_pat
             monkeypatch.setattr(media_widget, "_carpeta_temporal", lambda: str(tmp_path))
             panel.abrir_fichero(panel.ficheros.item(0))
             assert len(abiertos) == 1
-            assert open(abiertos[0], "rb").read() == FICHERO_PDF
+            with open(abiertos[0], "rb") as fichero:
+                assert fichero.read() == FICHERO_PDF
 
             # Sin elemento (uno nuevo), no se pide nada.
             fake.peticiones.clear()
@@ -501,19 +503,19 @@ def _herramientas_falsas():
     class Herramientas(QgsVectorLayerTools):
         """Las que pone iface en QGIS; el editor de relaciones de la ficha las pide."""
 
-        def addFeature(self, *args, **kwargs):  # noqa: N802
+        def addFeature(self, *args, **kwargs):
             return False, None
 
-        def startEditing(self, layer):  # noqa: N802
+        def startEditing(self, layer):
             return False
 
-        def stopEditing(self, layer, allowCancel=True):  # noqa: N802, N803
+        def stopEditing(self, layer, allowCancel=True):
             return False
 
-        def saveEdits(self, layer):  # noqa: N802
+        def saveEdits(self, layer):
             return False
 
-        def copyMoveFeatures(self, *args, **kwargs):  # noqa: N802
+        def copyMoveFeatures(self, *args, **kwargs):
             return False
 
     return Herramientas()
@@ -1156,19 +1158,19 @@ def test_al_abrir_un_proyecto_con_sesion_caducada_se_ofrece_entrar(app_gui):
         def __init__(self):
             self.avisos = []
 
-        def createMessage(self, titulo, texto):  # noqa: N802
+        def createMessage(self, titulo, texto):
             from qgis.gui import QgsMessageBar
 
             return QgsMessageBar().createMessage(titulo, texto)
 
-        def pushWidget(self, widget, nivel=None):  # noqa: N802
+        def pushWidget(self, widget, nivel=None):
             self.avisos.append(widget)
 
     class Iface:
         def __init__(self):
             self.barra = Barra()
 
-        def messageBar(self):  # noqa: N802
+        def messageBar(self):
             return self.barra
 
     iface = Iface()

@@ -20,11 +20,11 @@ from qgis.core import (
     QgsDefaultValue,
     QgsEditFormConfig,
     QgsEditorWidgetSetup,
+    QgsExpression,
     QgsField,
     QgsFieldConstraints,
     QgsFields,
     QgsOptionalExpression,
-    QgsExpression,
 )
 from qgis.PyQt.QtCore import QVariant
 

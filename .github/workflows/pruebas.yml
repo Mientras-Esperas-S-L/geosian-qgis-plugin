@@ -1,0 +1,31 @@
+# Estilo y pruebas del complemento en las dos versiones de QGIS que admite: la mínima
+# de metadata.txt (3.34 LTR) y la 4. Corre en cualquier rama, como los demás repos.
+name: Pruebas
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Versión fija: las reglas por omisión cambian entre versiones (pyproject.toml).
+      - run: pipx run ruff==0.16.10 check geosian tests
+
+  pytest:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        qgis: ["3.34", "4.2"]
+    container: qgis/qgis:${{ matrix.qgis }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m pytest tests -q -p no:randomly

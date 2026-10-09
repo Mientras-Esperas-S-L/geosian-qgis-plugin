@@ -13,15 +13,15 @@ import pytest
 
 qgis_core = pytest.importorskip("qgis.core")
 
-from qgis.core import (  # noqa: E402
+from qgis.core import (
     QgsFeatureRequest,
     QgsRectangle,
     QgsVectorLayer,
     QgsWkbTypes,
 )
 
-from geosian.core import connections, lad  # noqa: E402
-from tests.fake_server import FakeGeosian  # noqa: E402
+from geosian.core import connections, lad
+from tests.fake_server import FakeGeosian
 
 CONEXION = "PruebaAutomatica"
 
@@ -244,7 +244,7 @@ def test_desplegable_de_valores_permitidos(capa):
     idx = capa.fields().indexOf("especie")
     setup = capa.editorWidgetSetup(idx)
     assert setup.type() == "ValueMap"
-    valores = [list(d.values())[0] for d in setup.config()["map"]]
+    valores = [next(iter(d.values())) for d in setup.config()["map"]]
     assert "Tilia platyphyllos" in valores
 
 
@@ -339,7 +339,7 @@ def test_credencial_mala_no_tumba_qgis(app):
         connections.set_session("Mala", "token-que-no-vale")
         try:
             vectorial = QgsVectorLayer(
-                f"geosian://Mala/map/4/layer/11?geometry_type=points",
+                "geosian://Mala/map/4/layer/11?geometry_type=points",
                 "x",
                 "geosian",
             )

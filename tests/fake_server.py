@@ -274,7 +274,7 @@ def _pagina_de_elementos(consulta, lasso=None):
 
 
 class Handler(BaseHTTPRequestHandler):
-    peticiones = []
+    peticiones = []  # noqa: RUF012 (la comparten el servidor y las pruebas)
 
     def log_message(self, *args):
         pass  # sin ruido en la salida de las pruebas
@@ -294,7 +294,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(cuerpo)
 
-    def do_GET(self):  # noqa: N802
+    def do_GET(self):
         partes = urlparse(self.path)
         consulta = parse_qs(partes.query)
         ruta = partes.path
@@ -441,7 +441,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json({"detail": "No existe"}, 404)
 
-    def do_POST(self):  # noqa: N802
+    def do_POST(self):
         partes = urlparse(self.path)
         largo = int(self.headers.get("Content-Length") or 0)
         datos = json.loads(self.rfile.read(largo) or b"{}")

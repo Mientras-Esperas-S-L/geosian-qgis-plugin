@@ -29,7 +29,7 @@ test:
 	$(PYTHON) -m pytest tests/ -q
 
 lint:
-	$(PYTHON) -m ruff check $(PLUGIN) tests || true
+	$(PYTHON) -m ruff check $(PLUGIN) tests
 
 # Solo lo versionado de $(PLUGIN)/ (nada de cachés ni restos locales) y la
 # licencia dentro, que el repositorio de complementos de QGIS la exige.

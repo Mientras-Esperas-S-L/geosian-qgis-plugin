@@ -12,7 +12,7 @@ import pytest
 
 qgis_core = pytest.importorskip("qgis.core")
 
-from qgis.core import QgsApplication  # noqa: E402
+from qgis.core import QgsApplication
 
 
 @pytest.fixture(scope="session")

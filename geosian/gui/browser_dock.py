@@ -45,7 +45,6 @@ from ..core import (
     maptree,
     styles,
     symbology,
-    views,
 )
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
