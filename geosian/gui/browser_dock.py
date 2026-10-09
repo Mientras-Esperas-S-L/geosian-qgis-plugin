@@ -13,11 +13,11 @@ from urllib.parse import quote
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
+    QgsMapBoxGlStyleConverter,
     QgsMapLayerType,
     QgsProject,
     QgsRasterLayer,
     QgsRectangle,
-    QgsMapBoxGlStyleConverter,
     QgsRelation,
     QgsVectorLayer,
     QgsVectorTileLayer,
@@ -36,7 +36,16 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
-from ..core import basemaps, connections, icon_store, lad, maptree, styles, symbology, views
+from ..core import (
+    basemaps,
+    connections,
+    icon_store,
+    lad,
+    maptree,
+    styles,
+    symbology,
+    views,
+)
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri
