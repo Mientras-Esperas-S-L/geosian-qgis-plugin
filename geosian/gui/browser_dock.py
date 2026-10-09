@@ -16,6 +16,7 @@ from qgis.core import (
     QgsRasterLayer,
     QgsRectangle,
     QgsVectorLayer,
+    QgsWkbTypes,
 )
 from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.PyQt.QtWidgets import (
@@ -340,6 +341,7 @@ class GeosianBrowserDock(QDockWidget):
         capas_qgis = [n.layer() for n in grupo.findLayers() if n.layer() is not None]
         extension = _extension_de(capas_qgis)
         self._añadir_fondo(extension)
+        _ordenar_como_la_web(raiz, capas_qgis)
         self._encuadrar(extension)
         if vacio:
             # Con «usar el CRS de la primera capa», QGIS pone el de la capa
@@ -545,3 +547,32 @@ def _extension_de(capas):
             continue
         total.combineExtentWith(extension)
     return total
+
+
+_ORDEN_GEOMETRIA = {
+    QgsWkbTypes.PointGeometry: 0,
+    QgsWkbTypes.LineGeometry: 1,
+    QgsWkbTypes.PolygonGeometry: 2,
+}
+
+
+def _ordenar_como_la_web(raiz, capas):
+    """Orden de pintado de GCC: puntos encima, luego líneas, luego polígonos.
+
+    Las teselas de la web separan las geometrías y deck.gl pinta todos los
+    polígonos, después todas las líneas y encima todos los puntos; el orden
+    del panel solo decide dentro de cada tipo. En QGIS se usa el orden de
+    pintado propio del proyecto, así el panel de capas sigue igual que en GCC.
+    Las capas que ya hubiera en el proyecto quedan debajo, en su orden.
+    """
+    nuestras = {c.id() for c in capas}
+    actuales = raiz.customLayerOrder() if raiz.hasCustomLayerOrder() else raiz.layerOrder()
+    otras = [c for c in actuales if c.id() not in nuestras]
+    ordenadas = sorted(
+        capas,
+        key=lambda c: _ORDEN_GEOMETRIA.get(c.geometryType(), 3)
+        if c.type() == QgsMapLayerType.VectorLayer
+        else 4,
+    )  # sorted es estable: dentro de cada tipo se respeta el orden del panel
+    raiz.setCustomLayerOrder(ordenadas + otras)
+    raiz.setHasCustomLayerOrder(True)

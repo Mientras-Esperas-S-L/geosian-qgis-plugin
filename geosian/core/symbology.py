@@ -133,9 +133,13 @@ def make_icon_symbol(ruta_svg, color, size=24, size_min=16):
 def field_resolver(fields, attr_map):
     """Traduce un nombre de atributo del LAD al nombre de campo en la capa.
 
-    Admite las rutas con puntos del frontal (``seccion.campo``) quedándose con
-    el último tramo. Devuelve ``None`` si la capa no tiene ese campo, por
-    ejemplo un atributo de información adicional.
+    Devuelve ``None`` si la capa no tiene ese campo. Una ruta con puntos
+    (``surface_type.tipo``) solo casa si hay un campo que se llame
+    exactamente así: el frontal (``getNestedAttributeValue``) la busca como
+    objeto anidado en el elemento y, si no existe, no hay valor y se pinta el
+    color por defecto. Quedarse con el último tramo, como se hacía antes,
+    coloreaba en QGIS capas que en la web salen con el color por defecto
+    (Tipo de superficie de Melilla).
     """
     por_atributo = {}
     for nombre, attr in (attr_map or {}).items():
@@ -145,11 +149,10 @@ def field_resolver(fields, attr_map):
 
     def resolver(atributo):
         atributo = str(atributo or "")
-        for candidato in (atributo, atributo.split(".")[-1]):
-            if candidato in por_atributo:
-                return por_atributo[candidato]
-            if candidato in nombres:
-                return candidato
+        if atributo in por_atributo:
+            return por_atributo[atributo]
+        if atributo in nombres:
+            return atributo
         return None
 
     return resolver

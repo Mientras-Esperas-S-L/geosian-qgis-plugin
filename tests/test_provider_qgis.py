@@ -556,3 +556,13 @@ def test_vista_con_icono_sin_red_pinta_circulos(capa):
         config, "points", proveedor.schema, resolver, iconos=lambda lib, nombre: None
     )
     assert any("FaTree" in a for a in avisos)
+
+
+def test_ruta_con_punto_no_se_queda_con_el_ultimo_tramo(capa):
+    """Como la web: «x.especie» no es «especie» si no hay objeto «x»."""
+    from geosian.core import symbology
+
+    proveedor = capa.dataProvider()
+    resolver = symbology.field_resolver(proveedor.fields(), proveedor.attr_map)
+    assert resolver("especie") == "especie"
+    assert resolver("surface_type.especie") is None

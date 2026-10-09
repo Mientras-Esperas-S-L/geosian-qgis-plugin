@@ -235,3 +235,34 @@ def test_un_403_no_pide_volver_a_entrar(app_gui):
             assert "permisos" in errores[0][2]
         finally:
             connections.remove_connection("Integracion5")
+
+
+def test_orden_de_pintado_como_la_web(app_gui):
+    """Puntos encima, luego líneas, luego polígonos; el fondo debajo de todo."""
+    from qgis.core import QgsProject, QgsRasterLayer, QgsVectorLayer
+
+    from geosian.gui.browser_dock import _ordenar_como_la_web
+
+    proyecto = QgsProject.instance()
+    proyecto.clear()
+    try:
+        fondo = QgsRasterLayer("type=xyz&url=http://127.0.0.1/{z}/{x}/{y}.png", "fondo", "wms")
+        proyecto.addMapLayer(fondo)
+        # Orden del panel de GCC: un polígono arriba, luego puntos, luego líneas.
+        poligonos = QgsVectorLayer("Polygon?crs=EPSG:4326", "zonas", "memory")
+        puntos = QgsVectorLayer("Point?crs=EPSG:4326", "arboles", "memory")
+        lineas = QgsVectorLayer("LineString?crs=EPSG:4326", "setos", "memory")
+        otros_puntos = QgsVectorLayer("Point?crs=EPSG:4326", "bancos", "memory")
+        capas = [poligonos, puntos, lineas, otros_puntos]
+        for capa in capas:
+            proyecto.addMapLayer(capa)
+
+        raiz = proyecto.layerTreeRoot()
+        _ordenar_como_la_web(raiz, capas)
+
+        assert raiz.hasCustomLayerOrder()
+        assert [c.name() for c in raiz.customLayerOrder()] == [
+            "arboles", "bancos", "setos", "zonas", "fondo"
+        ]
+    finally:
+        proyecto.clear()
