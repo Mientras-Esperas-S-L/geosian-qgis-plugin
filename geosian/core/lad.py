@@ -16,6 +16,7 @@ from qgis.core import (
     Qgis,
     QgsAttributeEditorContainer,
     QgsAttributeEditorField,
+    QgsAttributeEditorRelation,
     QgsDefaultValue,
     QgsEditFormConfig,
     QgsEditorWidgetSetup,
@@ -65,6 +66,36 @@ def build_fields(schema):
         fields.append(campo)
         usados.add(nombre)
 
+    _append_schema_fields(fields, mapa, usados, schema)
+    return fields, mapa
+
+
+# Los de un parte (información adicional): el suyo, el del elemento al que
+# pertenece, que es por donde se relaciona con su capa, y quién y cuándo.
+INFO_SYSTEM_FIELDS = (
+    ("id", QVariant.LongLong, "ID del parte"),
+    ("geodata_id", QVariant.LongLong, "ID interno del elemento"),
+    ("usuario", QVariant.String, "Usuario"),
+    ("created_at", QVariant.String, "Fecha"),
+    ("updated_at", QVariant.String, "Última modificación"),
+)
+
+
+def build_info_fields(info_schema):
+    """Como :func:`build_fields`, para un tipo de información adicional."""
+    fields = QgsFields()
+    mapa = {}
+    usados = set()
+    for nombre, tipo, alias in INFO_SYSTEM_FIELDS:
+        campo = QgsField(nombre, tipo, _type_name(tipo))
+        campo.setAlias(alias)
+        fields.append(campo)
+        usados.add(nombre)
+    _append_schema_fields(fields, mapa, usados, info_schema)
+    return fields, mapa
+
+
+def _append_schema_fields(fields, mapa, usados, schema):
     for attr in S.flatten_attributes(schema):
         # Las fotos y los adjuntos no son columnas: tienen su propio panel y
         # llegan en la fase 4. Meterlos como campo solo estorbaría.
@@ -78,8 +109,6 @@ def build_fields(schema):
             campo.setComment(str(attr["description"]))
         fields.append(campo)
         mapa[nombre] = attr
-
-    return fields, mapa
 
 
 def _type_name(tipo):
@@ -255,6 +284,47 @@ def _main_attributes(schema):
         for n in nombres
         if isinstance(n, str)
     ]
+
+
+def add_relations_tab(layer, partes):
+    """Pestaña «Información adicional» con los partes de cada tipo.
+
+    Se llama después de :func:`apply_form`, que empieza de cero las pestañas.
+
+    Args:
+        partes: pares ``(QgsRelation, tipo)``, con el tipo tal y como viene en
+            ``additional_information`` del esquema.
+    """
+    form = layer.editFormConfig()
+    pestaña = QgsAttributeEditorContainer("Información adicional", None)
+    for relacion, info in partes:
+        # Cada tipo en su grupo, porque en QGIS la visibilidad vive en el
+        # contenedor: la web solo ofrece los tipos cuyas dependencias cumple el
+        # elemento (un parte de palmeras, solo en las palmeras).
+        grupo = QgsAttributeEditorContainer(info.get("title") or info.get("name"), pestaña)
+        _as_group_box(grupo)
+        expr = _dependencies_expression(info.get("attribute_dependencies"))
+        if expr:
+            grupo.setVisibilityExpression(QgsOptionalExpression(QgsExpression(expr)))
+        hijo = QgsAttributeEditorRelation(relacion, grupo)
+        hijo.setShowLabel(False)
+        grupo.addChildElement(hijo)
+        pestaña.addChildElement(grupo)
+    form.addTab(pestaña)
+    layer.setEditFormConfig(form)
+
+
+def _dependencies_expression(dependencias):
+    """Como ``availableTabs`` de FeatureInfo.jsx: todas, sin mayúsculas ni espacios."""
+    if not isinstance(dependencias, list):
+        return None
+    partes = [
+        f"lower(trim(to_string({S._quote_field(d['name'])}))) = "
+        f"{S._quote_value(str(d.get('value', '')).strip().lower())}"
+        for d in dependencias
+        if isinstance(d, dict) and d.get("name")
+    ]
+    return " AND ".join(f"coalesce({p}, FALSE)" for p in partes) or None
 
 
 def _fill_container(contenedor, atributos, fields):

@@ -57,6 +57,21 @@ ESQUEMA_ARBOLADO = {
             ],
         },
     ],
+    # Los partes: tipos de información adicional, con su propio esquema.
+    "additional_information": [
+        {
+            "name": "parte_poda",
+            "title": "Parte de poda",
+            # Como los partes de palmeras: solo para los elementos de una especie.
+            "attribute_dependencies": [{"name": "especie", "value": "Platanus x hispanica"}],
+            "attributes": [
+                {"name": "labor", "type": "select", "title": "Labor",
+                 "allowed_values": ["Poda", "Aclareo"]},
+                {"name": "horas", "type": "number", "title": "Horas"},
+                {"name": "pictures", "type": "images", "title": "Fotos"},
+            ],
+        }
+    ],
     # Como en los LAD reales: color por especie, gris para lo demás.
     "styles": {
         "colors": [
@@ -136,6 +151,36 @@ ELEMENTOS = [
         },
     },
 ]
+
+
+# Partes de poda, con la forma de /additional-information/: los atributos
+# anidados, el autor como texto y el elemento en «geodata».
+PARTES = [
+    {"id": 501, "name": "parte_poda", "geodata": 1001, "user": "Técnica Uno",
+     "created_at": "2026-05-02T09:00:00+02:00", "updated_at": "2026-05-02T09:00:00+02:00",
+     "attributes": {"labor": "Poda", "horas": 2.5, "pictures": None}},
+    {"id": 502, "name": "parte_poda", "geodata": 1001, "user": "Técnico Dos",
+     "created_at": "2026-06-10T12:00:00+02:00", "updated_at": "2026-06-11T08:00:00+02:00",
+     "attributes": {"labor": "Aclareo", "horas": 1.0}},
+    {"id": 503, "name": "parte_poda", "geodata": 1002, "user": "Técnica Uno",
+     "created_at": "2026-07-01T10:00:00+02:00", "updated_at": "2026-07-01T10:00:00+02:00",
+     "attributes": {"labor": "Poda", "horas": 4.0}},
+]
+
+
+def _pagina_de_partes(consulta):
+    """Lo que devolvería /additional-information/ con esos parámetros."""
+    partes = [p for p in PARTES if p["name"] == consulta.get("name", [""])[0]]
+    if consulta.get("geodata_id"):
+        partes = [p for p in partes if p["geodata"] == int(consulta["geodata_id"][0])]
+    tam = int(consulta.get("page_size", ["10"])[0])
+    pagina = int(consulta.get("page", ["1"])[0])
+    trozo = partes[(pagina - 1) * tam: pagina * tam]
+    return {
+        "results": trozo,
+        "pagination": {"total_items": len(partes), "current_page": pagina,
+                       "page_size": tam, "has_more": pagina * tam < len(partes)},
+    }
 
 
 # Vista 8: iconos por especie. Es una superposición: la base sigue debajo.
@@ -285,6 +330,13 @@ class Handler(BaseHTTPRequestHandler):
 
         elif ruta == "/api/v1/geodata/paginated/":
             self._json(_pagina_de_elementos(consulta))
+
+        elif ruta == "/api/v1/additional-information/":
+            # Sin el tipo de geometría la API no sabe en qué tabla buscar.
+            if consulta.get("geometry_type") != ["Point"]:
+                self._json({"results": [], "pagination": {"total_items": 0}})
+            else:
+                self._json(_pagina_de_partes(consulta))
 
         elif ruta == "/api/v1/geodata/":
             ids = consulta.get("ids", [""])[0]

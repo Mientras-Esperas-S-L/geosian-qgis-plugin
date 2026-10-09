@@ -1,6 +1,10 @@
 """La URI del proveedor.
 
     geosian://<conexión>/map/<map_id>/layer/<layer_id>?geometry_type=points&view=3
+    geosian://<conexión>/map/<map_id>/layer/<layer_id>/info/<nombre>?geometry_type=points
+
+La segunda es una tabla sin geometría con los partes (información adicional) de
+un tipo, que se relaciona con su capa por ``geodata_id``.
 
 ``<conexión>`` es el nombre de una conexión guardada en los ajustes de QGIS, no
 un servidor. Así la URI no lleva ni la dirección ni la credencial, que es lo que
@@ -17,19 +21,22 @@ class LayerUri:
     """Partes de una URI del proveedor."""
 
     def __init__(self, connection, map_id, layer_id, geometry_type=None,
-                 view_id=None, crs="EPSG:4326"):
+                 view_id=None, crs="EPSG:4326", info_name=None):
         self.connection = connection
         self.map_id = int(map_id)
         self.layer_id = int(layer_id)
         self.geometry_type = geometry_type
         self.view_id = int(view_id) if view_id else None
         self.crs = crs
+        self.info_name = info_name or None
 
     def __str__(self):
         base = (
             f"{SCHEME}://{quote(self.connection)}"
             f"/map/{self.map_id}/layer/{self.layer_id}"
         )
+        if self.info_name:
+            base += f"/info/{quote(self.info_name)}"
         params = []
         if self.geometry_type:
             params.append(f"geometry_type={self.geometry_type}")
@@ -91,8 +98,12 @@ def parse_uri(uri):
         geometry_type=uno("geometry_type"),
         view_id=uno("view"),
         crs=uno("crs", "EPSG:4326"),
+        info_name=unquote(valores["info"]) if valores.get("info") else None,
     )
 
 
-def build_uri(connection, map_id, layer_id, geometry_type=None, view_id=None):
-    return str(LayerUri(connection, map_id, layer_id, geometry_type, view_id))
+def build_uri(connection, map_id, layer_id, geometry_type=None, view_id=None,
+              info_name=None):
+    return str(
+        LayerUri(connection, map_id, layer_id, geometry_type, view_id, info_name=info_name)
+    )

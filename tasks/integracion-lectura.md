@@ -60,7 +60,7 @@ de datos por detrás de la API.
 - [x] Tabla de atributos en capas grandes: hoy solo enseña lo descargado. ¿Recuento y
       paginado desde la API?
 - [x] Ficha del elemento: secciones, `visible_if` y valores, comparadas con la web.
-- [ ] Información adicional (partes) de un elemento, en solo lectura.
+- [x] Información adicional (partes) de un elemento, en solo lectura.
 - [ ] Fotos y adjuntos de un elemento, en solo lectura (enlaces firmados de `/media/`).
 - [ ] Filtros de la web (panel «Filtros») aplicables a una capa de QGIS.
 - [ ] Etiquetas: las que la web permite encender, no solo las de por defecto.
@@ -107,6 +107,18 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   `test_schema_qgis.py` (evalúa las expresiones en QGIS), `test_campo_invisible_…` y
   `test_atributos_principales_…`.
 
+- 09/10 · Partes de la palmera 29999 de Melilla local contra la web: mismos 5 tipos
+  (los de palmeras y la Ficha GIP), en el mismo orden, y los mismos 2 partes de trabajo,
+  el más reciente primero. Cada tipo de parte es una tabla sin geometría
+  (`geosian://…/layer/<id>/info/<nombre>`) en el grupo plegado «Información adicional»,
+  relacionada con su capa por `geodata_id`; la ficha tiene la pestaña «Información
+  adicional» con un grupo por tipo, visible según sus `attribute_dependencies` como en
+  `FeatureInfo.jsx`. Los partes de un elemento se piden al abrir su ficha (18 partes en
+  0,06 s); abrir Melilla entero sigue en 2 s. La cuenta de QGIS no veía ninguno: la API
+  filtra por `AdditionalInformationPermission` y su grupo no tenía; le di `can_view` en
+  local a los 9 tipos de Arbolado. Pruebas `test_los_partes_*` y
+  `test_los_partes_de_la_capa_salen_en_su_ficha`.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión del usuario)_
@@ -139,6 +151,11 @@ _(lo que no es del plugin o pide una decisión del usuario)_
   las secciones que se quedan sin ninguno (en la palmera, «Plantación zona verde» y
   «Zona plantación, tocón»). QGIS sí: su formulario es por capa y servirá para editar. Se
   deja así salvo que se quiera una ficha de solo lectura aparte.
+- **Fallo de la web (no copiado)**: en «Registro adicional» el pie dice «1-10 de 10» con
+  2 partes (la API da `total_items: 2`). `AdditionalInfo.jsx:165` solo actualiza el total
+  interno si el nuevo es mayor que 0 y distinto, así que arrastra el de un elemento
+  anterior y no baja a 0 nunca. ¿Lo arreglo en el frontal?
+- Los partes no enseñan aún sus fotos ni adjuntos: es la casilla siguiente.
 - El usuario usa a la vez la pestaña de `localhost:3000`: para comparar sin estorbarle,
   abrir una pestaña propia. Activar vistas en la web cambia los ajustes de `tester2`.
 

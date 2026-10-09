@@ -605,3 +605,48 @@ def test_ruta_con_punto_no_se_queda_con_el_ultimo_tramo(capa):
     resolver = symbology.field_resolver(proveedor.fields(), proveedor.attr_map)
     assert resolver("especie") == "especie"
     assert resolver("surface_type.especie") is None
+
+
+# ----------------------------------------------------------------------
+# Información adicional (partes)
+# ----------------------------------------------------------------------
+
+@pytest.fixture
+def partes(servidor):
+    uri = f"geosian://{CONEXION}/map/4/layer/11/info/parte_poda?geometry_type=points"
+    tabla = QgsVectorLayer(uri, "Parte de poda", "geosian")
+    assert tabla.isValid(), tabla.dataProvider().error()
+    return tabla
+
+
+def test_los_partes_son_una_tabla_con_los_campos_de_su_esquema(partes):
+    assert partes.wkbType() == QgsWkbTypes.NoGeometry
+    nombres = partes.fields().names()
+    for campo in ("id", "geodata_id", "usuario", "created_at", "labor", "horas"):
+        assert campo in nombres
+    assert "pictures" not in nombres
+    assert partes.fields().field("labor").alias() == "Labor"
+
+
+def test_los_partes_de_un_elemento_se_piden_solo_para_el(partes, servidor):
+    servidor.peticiones.clear()
+    peticion = QgsFeatureRequest().setFilterExpression('"geodata_id" = 1001')
+    leidos = list(partes.getFeatures(peticion))
+
+    assert sorted(f["id"] for f in leidos) == [501, 502]
+    assert {f["labor"] for f in leidos} == {"Poda", "Aclareo"}
+    assert leidos[0]["usuario"] in ("Técnica Uno", "Técnico Dos")
+    pedidas = [c for r, c in servidor.peticiones if r == "/api/v1/additional-information/"]
+    assert pedidas and all(c.get("geodata_id") == ["1001"] for c in pedidas)
+    # Sin orden propio: el del servidor, el más reciente primero, como la web.
+    assert all("sort_by" not in c for c in pedidas)
+
+
+def test_la_tabla_de_partes_sin_filtro_trae_los_de_la_capa(partes):
+    assert sorted(f["id"] for f in partes.getFeatures()) == [501, 502, 503]
+    assert partes.featureCount() == 3
+
+
+def test_tipo_de_parte_que_no_existe_da_capa_invalida(servidor):
+    uri = f"geosian://{CONEXION}/map/4/layer/11/info/no_existe?geometry_type=points"
+    assert not QgsVectorLayer(uri, "x", "geosian").isValid()

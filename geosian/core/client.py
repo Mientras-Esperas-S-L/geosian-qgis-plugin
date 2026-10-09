@@ -353,6 +353,32 @@ class GeosianClient:
             )
         return self._get(ruta, params)
 
+    def additional_information(self, layer_id, name, geometry_type, geodata_id=None,
+                               page=1, page_size=1000):
+        """Una página de partes (información adicional) de un tipo.
+
+        Con ``geodata_id``, los de ese elemento; sin él, los de toda la capa. La
+        API devuelve solo los tipos que los grupos del usuario pueden ver.
+
+        Args:
+            geometry_type: como en el esquema (``Point``, ``Polygon``…); sin él
+                la API no sabe en qué tabla buscar.
+        """
+        params = {
+            "layer_id": layer_id,
+            "name": name,
+            "geometry_type": geometry_type,
+            "page": page,
+            "page_size": page_size,
+        }
+        if geodata_id is not None:
+            # El orden del servidor, el más reciente primero: el de la web.
+            params["geodata_id"] = geodata_id
+        else:
+            # La capa entera va por páginas: hace falta un orden estable.
+            params.update({"sort_by": "id", "sort_order": "asc"})
+        return self._get(f"{API_PREFIX}/additional-information/", params)
+
     def chart_stats(self, layer_id, attributes=None):
         """Distribución de valores de atributos, calculada en el servidor.
 

@@ -11,6 +11,7 @@ aceptar cambios que no se van a poder guardar.
 
 import json
 import math
+import re
 import threading
 
 from qgis.core import (
@@ -63,6 +64,14 @@ TABLE_CAP = 50000
 VISIBLE_TARGET = 20000
 
 MUNDO = QgsRectangle(-180.0, -90.0, 180.0, 90.0)
+
+# Página al pedir partes. La API no pone tope y un elemento rara vez pasa de unas
+# decenas, así que casi siempre basta una.
+INFO_PAGE_SIZE = 1000
+
+# Lo que pide la ficha de un elemento a la tabla de sus partes: la relación de
+# QGIS filtra por «"geodata_id" = N» (o un IN, si son varios).
+_FILTRO_ELEMENTO = re.compile(r'"geodata_id"\s*(?:=\s*\'?(\d+)|IN\s*\(([^)]*)\))', re.IGNORECASE)
 
 GEOMETRY_TYPES = {
     "points": QgsWkbTypes.Point,
@@ -128,6 +137,8 @@ class GeosianProvider(QgsVectorDataProvider):
         self._tabla_cargada = False
         self._view = None
         self._filter = {}
+        # Partes (información adicional): elementos cuyos partes ya se pidieron.
+        self._partes_de = {}
 
         try:
             self._uri = parse_uri(uri)
@@ -165,6 +176,9 @@ class GeosianProvider(QgsVectorDataProvider):
 
     def _load_definition(self):
         """Campos, tipo de geometría, extensión y recuento. Sin datos."""
+        if self._uri.info_name:
+            self._load_info_definition()
+            return
         if self._uri.view_id:
             self._view = self._client.layer_view(self._uri.view_id)
             self._filter, avisos = views.filter_params(self._view.get("filter_config"))
@@ -199,6 +213,29 @@ class GeosianProvider(QgsVectorDataProvider):
             self._extent = QgsRectangle(
                 float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
             )
+
+    def _load_info_definition(self):
+        """Una tabla sin geometría con los partes de un tipo."""
+        definiciones = self._client.layer_attributes(self._uri.layer_id)
+        esquema = self._pick_schema(definiciones)
+        tipos = esquema.get("additional_information") or []
+        info = next(
+            (t for t in tipos if isinstance(t, dict) and t.get("name") == self._uri.info_name),
+            None,
+        )
+        if info is None:
+            # La API quita los tipos que los grupos del usuario no pueden ver.
+            raise GeosianError(
+                f"La capa no tiene partes «{self._uri.info_name}» o no tienes permiso "
+                "para verlos."
+            )
+        self._schema = info
+        self._fields, self._attr_map = lad.build_info_fields(info)
+        self._layer_name = info.get("title") or info.get("name") or ""
+        self._wkb_type = QgsWkbTypes.NoGeometry
+        self._lad_geometry = _GEOMETRY_TYPE_TO_LAD.get(self._uri.geometry_type) or (
+            (definiciones[0] or {}).get("geometry_type") if definiciones else None
+        )
 
     def _pick_schema(self, definiciones):
         """Elige la definición que toca cuando la capa tiene varias.
@@ -275,6 +312,8 @@ class GeosianProvider(QgsVectorDataProvider):
         API acepte un filtro espacial, y está anotada como pendiente en el
         diseño; hasta entonces, las capas muy grandes tardarán en abrir.
         """
+        if self._uri.info_name:
+            return self._download_partes()
         pagina = 1
         total = 0
         while True:
@@ -299,6 +338,79 @@ class GeosianProvider(QgsVectorDataProvider):
                 )
                 break
         return total
+
+    def _download_partes(self, geodata_id=None):
+        """Trae los partes de la capa, o los de un elemento, por páginas."""
+        pagina = 1
+        guardados = []
+        while True:
+            datos = self._client.additional_information(
+                self._uri.layer_id,
+                self._uri.info_name,
+                self._lad_geometry,
+                geodata_id=geodata_id,
+                page=pagina,
+                page_size=INFO_PAGE_SIZE,
+            )
+            partes = _features_from(datos)
+            for parte in partes:
+                fid = self._store_parte(parte)
+                if fid is not None:
+                    guardados.append(fid)
+            paginacion = (datos.get("pagination") or {}) if isinstance(datos, dict) else {}
+            if not paginacion.get("has_more") or not partes:
+                break
+            if geodata_id is None and len(guardados) >= TABLE_CAP:
+                self.log_warning(
+                    f"«{self._layer_name}» tiene {paginacion.get('total_items')} partes; la "
+                    f"tabla muestra los primeros {len(guardados)}."
+                )
+                break
+            pagina += 1
+        return len(guardados) if geodata_id is None else guardados
+
+    def _store_parte(self, parte):
+        """Guarda un parte de /additional-information/. Devuelve su id."""
+        try:
+            fid = int(parte.get("id"))
+        except (TypeError, ValueError):
+            return None
+        atributos = parte.get("attributes") or {}
+        sistema = {
+            "id": fid,
+            "geodata_id": parte.get("geodata"),
+            "usuario": parte.get("user"),
+            "created_at": parte.get("created_at"),
+            "updated_at": parte.get("updated_at"),
+        }
+        valores = []
+        for campo in self._fields:
+            nombre = campo.name()
+            attr = self._attr_map.get(nombre)
+            if attr is not None:
+                valores.append(atributos.get(attr.get("name")))
+            else:
+                valores.append(sistema.get(nombre))
+        self._cache[fid] = CachedFeature(None, valores)
+        return fid
+
+    def _ensure_partes_de(self, geodata_ids):
+        """Pide los partes de unos elementos, los que no se hayan pedido ya."""
+        for gid in geodata_ids:
+            if gid in self._partes_de:
+                continue
+            if self._loaded:
+                # La tabla entera ya está: se saca de ahí sin ir a la red.
+                indice = self._fields.indexOf("geodata_id")
+                self._partes_de[gid] = [
+                    fid for fid, r in self._cache.items() if r.attributes[indice] == gid
+                ]
+                continue
+            try:
+                self._partes_de[gid] = self._download_partes(geodata_id=gid)
+            except GeosianError as exc:
+                self.log_warning(f"No se pudieron pedir los partes del elemento {gid}: {exc}")
+                return
 
     def _store(self, elemento):
         """Guarda un elemento del GeoJSON en la caché. Devuelve si se guardó."""
@@ -385,6 +497,8 @@ class GeosianProvider(QgsVectorDataProvider):
         return len(self._cache)
 
     def extent(self):
+        if self._uri.info_name:
+            return self._extent  # sin geometría: nada que calcular
         if self._extent.isNull() or self._extent.isEmpty() or self._view is not None:
             self._ensure_loaded()
         return self._extent
@@ -422,6 +536,7 @@ class GeosianProvider(QgsVectorDataProvider):
             self._zones = []
             self._loaded = False
             self._tabla_cargada = False
+            self._partes_de = {}
 
     def invalidate_feature(self, fid):
         """Olvida un elemento suelto, para refrescar solo lo que cambió."""
@@ -512,6 +627,14 @@ class GeosianProvider(QgsVectorDataProvider):
             pedidos = [int(f) for f in fids]
             self._ensure_ids(pedidos)
             return [f for f in pedidos if f in self._cache]
+
+        if self._uri.info_name:
+            elementos = _elementos_del_filtro(request)
+            if elementos:
+                self._ensure_partes_de(elementos)
+                seleccion = [f for g in elementos for f in self._partes_de.get(g, [])]
+                limite = request.limit()
+                return seleccion[:limite] if limite and limite > 0 else seleccion
 
         self._ensure_loaded()
 
@@ -715,6 +838,27 @@ _GEOMETRY_TYPE_TO_LAD = {
     "multi_polygons": "MultiPolygon",
     "geometry_collections": "GeometryCollection",
 }
+
+
+def _elementos_del_filtro(request):
+    """Elementos a los que se ciñe una petición por ``geodata_id``, o ``[]``.
+
+    Es lo que pide la ficha de un elemento a la tabla de sus partes. Se responde
+    con solo esos partes, sin descargar la tabla entera; QGIS vuelve a evaluar
+    la expresión sobre lo devuelto, así que basta con no quedarse corto.
+    """
+    if request.filterType() != QgsFeatureRequest.FilterExpression:
+        return []
+    expresion = request.filterExpression()
+    texto = expresion.expression() if expresion is not None else ""
+    # Solo si no hay un OR que ensanche el filtro a otros partes.
+    if not texto or re.search(r"\bOR\b", texto, re.IGNORECASE):
+        return []
+    elementos = []
+    for igual, lista in _FILTRO_ELEMENTO.findall(texto):
+        valores = [igual] if igual else re.findall(r"\d+", lista)
+        elementos.extend(int(v) for v in valores)
+    return elementos
 
 
 def _features_from(datos):

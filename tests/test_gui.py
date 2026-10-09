@@ -125,7 +125,7 @@ def test_anadir_capa_la_mete_en_el_proyecto(app_gui):
 
             panel.añadir_capa(mapa.child(0).data(0, ROL_DATOS))
 
-            capas = list(QgsProject.instance().mapLayers().values())
+            capas = [c for c in QgsProject.instance().mapLayers().values() if c.isSpatial()]
             assert len(capas) == 1
             capa = capas[0]
             assert capa.isValid()
@@ -269,7 +269,9 @@ def test_vista_activa_sustituye_su_capa_y_se_pinta_encima(app_gui, monkeypatch):
 
             grupo = proyecto.layerTreeRoot().children()[0]
             # Solo la vista: la capa base no se añade.
-            assert [n.name() for n in grupo.findLayers()] == ["Arbolado · Iconos"]
+            assert [n.name() for n in grupo.findLayers() if n.layer().isSpatial()] == [
+                "Arbolado · Iconos"
+            ]
             # En el pintado: la vista encima de todo lo demás.
             orden = proyecto.layerTreeRoot().customLayerOrder()
             assert orden[0].name() == "Arbolado · Iconos"
@@ -296,3 +298,65 @@ def test_las_vistas_de_informacion_adicional_se_ofrecen_como_las_demas(app_gui):
             assert partes.data(0, ROL_TIPO) == TIPO_VISTA
         finally:
             connections.remove_connection("Integracion7")
+
+
+def test_los_partes_de_la_capa_salen_en_su_ficha(app_gui):
+    from qgis.core import (
+        QgsAttributeEditorRelation,
+        QgsExpression,
+        QgsExpressionContext,
+        QgsProject,
+    )
+
+    from geosian.gui.browser_dock import ROL_DATOS, GeosianBrowserDock
+    from geosian.provider.metadata import register_provider
+
+    register_provider()
+    proyecto = QgsProject.instance()
+    proyecto.clear()
+
+    with FakeGeosian() as fake:
+        connections.save_connection("Partes", fake.url, "a@b.c")
+        connections.set_session("Partes", "tok-de-prueba", "jwt")
+        try:
+            panel = GeosianBrowserDock(IfaceFalso())
+            raiz = panel.arbol.topLevelItem(0)
+            panel._al_desplegar(raiz)
+            mapa = raiz.child(0).child(0)
+            panel._al_desplegar(mapa)
+            fake.peticiones.clear()
+            [capa] = panel.añadir_capa(mapa.child(0).data(0, ROL_DATOS))
+
+            [tabla] = [c for c in proyecto.mapLayers().values() if not c.isSpatial()]
+            assert tabla.name() == "Arbolado · Parte de poda"
+            # Agrupadas aparte y plegadas, para no llenar el panel de capas.
+            nodo = proyecto.layerTreeRoot().findLayer(tabla.id())
+            assert nodo.parent().name() == "Información adicional"
+            assert not nodo.parent().isExpanded()
+            # Abrir la capa no descarga los partes de toda la capa.
+            assert "/api/v1/additional-information/" not in [r for r, _ in fake.peticiones]
+
+            [relacion] = proyecto.relationManager().referencedRelations(capa)
+            assert relacion.referencingLayer() == tabla
+            assert relacion.fieldPairs() == {"geodata_id": "id"}
+            elemento = next(f for f in capa.getFeatures() if f["id"] == 1001)
+            partes = list(relacion.getRelatedFeatures(elemento))
+            assert sorted(p["id"] for p in partes) == [501, 502]
+
+            pestaña = next(
+                t for t in capa.editFormConfig().tabs() if t.name() == "Información adicional"
+            )
+            # Envuelto en un grupo que solo se ve si el elemento cumple las
+            # attribute_dependencies del tipo, como en la web.
+            [envoltorio] = pestaña.children()
+            [hijo] = envoltorio.children()
+            assert isinstance(hijo, QgsAttributeEditorRelation)
+            assert hijo.relation().id() == relacion.id()
+            expresion = QgsExpression(envoltorio.visibilityExpression().data().expression())
+            for fid, visible in ((1001, True), (1002, False)):
+                contexto = QgsExpressionContext()
+                contexto.setFeature(next(f for f in capa.getFeatures() if f["id"] == fid))
+                assert bool(expresion.evaluate(contexto)) is visible, fid
+        finally:
+            proyecto.clear()
+            connections.remove_connection("Partes")

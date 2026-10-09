@@ -15,6 +15,7 @@ from qgis.core import (
     QgsProject,
     QgsRasterLayer,
     QgsRectangle,
+    QgsRelation,
     QgsVectorLayer,
 )
 from qgis.PyQt.QtCore import Qt, QTimer
@@ -50,6 +51,8 @@ TIPO_ESPACIO = "espacio"
 # MapLibre; en QGIS se usa el equivalente ráster público más cercano.
 ESPAÑA = QgsRectangle(-18.5, 27.4, 4.6, 44.0)
 MERCATOR = QgsCoordinateReferenceSystem("EPSG:3857")
+# Donde van las tablas de partes, para no mezclarlas con las capas del mapa.
+GRUPO_PARTES = "Información adicional"
 FONDO_IGN = (
     "Fondo: mapa base del IGN",
     (
@@ -349,7 +352,10 @@ class GeosianBrowserDock(QDockWidget):
         de_vistas = []
         poblar(grupo, maptree.layer_tree(ajustes, list(por_id)))
 
-        capas_qgis = [n.layer() for n in grupo.findLayers() if n.layer() is not None]
+        capas_qgis = [
+            n.layer() for n in grupo.findLayers()
+            if n.layer() is not None and n.layer().isSpatial()
+        ]
         extension = _extension_de(capas_qgis)
         self._añadir_fondo(extension)
         if de_vistas:
@@ -451,6 +457,7 @@ class GeosianBrowserDock(QDockWidget):
             else:
                 QgsProject.instance().addMapLayer(vectorial, False)
                 grupo.addLayer(vectorial)
+            self._añadir_partes(vectorial, conexion, mapa["id"], capa["id"], tipo, grupo)
             añadidas.append(vectorial)
 
         if añadidas and avisar:
@@ -459,6 +466,40 @@ class GeosianBrowserDock(QDockWidget):
                 f"{len(añadidas)} capa(s) añadidas al proyecto.",
             )
         return añadidas
+
+    def _añadir_partes(self, capa, conexion, map_id, layer_id, tipo, grupo):
+        """Una tabla por tipo de parte, relacionada con la capa por ``geodata_id``.
+
+        Así la ficha del elemento enseña sus partes, como la web. Los partes de
+        cada elemento se piden al abrir su ficha, no al añadir la capa.
+        """
+        tipos = (getattr(capa.dataProvider(), "schema", None) or {}).get(
+            "additional_information"
+        ) or []
+        proyecto = QgsProject.instance()
+        relaciones = []
+        for info in tipos:
+            if not isinstance(info, dict) or not info.get("name"):
+                continue
+            uri = build_uri(conexion, map_id, layer_id, geometry_type=tipo, info_name=info["name"])
+            tabla = QgsVectorLayer(uri, f"{capa.name()} · {info.get('title') or info['name']}", "geosian")
+            if not tabla.isValid():
+                continue
+            self._aplicar_esquema(tabla)
+            proyecto.addMapLayer(tabla, False)
+            _grupo_de_partes(grupo).addLayer(tabla)
+
+            relacion = QgsRelation()
+            relacion.setId(f"geosian_partes_{capa.id()}_{info['name']}")
+            relacion.setName(tabla.name())
+            relacion.setReferencedLayer(capa.id())
+            relacion.setReferencingLayer(tabla.id())
+            relacion.addFieldPair("geodata_id", "id")
+            if relacion.isValid():
+                proyecto.relationManager().addRelation(relacion)
+                relaciones.append((relacion, info))
+        if relaciones:
+            lad.add_relations_tab(capa, relaciones)
 
     def _aplicar_etiquetas(self, capa):
         """Las etiquetas que la web enciende sola, a partir de la misma escala."""
@@ -544,6 +585,20 @@ def _tipos_de_geometria(capa):
     if isinstance(tipos, dict):
         tipos = list(tipos.keys())
     return [t for t in tipos if t in GEOMETRY_TYPES]
+
+
+def _grupo_de_partes(grupo):
+    """El grupo plegado «Información adicional» al final del mapa (o del proyecto)."""
+    raiz = QgsProject.instance().layerTreeRoot()
+    destino = grupo or raiz
+    while destino.parent() is not None and destino.parent() is not raiz:
+        destino = destino.parent()
+    existente = destino.findGroup(GRUPO_PARTES)
+    if existente is not None and existente.parent() is destino:
+        return existente
+    nuevo = destino.addGroup(GRUPO_PARTES)
+    nuevo.setExpanded(False)
+    return nuevo
 
 
 def _extension_de(capas):
