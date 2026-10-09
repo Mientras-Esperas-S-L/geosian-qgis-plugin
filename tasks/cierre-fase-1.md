@@ -40,7 +40,7 @@ plugin y empezar la fase de escritura.
       devel) y miniaturas, partes, filtros y etiquetas. Anotar tiempos de apertura.
 - [x] Lo prohibido se ve como tal en QGIS: una capa o mapa sin permiso no cuelga ni pide
       volver a entrar; mensaje claro (403 ≠ sesión caducada).
-- [ ] Tiempo real contra devel (`wss://api.devel…/ws/layer-data/`): necesita JWT. Sacar uno
+- [x] Tiempo real contra devel (`wss://api.devel…/ws/layer-data/`): necesita JWT. Sacar uno
       para la cuenta de auditoría por el guion de `desplegar.sh devel --manage` (como se creó
       la cuenta) y comprobar que un cambio hecho en la web llega a QGIS.
 
