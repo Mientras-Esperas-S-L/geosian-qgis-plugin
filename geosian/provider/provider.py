@@ -240,7 +240,9 @@ class GeosianProvider(QgsVectorDataProvider):
                 self._client.layer_metadata(self._uri.layer_id, self._uri.map_id)
                 or {}
             )
-        except NotFoundError:
+        except (NotFoundError, ForbiddenError):
+            # Sin permiso sobre el mapa no es «sin metadatos»: la capa se abría válida
+            # y vacía (la API da [] en /layer-attributes/ en vez de un 403).
             raise
         except GeosianError as exc:
             # Sin metadatos se puede trabajar: el recuento y la extensión se

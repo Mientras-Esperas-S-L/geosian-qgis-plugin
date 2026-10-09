@@ -35,10 +35,10 @@ plugin y empezar la fase de escritura.
 ## Casillas
 
 ### Contra devel, no solo local
-- [ ] Conexión «Devel» con la cuenta de auditoría (token por `set_session`, sin JWT): el
+- [x] Conexión «Devel» con la cuenta de auditoría (token por `set_session`, sin JWT): el
       panel lista solo Melilla, se abre entera, fotos por enlace (`embed_images=false`, ya en
       devel) y miniaturas, partes, filtros y etiquetas. Anotar tiempos de apertura.
-- [ ] Lo prohibido se ve como tal en QGIS: una capa o mapa sin permiso no cuelga ni pide
+- [x] Lo prohibido se ve como tal en QGIS: una capa o mapa sin permiso no cuelga ni pide
       volver a entrar; mensaje claro (403 ≠ sesión caducada).
 - [ ] Tiempo real contra devel (`wss://api.devel…/ws/layer-data/`): necesita JWT. Sacar uno
       para la cuenta de auditoría por el guion de `desplegar.sh devel --manage` (como se creó
@@ -91,6 +91,20 @@ plugin y empezar la fase de escritura.
 ## Hecho
 
 _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se comprobó de verdad)_
+
+- 09/10 · Devel con la cuenta de auditoría (conexión «DevelAuditoria» en la QGIS de
+  pruebas). Comprobado en QGIS: el panel solo lista Melilla (mapa 3, 0,27 s); el mapa abre
+  en 1,24 s con sus 3 capas (Arbolado 11.950, Tipo de superficie 1.469, Zonas verdes 213),
+  fondo GEOSIAN y 11 tablas de partes. Fotos del árbol 61706 por enlace (4 fotos, sin base64,
+  0,19 s; miniatura 13 KB, entera 434 KB). Partes del 28735: 1 parte en 0,19 s con su foto y
+  autor. Filtro «porte_arboreo = palmera»: 3.840 en 0,96 s, mandado como `attr__`. Etiquetas:
+  las cuatro de la web. Sin JWT no hay tiempo real (casilla aparte).
+- 09/10 · Capa de un mapa sin permiso. Fallo: se abría **válida y vacía**. En devel la API
+  da `[]` en `/layer-attributes/` (no 403) y el 403 del listado de capas del mapa se tomaba
+  por «sin metadatos». Ahora la capa no es válida y dice «No tienes permiso para ver la capa
+  343 en GCC» (0,45 s, sin marcar la sesión como caducada). Comprobado contra devel. La API
+  no filtra nada: cero definiciones y cero elementos. Prueba
+  `test_capa_de_un_mapa_sin_permiso_aunque_la_api_de_lista_vacia`.
 
 ## Hallazgos para decidir
 

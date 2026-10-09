@@ -846,3 +846,11 @@ def test_capa_que_ya_no_esta_en_el_mapa(servidor):
     capa = QgsVectorLayer(f"geosian://{CONEXION}/map/4/layer/777?geometry_type=points", "x", "geosian")
     assert not capa.isValid()
     assert "ya no existe" in capa.dataProvider().error()
+
+
+def test_capa_de_un_mapa_sin_permiso_aunque_la_api_de_lista_vacia(servidor):
+    # Devel con una cuenta que solo ve otro mapa: /layer-attributes/ da [] y el listado
+    # de capas del mapa, 403. La capa se abría «válida» y vacía.
+    capa = QgsVectorLayer(f"geosian://{CONEXION}/map/5/layer/51?geometry_type=points", "x", "geosian")
+    assert not capa.isValid()
+    assert "permiso" in capa.dataProvider().error()
