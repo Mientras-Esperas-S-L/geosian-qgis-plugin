@@ -211,6 +211,12 @@ def apply_form(layer, schema):
     raiz = schema.get("attributes") if isinstance(schema, dict) else schema
     raiz = raiz or []
 
+    principales = _main_attributes(schema)
+    if principales:
+        principal = QgsAttributeEditorContainer("Información Principal", None)
+        _fill_container(principal, principales, fields)
+        form.addTab(principal)
+
     sueltos = [
         a for a in raiz
         if isinstance(a, dict) and a.get("type") not in S.CONTAINER_TYPES
@@ -232,6 +238,25 @@ def apply_form(layer, schema):
     layer.setEditFormConfig(form)
 
 
+def _main_attributes(schema):
+    """Los ``main_attributes`` del esquema, que la web enseña arriba de la ficha.
+
+    Como en la web, se enseñan sin su ``visible_if`` y sin los invisibles; un
+    nombre que no esté en el esquema (un campo de sistema) también vale.
+    """
+    nombres = schema.get("main_attributes") if isinstance(schema, dict) else None
+    if not isinstance(nombres, list):
+        return []
+    definiciones = {}
+    for attr in S.flatten_attributes(schema):
+        definiciones.setdefault(attr.get("name"), attr)
+    return [
+        {"name": n, "visible": S.is_visible(definiciones.get(n, {}))}
+        for n in nombres
+        if isinstance(n, str)
+    ]
+
+
 def _fill_container(contenedor, atributos, fields):
     """Vuelca atributos en un contenedor, anidando las subsecciones."""
     for attr in atributos:
@@ -250,7 +275,9 @@ def _fill_container(contenedor, atributos, fields):
             contenedor.addChildElement(hijo)
             continue
 
-        if S.is_attachment(attr):
+        # «visible: false» es un campo que la web no enseña en la ficha. Se
+        # queda en la tabla de atributos, que hace de «Mostrar campos invisibles».
+        if S.is_attachment(attr) or not S.is_visible(attr):
             continue
 
         nombre = attr.get("name")

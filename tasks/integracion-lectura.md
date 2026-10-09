@@ -59,7 +59,7 @@ de datos por detrás de la API.
       (PENDIENTE DE DECISIÓN, ver hallazgos; se sigue con lo demás)
 - [x] Tabla de atributos en capas grandes: hoy solo enseña lo descargado. ¿Recuento y
       paginado desde la API?
-- [ ] Ficha del elemento: secciones, `visible_if` y valores, comparadas con la web.
+- [x] Ficha del elemento: secciones, `visible_if` y valores, comparadas con la web.
 - [ ] Información adicional (partes) de un elemento, en solo lectura.
 - [ ] Fotos y adjuntos de un elemento, en solo lectura (enlaces firmados de `/media/`).
 - [ ] Filtros de la web (panel «Filtros») aplicables a una capa de QGIS.
@@ -98,6 +98,15 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   50.000 (`TABLE_CAP`) y avisa del total. Nueva York local: 50.000 de 1.078.380 en 13,6 s.
   Prueba `test_capa_grande_sin_recuadro_carga_hasta_el_tope_y_avisa`.
 
+- 09/10 · Ficha de la palmera 29999 de Melilla local contra la web. Tres arreglos:
+  las pestañas condicionales (Arbolado/Palmeras) salían siempre ocultas porque la
+  expresión usaba `is_array`, que QGIS no tiene, y no compilaba; ahora `try(array_contains…)`
+  y una guarda de «tiene valor» que vale para listas (en QGIS `to_string` de una lista es
+  NULL). Los campos `visible: false` ya no salen en el formulario (siguen en la tabla). Y
+  hay pestaña «Información Principal» con `schema.main_attributes`, como la web. Pruebas
+  `test_schema_qgis.py` (evalúa las expresiones en QGIS), `test_campo_invisible_…` y
+  `test_atributos_principales_…`.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión del usuario)_
@@ -126,6 +135,10 @@ _(lo que no es del plugin o pide una decisión del usuario)_
   el modelo y en el servicio). ¿Se retira o está previsto para algo?
 - Iconos de vista: mismo tamaño (metros, mínimo 8 px), pero en la web se ven más
   difuminados; no parece de datos. Sin tocar.
+- **Ficha: campos vacíos**. La web, al ver un elemento, no enseña los campos sin valor ni
+  las secciones que se quedan sin ninguno (en la palmera, «Plantación zona verde» y
+  «Zona plantación, tocón»). QGIS sí: su formulario es por capa y servirá para editar. Se
+  deja así salvo que se quiera una ficha de solo lectura aparte.
 - El usuario usa a la vez la pestaña de `localhost:3000`: para comparar sin estorbarle,
   abrir una pestaña propia. Activar vistas en la web cambia los ajustes de `tester2`.
 

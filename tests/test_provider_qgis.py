@@ -213,6 +213,32 @@ def test_campo_condicional_lleva_su_expresion(capa):
     assert any("Instalación anclaje" in e for e in expresiones)
 
 
+def test_campo_invisible_no_sale_en_el_formulario(capa):
+    # La web oculta los «visible: false» salvo con «Mostrar campos invisibles».
+    lad.apply_form(capa, capa.dataProvider().schema)
+
+    def nombres(contenedor):
+        for hijo in contenedor.children():
+            if hasattr(hijo, "children"):
+                yield from nombres(hijo)
+            else:
+                yield hijo.name()
+
+    en_formulario = {n for t in capa.editFormConfig().tabs() for n in nombres(t)}
+    assert "observaciones" in en_formulario
+    assert "codigo_migracion" not in en_formulario
+    assert capa.fields().indexOf("codigo_migracion") >= 0  # sigue en la tabla
+
+
+def test_atributos_principales_van_en_la_primera_pestana(capa):
+    # La web los pone arriba, en «Información Principal», sin los invisibles.
+    lad.apply_form(capa, capa.dataProvider().schema)
+
+    primera = capa.editFormConfig().tabs()[0]
+    assert primera.name() == "Información Principal"
+    assert [h.name() for h in primera.children()] == ["object_id", "especie"]
+
+
 def test_desplegable_de_valores_permitidos(capa):
     lad.apply_editor_config(capa, capa.dataProvider().schema)
     idx = capa.fields().indexOf("especie")

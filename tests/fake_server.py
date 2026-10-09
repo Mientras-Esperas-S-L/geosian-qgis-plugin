@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 ESQUEMA_ARBOLADO = {
     "name": "arbolado",
     "title": "Arbolado",
+    "main_attributes": ["object_id", "especie", "codigo_migracion"],
     "attributes": [
         {"name": "codigo", "type": "string", "title": "Código", "required": True},
         {"name": "object_id", "type": "string", "title": "ID", "editable": False},
@@ -27,6 +28,8 @@ ESQUEMA_ARBOLADO = {
         {"name": "altura", "type": "number", "title": "Altura (m)"},
         {"name": "fecha_plantacion", "type": "calendar", "title": "Plantación"},
         {"name": "observaciones", "type": "text", "title": "Observaciones"},
+        {"name": "codigo_migracion", "type": "string", "title": "Código de migración",
+         "visible": False},
         {"name": "pictures", "type": "images", "title": "Fotos"},
         {
             "name": "seccion_riesgo",
