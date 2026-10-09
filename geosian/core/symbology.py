@@ -14,12 +14,13 @@ from qgis.core import (
     QgsGraduatedSymbolRenderer,
     QgsHeatmapRenderer,
     QgsLineSymbol,
-    QgsMapUnitScale,
     QgsMarkerSymbol,
     QgsPalLayerSettings,
+    QgsProperty,
     QgsRendererRange,
     QgsRuleBasedRenderer,
     QgsSingleSymbolRenderer,
+    QgsSymbolLayer,
     QgsTextBufferSettings,
     QgsTextFormat,
     QgsUnitTypes,
@@ -30,24 +31,28 @@ from qgis.PyQt.QtGui import QColor
 from . import schema as S
 from . import styles
 
-# Diámetro del punto en metros y sus topes en milímetros (3 y 6 px de radio
-# a 96 ppp). Grosor de línea igual.
+# Diámetro del punto en metros y sus topes en píxeles; grosor de línea igual.
 POINT_SIZE_M = 12
-POINT_MIN_MM = 1.6
-POINT_MAX_MM = 3.2
+POINT_MIN_PX = 6
+POINT_MAX_PX = 12
 LINE_WIDTH_M = 1
-LINE_MIN_MM = 0.26
-LINE_MAX_MM = 0.8
+LINE_MIN_PX = 1
+LINE_MAX_PX = 3
 OUTLINE_WIDTH_PX = 1
 
+# Metros por píxel a escala 1:1 con 96 ppp (0,0254 m / 96).
+_M_POR_PX = 0.0254 / 96
 
-def _topes(minimo, maximo):
-    escala = QgsMapUnitScale()
-    escala.minSizeMMEnabled = True
-    escala.minSizeMM = minimo
-    escala.maxSizeMMEnabled = True
-    escala.maxSizeMM = maximo
-    return escala
+
+def _px_desde_metros(metros, minimo, maximo):
+    """Expresión que da en píxeles un tamaño en metros, con topes.
+
+    Se calcula con la escala del mapa en vez de usar la unidad «metros a
+    escala» de QGIS porque la leyenda no aplica los topes de esa unidad y
+    dibujaba los puntos como círculos enormes. Así el mapa crece y mengua como
+    en la web, y la leyenda usa el tamaño fijo del símbolo.
+    """
+    return f"clamp({minimo}, {metros} / (@map_scale * {_M_POR_PX:.10f}), {maximo})"
 
 
 def _rgba(color):
@@ -68,17 +73,23 @@ def make_symbol(familia, color):
             }
         )
         capa = simbolo.symbolLayer(0)
-        capa.setSize(POINT_SIZE_M)
-        capa.setSizeUnit(QgsUnitTypes.RenderMetersInMapUnits)
-        capa.setSizeMapUnitScale(_topes(POINT_MIN_MM, POINT_MAX_MM))
+        capa.setSize(POINT_MAX_PX)
+        capa.setSizeUnit(QgsUnitTypes.RenderPixels)
+        capa.setDataDefinedProperty(
+            QgsSymbolLayer.PropertySize,
+            QgsProperty.fromExpression(_px_desde_metros(POINT_SIZE_M, POINT_MIN_PX, POINT_MAX_PX)),
+        )
         return simbolo
     if familia == "line":
         # En las teselas del frontal la línea va con el color oscurecido.
         simbolo = QgsLineSymbol.createSimple({"line_color": _rgba(borde)})
         capa = simbolo.symbolLayer(0)
-        capa.setWidth(LINE_WIDTH_M)
-        capa.setWidthUnit(QgsUnitTypes.RenderMetersInMapUnits)
-        capa.setWidthMapUnitScale(_topes(LINE_MIN_MM, LINE_MAX_MM))
+        capa.setWidth(2)
+        capa.setWidthUnit(QgsUnitTypes.RenderPixels)
+        capa.setDataDefinedProperty(
+            QgsSymbolLayer.PropertyStrokeWidth,
+            QgsProperty.fromExpression(_px_desde_metros(LINE_WIDTH_M, LINE_MIN_PX, LINE_MAX_PX)),
+        )
         return simbolo
     return QgsFillSymbol.createSimple(
         {

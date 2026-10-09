@@ -474,3 +474,26 @@ def test_capa_grande_no_pide_un_recuadro_en_metros(capa_grande, servidor):
     en_metros = QgsRectangle(-8236028.0, 4976711.0, -8235000.0, 4977000.0)
     assert list(capa_grande.getFeatures(QgsFeatureRequest().setFilterRect(en_metros))) == []
     assert _pedidas_por_zona(servidor) == []
+
+
+def test_el_punto_crece_con_la_escala_entre_sus_topes(app):
+    from qgis.core import QgsExpression, QgsExpressionContext, QgsExpressionContextScope
+
+    from geosian.core import symbology
+
+    simbolo = symbology.make_symbol("point", (1, 2, 3, 230))
+    capa = simbolo.symbolLayer(0)
+    expresion = capa.dataDefinedProperties().property(capa.PropertySize).expressionString()
+
+    def tamaño(escala):
+        contexto = QgsExpressionContext()
+        ambito = QgsExpressionContextScope()
+        ambito.setVariable("map_scale", escala)
+        contexto.appendScope(ambito)
+        return QgsExpression(expresion).evaluate(contexto)
+
+    assert tamaño(500000) == symbology.POINT_MIN_PX  # de lejos, el mínimo
+    assert tamaño(500) == symbology.POINT_MAX_PX  # de cerca, el máximo
+    assert symbology.POINT_MIN_PX < tamaño(6000) < symbology.POINT_MAX_PX
+    # La leyenda usa el tamaño fijo, que es el máximo en píxeles.
+    assert capa.size() == symbology.POINT_MAX_PX
