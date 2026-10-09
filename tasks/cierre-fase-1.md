@@ -46,7 +46,7 @@ plugin y empezar la fase de escritura.
 
 ### Hallazgos pendientes que se pueden cerrar sin decisión
 - [x] Etiqueta «ID interno» junto al panel de fotos en QGIS 4 aunque se pida ocultarla.
-- [ ] Sesión caducada al abrir un proyecto: que no salga el diálogo de QGIS «capas no
+- [x] Sesión caducada al abrir un proyecto: que no salga el diálogo de QGIS «capas no
       disponibles» con las de Geosian (gestor de capas no disponibles propio que deja pasar
       las demás al de QGIS) y que «Volver a entrar» las recupere.
 - [ ] Tiempo real sin JWT: avisar una vez y ofrecer volver a entrar, no solo el registro.
@@ -105,6 +105,47 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   343 en GCC» (0,45 s, sin marcar la sesión como caducada). Comprobado contra devel. La API
   no filtra nada: cero definiciones y cero elementos. Prueba
   `test_capa_de_un_mapa_sin_permiso_aunque_la_api_de_lista_vacia`.
+- 09/10 · Tiempo real contra devel. JWT de la cuenta de auditoría sacado con
+  `_generate_jwt_token` por `desplegar.sh devel --manage` (dura 28 días; en el scratchpad,
+  600). En QGIS: canal a `wss://api.devel.greencitycontrol.com/ws/layer-data/`, `subscribed`
+  al mapa 3. El aviso se mandó con `notify_layer_data_changed` (capa 8, Zonas verdes) desde
+  el mismo guion, sin tocar datos: llegó `layer_data_changed` con `tile_version` 1 y la capa
+  se recargó y repintó una vez. Sin arreglo: no hacía falta; lo cubre `test_realtime.py`.
+  **No comprobado**: el cambio hecho de verdad en la web. La cuenta de auditoría es de solo
+  lectura y las demás piden doble factor; el aviso que manda la web es esa misma función.
+- 09/10 · Ficha en QGIS 4. Dos fallos. (1) **La ficha no tenía pestañas**: en QGIS 4.2 un
+  contenedor sin padre nace como grupo, así que todas las secciones salían apiladas; ahora
+  las de primer nivel se marcan como pestaña (`_pestaña`). (2) «ID interno» junto a las
+  fotos: QGIS 4 pierde el «sin etiqueta» de los campos al añadir otra pestaña a la copia
+  del formulario (la de partes va después); `_add_tab` lo restaura. Prueba
+  `test_la_ficha_sale_en_pestanas_y_sin_la_etiqueta_del_id` (fallaba primero por las
+  pestañas y, con eso arreglado, por la etiqueta). Comprobado en QGIS contra devel, árbol
+  61706: pestañas Información Principal, General, Arbolado, Fotos y archivos e Información
+  adicional (Palmeras se oculta por su condición), 4 fotos y sin la etiqueta. Captura
+  `mando/cap/190-fotos-61706-pestanas.png`. Las pruebas anteriores no lo veían porque
+  miraban la configuración, no la ficha montada.
+- 09/10 · Sesión caducada al abrir un proyecto. El gestor propio de capas no disponibles
+  **no se puede hacer**: QGIS no expone el suyo (`QgsHandleBadLayersHandler` es de la
+  aplicación) y `setBadLayerHandler` lo borra, así que las capas de otras fuentes se
+  quedarían sin diálogo. En su lugar, el complemento guarda en el perfil la definición de
+  cada capa (esquema, metadatos y vista; ningún elemento), una carpeta por conexión que se
+  borra al quitarla (`core/definitions.py`). Sin sesión, la capa abre vacía con sus campos
+  y no pide nada a la red hasta recargarla; QGIS no la da por perdida ni pierde la
+  configuración de sus campos al guardar. Sin definición guardada (proyecto de otro
+  equipo) sigue «no disponible» como antes. De paso: (1) **QGIS se caía al leer un
+  proyecto con una capa que no abre**, porque `fields()` devolvía `None`; ahora da campos
+  vacíos. (2) El aviso de «Volver a entrar» salía dos veces (primera caducidad y proyecto
+  leído) y no se quitaba al entrar. (3) Las pruebas se contagiaban la pausa de 30 s sin
+  red. Pruebas: `test_con_la_sesion_caducada_abre_vacia_con_los_campos_que_ya_tenia`,
+  `test_al_reabrir_el_proyecto_sin_sesion_qgis_no_da_las_capas_por_perdidas`,
+  `test_un_proyecto_con_una_capa_que_no_abre_se_lee_sin_caerse` (se caía sin el arreglo),
+  `test_el_aviso_de_volver_a_entrar_no_se_repite_mientras_se_ve`. Comprobado en QGIS
+  contra devel con el proyecto de Melilla guardado y un token no válido: abre en 2,7 s,
+  14 de 14 capas válidas y vacías, sin diálogo, un solo aviso, formulario con sus
+  pestañas. Al volver a entrar (diálogo sustituido por uno que pone la sesión buena):
+  11.950 + 1.469 + 213 elementos en 0,9 s, partes del 28735, el aviso desaparece y el mapa
+  se pinta con su estilo (`mando/cap/199-recuperado-pintado.png`). **No comprobado**: el
+  diálogo de entrada de verdad, porque pide doble factor.
 
 ## Hallazgos para decidir
 
