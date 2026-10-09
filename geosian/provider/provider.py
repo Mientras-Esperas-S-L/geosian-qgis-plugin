@@ -17,6 +17,8 @@ import threading
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsDataProvider,
+    QgsExpressionContext,
+    QgsFeature,
     QgsFeatureRequest,
     QgsGeometry,
     QgsJsonUtils,
@@ -32,6 +34,8 @@ from ..core import schema as S
 from ..core.client import API_PREFIX
 from ..core.errors import GeosianError
 from .feature_source import GeosianFeatureSource
+from .subset import parse as parse_subset
+from .subset import server_params
 from .uri import parse_uri
 
 PROVIDER_KEY = "geosian"
@@ -142,6 +146,12 @@ class GeosianProvider(QgsVectorDataProvider):
         self._partes_de = {}
         # Fotos y ficheros de cada parte, que llegan con el listado.
         self._medios = {}
+        # El filtro de la capa («Filtrar…»): el texto, la expresión, lo que se
+        # manda a la API y lo ya evaluado por elemento.
+        self._subset = ""
+        self._subset_expr = None
+        self._subset_params = {}
+        self._pasa = {}
 
         try:
             self._uri = parse_uri(uri)
@@ -325,7 +335,7 @@ class GeosianProvider(QgsVectorDataProvider):
                 page=pagina,
                 page_size=PAGE_SIZE,
                 data_type=self._uri.geometry_type,
-                extra=self._filter,
+                extra=self._extra(),
             )
             elementos = _features_from(datos)
             for elemento in elementos:
@@ -341,6 +351,35 @@ class GeosianProvider(QgsVectorDataProvider):
                 )
                 break
         return total
+
+    def _extra(self):
+        """Parámetros de filtro para la API: los de la vista y los del filtro.
+
+        Si los dos tocan el mismo atributo, se manda el de la vista y el del
+        filtro lo evalúa QGIS.
+        """
+        extra = dict(self._filter)
+        for clave, valor in self._subset_params.items():
+            extra.setdefault(clave, valor)
+        return extra
+
+    def _pasa_filtro(self, fid):
+        """Si un elemento cumple el filtro de la capa. Se recuerda por elemento."""
+        if self._subset_expr is None:
+            return True
+        if fid not in self._pasa:
+            registro = self._cache.get(fid)
+            if registro is None:
+                return False
+            elemento = QgsFeature(self._fields, fid)
+            elemento.setAttributes(list(registro.attributes))
+            if registro.geometry is not None:
+                elemento.setGeometry(registro.geometry)
+            contexto = QgsExpressionContext()
+            contexto.setFields(self._fields)
+            contexto.setFeature(elemento)
+            self._pasa[fid] = bool(self._subset_expr.evaluate(contexto))
+        return self._pasa[fid]
 
     def _download_partes(self, geodata_id=None):
         """Trae los partes de la capa, o los de un elemento, por páginas."""
@@ -495,10 +534,48 @@ class GeosianProvider(QgsVectorDataProvider):
         return self._wkb_type
 
     def featureCount(self):
+        if self._subset_expr is not None:
+            if self._by_zone:
+                # Habría que bajar la capa entera para contarlos.
+                return -1
+            self._ensure_loaded()
+            with self._lock:
+                return sum(1 for fid in list(self._cache) if self._pasa_filtro(fid))
         if not self._loaded and self._feature_count:
             return self._feature_count
         self._ensure_loaded()
         return len(self._cache)
+
+    def supportsSubsetString(self):
+        return True
+
+    def subsetString(self):
+        return self._subset
+
+    def setSubsetString(self, subset, updateFeatureCount=True):
+        """El filtro de la capa: lo que entiende la API va al servidor, como en la
+        web; lo demás, y siempre la expresión entera, lo evalúa QGIS."""
+        texto = (subset or "").strip()
+        expresion = None
+        if texto:
+            expresion = parse_subset(texto)
+            if expresion is None:
+                return False
+            expresion.prepare(QgsExpressionContext())
+        with self._lock:
+            self._subset = texto
+            self._subset_expr = expresion
+            self._subset_params = (
+                {} if expresion is None or self._uri.info_name
+                else server_params(expresion, self._attr_map)
+            )
+            self._cache.clear()
+            self._zones = []
+            self._loaded = False
+            self._tabla_cargada = False
+            self._partes_de = {}
+            self._pasa = {}
+        return True
 
     def extent(self):
         if self._uri.info_name:
@@ -541,10 +618,12 @@ class GeosianProvider(QgsVectorDataProvider):
             self._loaded = False
             self._tabla_cargada = False
             self._partes_de = {}
+            self._pasa = {}
 
     def invalidate_feature(self, fid):
         """Olvida un elemento suelto, para refrescar solo lo que cambió."""
         self._cache.pop(int(fid), None)
+        self._pasa.pop(int(fid), None)
 
     # ------------------------------------------------------------------
     # Agregaciones: se responden sin recorrer la capa
@@ -616,9 +695,14 @@ class GeosianProvider(QgsVectorDataProvider):
     # ------------------------------------------------------------------
 
     def resolve_request(self, request):
-        """Identificadores que satisfacen una petición de QGIS."""
+        """Identificadores que satisfacen una petición de QGIS y el filtro de la capa."""
         with self._lock:
-            return self._resolve_request(request)
+            ids = self._resolve_request(request)
+            if self._subset_expr is not None:
+                ids = [fid for fid in ids if self._pasa_filtro(fid)]
+        # El límite va después del filtro: antes, «dame uno» podía no dar ninguno.
+        limite = request.limit()
+        return ids[:limite] if limite and limite > 0 else ids
 
     def _resolve_request(self, request):
         fid = request.filterFid()
@@ -636,9 +720,7 @@ class GeosianProvider(QgsVectorDataProvider):
             elementos = _elementos_del_filtro(request)
             if elementos:
                 self._ensure_partes_de(elementos)
-                seleccion = [f for g in elementos for f in self._partes_de.get(g, [])]
-                limite = request.limit()
-                return seleccion[:limite] if limite and limite > 0 else seleccion
+                return [f for g in elementos for f in self._partes_de.get(g, [])]
 
         self._ensure_loaded()
 
@@ -659,9 +741,6 @@ class GeosianProvider(QgsVectorDataProvider):
         else:
             seleccion = list(self._cache.keys())
 
-        limite = request.limit()
-        if limite and limite > 0:
-            seleccion = seleccion[:limite]
         return seleccion
 
     def _ensure_ids(self, fids):
@@ -679,7 +758,7 @@ class GeosianProvider(QgsVectorDataProvider):
                 page_size=max(len(faltan), 1),
                 data_type=self._uri.geometry_type,
                 ids=faltan,
-                extra=self._filter,
+                extra=self._extra(),
             )
             for elemento in _features_from(datos):
                 self._store(elemento)
@@ -722,7 +801,7 @@ class GeosianProvider(QgsVectorDataProvider):
                     page_size=PAGE_SIZE,
                     data_type=self._uri.geometry_type,
                     area=area,
-                    extra=self._filter,
+                    extra=self._extra(),
                 )
                 elementos = _features_from(datos)
                 for elemento in elementos:
@@ -757,7 +836,7 @@ class GeosianProvider(QgsVectorDataProvider):
                     page=pagina,
                     page_size=PAGE_SIZE,
                     data_type=self._uri.geometry_type,
-                    extra=self._filter,
+                    extra=self._extra(),
                 )
                 elementos = _features_from(datos)
                 for elemento in elementos:

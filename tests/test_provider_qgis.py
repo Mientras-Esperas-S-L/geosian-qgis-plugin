@@ -680,3 +680,61 @@ def test_fotos_de_un_parte_por_enlace(partes, servidor):
     assert foto.url == "/api/v1/additional-information/image/88/"
     assert proveedor.media_bytes(foto) == FOTO_PNG
     assert proveedor.media_of(502) == []
+
+
+# ----------------------------------------------------------------------
+# Filtro de la capa («Filtrar…» de QGIS), como los filtros de la web
+# ----------------------------------------------------------------------
+
+def _pedidas(servidor):
+    return [c for r, c in servidor.peticiones if r == "/api/v1/geodata/paginated/"]
+
+
+def test_filtro_sencillo_va_al_servidor(capa, servidor):
+    servidor.peticiones.clear()
+    assert capa.setSubsetString("\"especie\" = 'Tilia platyphyllos'")
+
+    assert [f["id"] for f in capa.getFeatures()] == [1002]
+    assert capa.featureCount() == 1
+    # Igual que la web: el filtro viaja como attr__ y no se baja la capa entera.
+    assert all(c.get("attr__especie") == ["Tilia platyphyllos"] for c in _pedidas(servidor))
+
+
+def test_filtro_que_la_api_no_entiende_se_aplica_en_qgis(capa, servidor):
+    servidor.peticiones.clear()
+    assert capa.setSubsetString("\"especie\" = 'Tilia platyphyllos' OR \"altura\" > 10")
+
+    assert sorted(f["id"] for f in capa.getFeatures()) == [1001, 1002]
+    assert all("attr__especie" not in c for c in _pedidas(servidor))
+
+
+def test_parte_traducible_de_un_filtro_compuesto(capa, servidor):
+    servidor.peticiones.clear()
+    assert capa.setSubsetString(
+        "\"especie\" IN ('Platanus x hispanica', 'Tilia platyphyllos') AND \"altura\" > 10"
+    )
+
+    assert [f["id"] for f in capa.getFeatures()] == [1001]
+    # La parte del IN la filtra el servidor; la de la altura, QGIS.
+    [consulta] = _pedidas(servidor)
+    assert sorted(consulta["attr__especie"]) == ["Platanus x hispanica", "Tilia platyphyllos"]
+
+
+def test_filtro_mal_escrito_no_cambia_nada(capa):
+    assert not capa.dataProvider().setSubsetString("\"especie\" = = 'x'")
+    assert capa.dataProvider().subsetString() == ""
+    assert capa.featureCount() == 3
+
+
+def test_quitar_el_filtro_devuelve_la_capa_entera(capa):
+    capa.setSubsetString("\"especie\" = 'Tilia platyphyllos'")
+    assert capa.featureCount() == 1
+    capa.setSubsetString("")
+    assert sorted(f["id"] for f in capa.getFeatures()) == [1001, 1002, 1003]
+
+
+def test_el_limite_se_aplica_despues_del_filtro(capa):
+    # Que no pase el primero de la caché: con el límite antes, no salía ninguno.
+    capa.setSubsetString("\"altura\" < 10")
+    peticion = QgsFeatureRequest().setLimit(1)
+    assert [f["id"] for f in capa.getFeatures(peticion)] == [1002]

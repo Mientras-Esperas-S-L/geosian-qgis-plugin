@@ -66,7 +66,7 @@ vez de solo anotarlos.
 - [x] Ficha del elemento: secciones, `visible_if` y valores, comparadas con la web.
 - [x] Información adicional (partes) de un elemento, en solo lectura.
 - [x] Fotos y adjuntos de un elemento, en solo lectura (enlaces firmados de `/media/`).
-- [ ] Filtros de la web (panel «Filtros») aplicables a una capa de QGIS.
+- [x] Filtros de la web (panel «Filtros») aplicables a una capa de QGIS.
 - [ ] Etiquetas: las que la web permite encender, no solo las de por defecto.
 - [ ] Mapa base: equivalente al GEOSIAN vectorial (estilo MapLibre) o, al menos, el que
       tenga elegido el mapa (`basemaps[]`).
@@ -141,6 +141,14 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   **Fallo de seguridad del backend, PR #290**: `/geodata/image/<id>/` servía cualquier foto
   a cualquier usuario con sesión, sin mirar la capa; los ids son correlativos.
 
+- 09/10 · Filtros. La web no los guarda (ni en `user-map-settings` ni en el navegador):
+  viven en la sesión, así que no hay nada que «leer». En QGIS funciona su filtro de capa
+  («Filtrar…»): la parte que la API entiende (igualdades e IN de texto, rangos numéricos,
+  unidas con AND) viaja como `attr__…`, igual que la web; la expresión entera la evalúa
+  siempre QGIS. Melilla, Mobiliario urbano, «tipo = papelera»: 247 en la web y 247 en
+  QGIS, con el mismo `attr__tipo=papelera`. El límite de una petición se aplica ya
+  después del filtro. Pruebas `test_filtro_*` y `test_el_limite_*`.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión del usuario)_
@@ -180,6 +188,10 @@ _(lo que no es del plugin o pide una decisión del usuario)_
 - **API, mejora posible**: el detalle de un elemento manda todas sus fotos en base64 (un
   árbol con seis fotos de móvil son varios MB por ficha). Con un `?embed_images=false` que
   diera solo id y enlace, QGIS pediría cada foto al verla, y la web podría hacer lo mismo.
+- Filtros de la web que QGIS no tiene: los de información adicional (elementos con partes
+  que cumplan algo) y los globales de fecha. Se podrían añadir como parámetros de la URI.
+- La web manda `attr__status` vacío al filtrar (`/geodata/?…&attr__status&…`); el servidor
+  lo ignora, así que no tiene efecto.
 - En QGIS 4 la etiqueta «ID interno» sale junto al panel de fotos aunque se pida ocultarla.
 - El usuario usa a la vez la pestaña de `localhost:3000`: para comparar sin estorbarle,
   abrir una pestaña propia. Activar vistas en la web cambia los ajustes de `tester2`.
