@@ -17,7 +17,7 @@ from qgis.core import (
     QgsRectangle,
     QgsVectorLayer,
 )
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView,
     QDockWidget,
@@ -48,6 +48,7 @@ TIPO_VISTA = "vista"
 # Fondos. El mapa base propio de GCC son teselas vectoriales con un estilo de
 # MapLibre; en QGIS se usa el equivalente ráster público más cercano.
 ESPAÑA = QgsRectangle(-18.5, 27.4, 4.6, 44.0)
+MERCATOR = QgsCoordinateReferenceSystem("EPSG:3857")
 FONDO_IGN = (
     "Fondo: mapa base del IGN",
     "type=xyz&url=https://tms-ign-base.idee.es/1.0.0/IGNBaseTodo/{z}/{x}/{-y}.jpeg"
@@ -301,6 +302,9 @@ class GeosianBrowserDock(QDockWidget):
 
         proyecto = QgsProject.instance()
         vacio = not proyecto.mapLayers()
+        if vacio:
+            # La web es Web Mercator, y el fondo también.
+            proyecto.setCrs(MERCATOR)
         raiz = proyecto.layerTreeRoot()
         grupo = raiz.insertGroup(0, mapa.get("name") or f"Mapa {mapa['id']}")
 
@@ -332,11 +336,14 @@ class GeosianBrowserDock(QDockWidget):
         poblar(grupo, maptree.layer_tree(ajustes, list(por_id)))
 
         capas_qgis = [n.layer() for n in grupo.findLayers() if n.layer() is not None]
-        if vacio and capas_qgis:
-            proyecto.setCrs(QgsCoordinateReferenceSystem("EPSG:3857"))
         extension = _extension_de(capas_qgis)
         self._añadir_fondo(extension)
         self._encuadrar(extension)
+        if vacio:
+            # Con «usar el CRS de la primera capa», QGIS pone el de la capa
+            # (4326) después de que se añada, en diferido. Se reafirma cuando
+            # ya lo ha hecho.
+            QTimer.singleShot(0, lambda: self._reafirmar_mercator(extension))
         self.iface.messageBar().pushInfo(
             "Geosian", f"{len(capas_qgis)} capa(s) añadidas al proyecto."
         )
@@ -353,6 +360,11 @@ class GeosianBrowserDock(QDockWidget):
             return
         proyecto.addMapLayer(fondo, False)
         proyecto.layerTreeRoot().addLayer(fondo)
+
+    def _reafirmar_mercator(self, extension):
+        if QgsProject.instance().crs() != MERCATOR:
+            QgsProject.instance().setCrs(MERCATOR)
+            self._encuadrar(extension)
 
     def _encuadrar(self, extension):
         lienzo = getattr(self.iface, "mapCanvas", lambda: None)()
