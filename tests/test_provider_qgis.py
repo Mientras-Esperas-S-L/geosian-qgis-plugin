@@ -650,3 +650,33 @@ def test_la_tabla_de_partes_sin_filtro_trae_los_de_la_capa(partes):
 def test_tipo_de_parte_que_no_existe_da_capa_invalida(servidor):
     uri = f"geosian://{CONEXION}/map/4/layer/11/info/no_existe?geometry_type=points"
     assert not QgsVectorLayer(uri, "x", "geosian").isValid()
+
+
+# ----------------------------------------------------------------------
+# Fotos y adjuntos
+# ----------------------------------------------------------------------
+
+def test_fotos_y_ficheros_de_un_elemento(capa):
+    from tests.fake_server import FICHERO_PDF, FOTO_PNG
+
+    proveedor = capa.dataProvider()
+    elementos = proveedor.media_of(1001)
+
+    # La portada primero, luego el resto de fotos y al final los ficheros.
+    assert [(m.kind, m.id) for m in elementos] == [("image", 72), ("image", 71), ("file", 31)]
+    assert proveedor.media_bytes(elementos[0]) == FOTO_PNG
+    assert elementos[2].name == "informe.pdf"
+    assert proveedor.media_bytes(elementos[2]) == FICHERO_PDF
+
+
+def test_fotos_de_un_parte_por_enlace(partes, servidor):
+    from tests.fake_server import FOTO_PNG
+
+    peticion = QgsFeatureRequest().setFilterExpression('"geodata_id" = 1001')
+    list(partes.getFeatures(peticion))
+    proveedor = partes.dataProvider()
+
+    [foto] = proveedor.media_of(501)
+    assert foto.url == "/api/v1/additional-information/image/88/"
+    assert proveedor.media_bytes(foto) == FOTO_PNG
+    assert proveedor.media_of(502) == []

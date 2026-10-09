@@ -5,7 +5,9 @@ verdad. Las respuestas imitan la forma real: GeoJSON en ``geodata``,
 ``tile_metadata`` en la capa y el esquema completo en ``layer-attributes``.
 """
 
+import base64
 import json
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -31,6 +33,7 @@ ESQUEMA_ARBOLADO = {
         {"name": "codigo_migracion", "type": "string", "title": "Código de migración",
          "visible": False},
         {"name": "pictures", "type": "images", "title": "Fotos"},
+        {"name": "files", "type": "files", "title": "Archivos"},
         {
             "name": "seccion_riesgo",
             "type": "section",
@@ -158,7 +161,9 @@ ELEMENTOS = [
 PARTES = [
     {"id": 501, "name": "parte_poda", "geodata": 1001, "user": "Técnica Uno",
      "created_at": "2026-05-02T09:00:00+02:00", "updated_at": "2026-05-02T09:00:00+02:00",
-     "attributes": {"labor": "Poda", "horas": 2.5, "pictures": None}},
+     "attributes": {"labor": "Poda", "horas": 2.5, "pictures": None},
+     "pictures": [{"id": 88, "url": "/api/v1/additional-information/image/88/", "main_image": True}],
+     "files": []},
     {"id": 502, "name": "parte_poda", "geodata": 1001, "user": "Técnico Dos",
      "created_at": "2026-06-10T12:00:00+02:00", "updated_at": "2026-06-11T08:00:00+02:00",
      "attributes": {"labor": "Aclareo", "horas": 1.0}},
@@ -166,6 +171,26 @@ PARTES = [
      "created_at": "2026-07-01T10:00:00+02:00", "updated_at": "2026-07-01T10:00:00+02:00",
      "attributes": {"labor": "Poda", "horas": 4.0}},
 ]
+
+
+# Una foto de verdad (PNG de 1×1) para que Qt la pueda leer.
+FOTO_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+FICHERO_PDF = b"%PDF-1.4 informe de prueba"
+
+# El detalle de /geodata/<id>/: fotos en base64 y ficheros con id y nombre.
+DETALLES = {
+    1001: {
+        "pictures": [
+            {"id": 71, "data": "data:image/png;base64," + base64.b64encode(FOTO_PNG).decode(),
+             "created_at": "2026-05-02T09:00:00+02:00", "main_image": False, "field_name": "pictures"},
+            {"id": 72, "data": "data:image/png;base64," + base64.b64encode(FOTO_PNG).decode(),
+             "created_at": "2026-05-03T09:00:00+02:00", "main_image": True, "field_name": "pictures"},
+        ],
+        "files": [{"id": 31, "name": "informe.pdf", "field_name": "files"}],
+    },
+}
 
 
 def _pagina_de_partes(consulta):
@@ -255,6 +280,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(cuerpo)
 
+    def _bytes(self, cuerpo, tipo):
+        self.send_response(200)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.end_headers()
+        self.wfile.write(cuerpo)
+
     def do_GET(self):  # noqa: N802
         partes = urlparse(self.path)
         consulta = parse_qs(partes.query)
@@ -330,6 +362,20 @@ class Handler(BaseHTTPRequestHandler):
 
         elif ruta == "/api/v1/geodata/paginated/":
             self._json(_pagina_de_elementos(consulta))
+
+        elif re.fullmatch(r"/api/v1/geodata/\d+/", ruta):
+            fid = int(ruta.split("/")[-2])
+            elemento = next((e for e in ELEMENTOS if e["properties"]["id"] == fid), None)
+            if elemento is None or consulta.get("geometry_type") != ["points"]:
+                self._json({"error": "no"}, 404)
+            else:
+                self._json({**elemento, "id": fid, **DETALLES.get(fid, {"pictures": [], "files": []})})
+
+        elif ruta == "/api/v1/geodata/file/31/":
+            self._bytes(FICHERO_PDF, "application/pdf")
+
+        elif ruta.startswith("/api/v1/additional-information/image/"):
+            self._bytes(FOTO_PNG, "image/png")
 
         elif ruta == "/api/v1/additional-information/":
             # Sin el tipo de geometría la API no sabe en qué tabla buscar.

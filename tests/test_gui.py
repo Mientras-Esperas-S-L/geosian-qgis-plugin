@@ -10,6 +10,7 @@ import pytest
 pytest.importorskip("qgis.core")
 
 from geosian.core import connections  # noqa: E402
+from qgis.core import QgsFeature  # noqa: E402
 from tests.fake_server import FakeGeosian  # noqa: E402
 
 
@@ -342,6 +343,11 @@ def test_los_partes_de_la_capa_salen_en_su_ficha(app_gui):
             elemento = next(f for f in capa.getFeatures() if f["id"] == 1001)
             partes = list(relacion.getRelatedFeatures(elemento))
             assert sorted(p["id"] for p in partes) == [501, 502]
+            # En la lista de partes, cada uno por su autor y su fecha, como la web.
+            primero = next(p for p in partes if p["id"] == 501)
+            contexto = QgsExpressionContext()
+            contexto.setFeature(primero)
+            assert QgsExpression(tabla.displayExpression()).evaluate(contexto) == "Técnica Uno · 2026-05-02"
 
             pestaña = next(
                 t for t in capa.editFormConfig().tabs() if t.name() == "Información adicional"
@@ -380,3 +386,153 @@ def test_abrir_el_panel_no_toca_el_almacen_de_credenciales(app_gui, monkeypatch)
     finally:
         monkeypatch.undo()
         connections.remove_connection("SinTocar")
+
+
+def _capa_de_prueba(fake, nombre):
+    from geosian.gui.browser_dock import ROL_DATOS, GeosianBrowserDock
+
+    connections.save_connection(nombre, fake.url, "a@b.c")
+    connections.set_session(nombre, "tok-de-prueba", "jwt")
+    panel = GeosianBrowserDock(IfaceFalso())
+    raiz = panel.arbol.topLevelItem(0)
+    panel._al_desplegar(raiz)
+    mapa = raiz.child(0).child(0)
+    panel._al_desplegar(mapa)
+    return panel.añadir_capa(mapa.child(0).data(0, ROL_DATOS))[0]
+
+
+def test_la_ficha_tiene_una_pestana_de_fotos_y_archivos(app_gui):
+    from qgis.core import QgsProject
+
+    from geosian.gui.media_widget import WIDGET_TYPE, register_media_widget
+    from geosian.provider.metadata import register_provider
+
+    register_provider()
+    register_media_widget()
+    with FakeGeosian() as fake:
+        try:
+            capa = _capa_de_prueba(fake, "Fotos1")
+            pestaña = next(
+                t for t in capa.editFormConfig().tabs() if t.name() == "Fotos y archivos"
+            )
+            [campo] = pestaña.children()
+            assert campo.name() == "id"
+            assert capa.editorWidgetSetup(capa.fields().indexOf("id")).type() == WIDGET_TYPE
+            # Y las fichas de los partes también, que tienen sus fotos.
+            [tabla] = [c for c in QgsProject.instance().mapLayers().values() if not c.isSpatial()]
+            assert "Fotos y archivos" in [t.name() for t in tabla.editFormConfig().tabs()]
+        finally:
+            QgsProject.instance().clear()
+            connections.remove_connection("Fotos1")
+
+
+def test_el_panel_de_fotos_ensena_las_del_elemento(app_gui, monkeypatch, tmp_path):
+    from qgis.core import QgsProject
+    from qgis.gui import QgsGui
+    from qgis.PyQt.QtWidgets import QWidget
+
+    from geosian.gui import media_widget
+    from geosian.provider.metadata import register_provider
+    from tests.fake_server import FICHERO_PDF
+
+    register_provider()
+    media_widget.register_media_widget()
+    with FakeGeosian() as fake:
+        try:
+            capa = _capa_de_prueba(fake, "Fotos2")
+            padre = QWidget()
+            envoltorio = QgsGui.editorWidgetRegistry().create(
+                media_widget.WIDGET_TYPE, capa, capa.fields().indexOf("id"), {}, None, padre
+            )
+            elemento = next(f for f in capa.getFeatures() if f["id"] == 1001)
+            envoltorio.setFeature(elemento)
+            # Solo lectura (el id lo es) no debe impedir mirar las fotos.
+            envoltorio.setEnabled(False)
+            panel = envoltorio.widget()
+            fake.peticiones.clear()
+            panel.cargar()
+
+            assert panel.fotos.count() == 2
+            assert panel.ficheros.count() == 1
+            assert panel.isEnabled()
+            assert [r for r, _ in fake.peticiones] == ["/api/v1/geodata/1001/"]
+
+            abiertos = []
+            monkeypatch.setattr(media_widget, "_abrir_fuera", abiertos.append)
+            monkeypatch.setattr(media_widget, "_carpeta_temporal", lambda: str(tmp_path))
+            panel.abrir_fichero(panel.ficheros.item(0))
+            assert len(abiertos) == 1
+            assert open(abiertos[0], "rb").read() == FICHERO_PDF
+
+            # Sin elemento (uno nuevo), no se pide nada.
+            fake.peticiones.clear()
+            envoltorio.setFeature(QgsFeature(capa.fields()))
+            panel.cargar()
+            assert panel.fotos.count() == 0 and fake.peticiones == []
+        finally:
+            QgsProject.instance().clear()
+            connections.remove_connection("Fotos2")
+
+
+def _herramientas_falsas():
+    from qgis.core import QgsVectorLayerTools
+
+    class Herramientas(QgsVectorLayerTools):
+        """Las que pone iface en QGIS; el editor de relaciones de la ficha las pide."""
+
+        def addFeature(self, *args, **kwargs):  # noqa: N802
+            return False, None
+
+        def startEditing(self, layer):  # noqa: N802
+            return False
+
+        def stopEditing(self, layer, allowCancel=True):  # noqa: N802, N803
+            return False
+
+        def saveEdits(self, layer):  # noqa: N802
+            return False
+
+        def copyMoveFeatures(self, *args, **kwargs):  # noqa: N802
+            return False
+
+    return Herramientas()
+
+
+def test_el_panel_de_fotos_sobrevive_sin_referencias_en_python(app_gui):
+    """QGIS crea el campo y no guarda nada en Python. Si el objeto Python del panel se
+    recolecta, el widget sigue ahí pero sin su código: no carga nunca las fotos."""
+    import gc
+
+    from qgis.core import QgsProject
+    from qgis.gui import QgsAttributeEditorContext, QgsAttributeForm
+
+    from geosian.gui import media_widget
+    from geosian.provider.metadata import register_provider
+
+    register_provider()
+    media_widget.register_media_widget()
+    with FakeGeosian() as fake:
+        try:
+            capa = _capa_de_prueba(fake, "Fotos3")
+            elemento = next(f for f in capa.getFeatures() if f["id"] == 1001)
+            contexto = QgsAttributeEditorContext()
+            herramientas = _herramientas_falsas()
+            contexto.setVectorLayerTools(herramientas)
+            ficha = QgsAttributeForm(capa, elemento, contexto)
+            gc.collect()
+
+            def ficha_de(widget):
+                while widget is not None and not isinstance(widget, QgsAttributeForm):
+                    widget = widget.parentWidget()
+                return widget
+
+            # El de la ficha del elemento; el editor de partes lleva el suyo dentro.
+            propios = [
+                p for p in ficha.findChildren(media_widget.MediaPanel) if ficha_de(p) is ficha
+            ]
+            # QGIS 4 monta el campo dos veces en la ficha; lo que importa es que
+            # conserven su código de Python.
+            assert propios
+        finally:
+            QgsProject.instance().clear()
+            connections.remove_connection("Fotos3")

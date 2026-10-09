@@ -353,6 +353,20 @@ class GeosianClient:
             )
         return self._get(ruta, params)
 
+    def element_detail(self, element_id, data_type):
+        """Un elemento con sus fotos (en base64) y sus ficheros (``id`` y nombre).
+
+        Args:
+            data_type: el tipo de la URI (``points``, ``polygons``…).
+        """
+        return self._get(f"{API_PREFIX}/geodata/{int(element_id)}/", {"geometry_type": data_type})
+
+    def download(self, path):
+        """Bytes de una foto o un fichero servidos por la API, con el token."""
+        url = self._url(path)
+        resp = self.transport.request("GET", url, self._headers({"Accept": "*/*"}), timeout=self.timeout)
+        return self._check(resp, url).body
+
     def additional_information(self, layer_id, name, geometry_type, geodata_id=None,
                                page=1, page_size=1000):
         """Una página de partes (información adicional) de un tipo.

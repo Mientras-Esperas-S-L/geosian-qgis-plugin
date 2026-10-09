@@ -36,6 +36,7 @@ from ..core import connections, icon_store, lad, maptree, styles, symbology, vie
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri
+from . import media_widget
 from .connection_dialog import ConnectionDialog
 
 ROL_TIPO = Qt.ItemDataRole.UserRole
@@ -486,6 +487,11 @@ class GeosianBrowserDock(QDockWidget):
             if not tabla.isValid():
                 continue
             self._aplicar_esquema(tabla)
+            # La lista de partes de la ficha los nombra así; sin esto, QGIS coge
+            # el primer campo de texto, que suele estar vacío.
+            tabla.setDisplayExpression(
+                "coalesce(\"usuario\", '?') || ' · ' || left(\"created_at\", 10)"
+            )
             proyecto.addMapLayer(tabla, False)
             _grupo_de_partes(grupo).addLayer(tabla)
 
@@ -562,6 +568,8 @@ class GeosianBrowserDock(QDockWidget):
         try:
             lad.apply_editor_config(capa, esquema)
             lad.apply_form(capa, esquema)
+            if media_widget.is_available():
+                lad.add_media_tab(capa, esquema, media_widget.WIDGET_TYPE)
         except Exception as exc:
             # Un formulario mal construido no debe impedir ver los datos.
             self.iface.messageBar().pushWarning(

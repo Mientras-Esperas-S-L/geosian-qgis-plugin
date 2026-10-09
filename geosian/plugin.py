@@ -5,6 +5,7 @@ from qgis.PyQt.QtCore import Qt
 
 from .gui.browser_dock import GeosianBrowserDock
 from .gui.connection_dialog import ConnectionDialog
+from .gui.media_widget import register_media_widget
 from .provider.metadata import register_provider
 
 MENU = "&Geosian"
@@ -28,6 +29,9 @@ class GeosianPlugin:
                 "No se pudo registrar el proveedor de datos. Las capas de "
                 "Geosian no se podrán abrir en esta sesión.",
             )
+
+        # Igual con el panel de fotos de la ficha, que es un tipo de campo.
+        register_media_widget()
 
         self.dock = GeosianBrowserDock(self.iface, self.iface.mainWindow())
         self.iface.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock)

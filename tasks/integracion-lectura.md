@@ -65,7 +65,7 @@ vez de solo anotarlos.
       paginado desde la API?
 - [x] Ficha del elemento: secciones, `visible_if` y valores, comparadas con la web.
 - [x] Información adicional (partes) de un elemento, en solo lectura.
-- [ ] Fotos y adjuntos de un elemento, en solo lectura (enlaces firmados de `/media/`).
+- [x] Fotos y adjuntos de un elemento, en solo lectura (enlaces firmados de `/media/`).
 - [ ] Filtros de la web (panel «Filtros») aplicables a una capa de QGIS.
 - [ ] Etiquetas: las que la web permite encender, no solo las de por defecto.
 - [ ] Mapa base: equivalente al GEOSIAN vectorial (estilo MapLibre) o, al menos, el que
@@ -123,6 +123,24 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   local a los 9 tipos de Arbolado. Pruebas `test_los_partes_*` y
   `test_los_partes_de_la_capa_salen_en_su_ficha`.
 
+- 09/10 · Fotos y archivos en la ficha, del elemento y de cada parte: pestaña «Fotos y
+  archivos» con miniaturas (doble clic, en grande) y archivos (doble clic, se descargan a
+  una carpeta temporal y se abren). Es un tipo de campo del complemento sobre `id`
+  (`gui/media_widget.py`), no una función de inicio del formulario: esa es código Python
+  incrustado y QGIS pregunta antes de ejecutarlo. Se piden al ver la pestaña, a la API con
+  el token (`/geodata/<id>/` las trae en base64; las de los partes, por enlace). Comprobado
+  en la palmera 29210 con 2 fotos de prueba puestas en el almacén local (en local solo hay
+  172 ficheros de medios; casi ninguna foto existe). Por el camino:
+  - el objeto Python del panel se recolectaba y QGIS se quedaba con un widget sin código o
+    con un puntero muerto (se caía): se retienen hasta que Qt los destruya;
+  - abrir QGIS pedía la contraseña maestra: el panel leía la sesión de cada conexión al
+    construirse (commit aparte);
+  - las pruebas no registraban los tipos de campo de QGIS (`initEditors`) y una ficha con
+    pestañas se caía;
+  - cada parte sale en la lista por autor y fecha, no «<NULL>».
+  **Fallo de seguridad del backend, PR #290**: `/geodata/image/<id>/` servía cualquier foto
+  a cualquier usuario con sesión, sin mirar la capa; los ids son correlativos.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión del usuario)_
@@ -159,7 +177,10 @@ _(lo que no es del plugin o pide una decisión del usuario)_
   «1-10 de 10» con 2 partes. El total salía de páginas × 10 porque `FeatureInfo` no pasaba
   `totalItems` a `AdditionalInfo` (no era el `useEffect` de la línea 165, como apunté al
   principio).
-- Los partes no enseñan aún sus fotos ni adjuntos: es la casilla siguiente.
+- **API, mejora posible**: el detalle de un elemento manda todas sus fotos en base64 (un
+  árbol con seis fotos de móvil son varios MB por ficha). Con un `?embed_images=false` que
+  diera solo id y enlace, QGIS pediría cada foto al verla, y la web podría hacer lo mismo.
+- En QGIS 4 la etiqueta «ID interno» sale junto al panel de fotos aunque se pida ocultarla.
 - El usuario usa a la vez la pestaña de `localhost:3000`: para comparar sin estorbarle,
   abrir una pestaña propia. Activar vistas en la web cambia los ajustes de `tester2`.
 

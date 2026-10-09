@@ -27,8 +27,9 @@ from qgis.core import (
     Qgis,
 )
 
-from ..core import connections, lad, views
+from ..core import connections, lad, media, views
 from ..core import schema as S
+from ..core.client import API_PREFIX
 from ..core.errors import GeosianError
 from .feature_source import GeosianFeatureSource
 from .uri import parse_uri
@@ -139,6 +140,8 @@ class GeosianProvider(QgsVectorDataProvider):
         self._filter = {}
         # Partes (información adicional): elementos cuyos partes ya se pidieron.
         self._partes_de = {}
+        # Fotos y ficheros de cada parte, que llegan con el listado.
+        self._medios = {}
 
         try:
             self._uri = parse_uri(uri)
@@ -392,6 +395,7 @@ class GeosianProvider(QgsVectorDataProvider):
             else:
                 valores.append(sistema.get(nombre))
         self._cache[fid] = CachedFeature(None, valores)
+        self._medios[fid] = {"pictures": parte.get("pictures"), "files": parte.get("files")}
         return fid
 
     def _ensure_partes_de(self, geodata_ids):
@@ -793,6 +797,31 @@ class GeosianProvider(QgsVectorDataProvider):
             if escala >= paso * potencia:
                 return int(paso * potencia)
         return int(potencia)
+
+    def media_of(self, fid):
+        """Fotos y ficheros de un elemento o de un parte (:class:`media.MediaItem`).
+
+        Los de un parte llegaron con el listado; los de un elemento se piden a
+        su detalle, que es lo que hace la web al abrir la ficha.
+        """
+        if self._uri.info_name:
+            return media.items_from(
+                self._medios.get(int(fid)),
+                image_url=f"{API_PREFIX}/additional-information/image/{{id}}/",
+                file_url=f"{API_PREFIX}/additional-information/file/{{id}}/",
+            )
+        detalle = self._client.element_detail(fid, self._uri.geometry_type)
+        return media.items_from(
+            detalle,
+            image_url=f"{API_PREFIX}/geodata/image/{{id}}/",
+            file_url=f"{API_PREFIX}/geodata/file/{{id}}/",
+        )
+
+    def media_bytes(self, item):
+        """El contenido de una foto o un fichero: el incrustado o pedido a la API."""
+        if item.data is not None:
+            return item.data
+        return self._client.download(item.url)
 
     @property
     def by_zone(self):

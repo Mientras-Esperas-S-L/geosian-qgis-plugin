@@ -20,6 +20,11 @@ def app():
     QgsApplication.setPrefixPath("/usr", True)
     aplicacion = QgsApplication([], True)
     aplicacion.initQgis()
+    # Los tipos de campo de QGIS (texto, lista…). La aplicación de QGIS los
+    # registra sola; aquí no, y una ficha con un campo sin tipo se cae.
+    from qgis.gui import QgsGui
+
+    QgsGui.editorWidgetRegistry().initEditors()
 
     from geosian.provider.metadata import register_provider
 

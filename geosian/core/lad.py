@@ -307,11 +307,34 @@ def add_relations_tab(layer, partes):
         if expr:
             grupo.setVisibilityExpression(QgsOptionalExpression(QgsExpression(expr)))
         hijo = QgsAttributeEditorRelation(relacion, grupo)
+        hijo.setRelationWidgetTypeId("relation_editor")
         hijo.setShowLabel(False)
         grupo.addChildElement(hijo)
         pestaña.addChildElement(grupo)
     form.addTab(pestaña)
     layer.setEditFormConfig(form)
+
+
+def add_media_tab(layer, schema, widget_type):
+    """Pestaña «Fotos y archivos» si el esquema tiene campos de fotos o archivos.
+
+    Lleva el campo ``id`` con el tipo de campo del complemento que enseña las
+    fotos y archivos del elemento (``gui/media_widget.py``).
+    """
+    if not any(S.is_attachment(a) for a in S.flatten_attributes(schema)):
+        return False
+    idx = layer.fields().indexOf("id")
+    if idx < 0:
+        return False
+    layer.setEditorWidgetSetup(idx, QgsEditorWidgetSetup(widget_type, {}))
+    form = layer.editFormConfig()
+    pestaña = QgsAttributeEditorContainer("Fotos y archivos", None)
+    campo = QgsAttributeEditorField("id", idx, pestaña)
+    campo.setShowLabel(False)
+    pestaña.addChildElement(campo)
+    form.addTab(pestaña)
+    layer.setEditFormConfig(form)
+    return True
 
 
 def _dependencies_expression(dependencias):
