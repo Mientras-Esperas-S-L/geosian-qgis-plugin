@@ -330,29 +330,17 @@ class GeosianBrowserDock(QDockWidget):
                     poblar(subgrupo, hijos)
                     continue
                 lid = nodo[1]
+                # Una vista activa sustituye a los datos base de su capa, sea del
+                # tipo que sea: la web los oculta si y solo si la capa tiene
+                # alguna vista activa (``layerBaseVisible`` en maps.jsx).
                 vista = activas.get(lid)
-                añadidas = []
-                if vista is not None and self._vista_superpuesta(cliente, vista):
-                    # Superposición (iconos, calor…): la base sigue debajo.
-                    añadidas += self.añadir_capa(
-                        {"conexion": conexion, "mapa": mapa, "capa": por_id[lid]},
-                        grupo=destino,
-                        avisar=False,
-                    )
-                capas_vista = self.añadir_capa(
+                añadidas = self.añadir_capa(
                     {"conexion": conexion, "mapa": mapa, "capa": por_id[lid], "vista": vista},
                     grupo=destino,
                     avisar=False,
                 )
                 if vista is not None:
-                    de_vistas.extend(capas_vista)
-                    primera = raiz.findLayer(añadidas[0].id()) if añadidas else None
-                    for capa in capas_vista if primera is not None else []:
-                        # En el panel, la vista justo encima de su capa base.
-                        nodo_capa = raiz.findLayer(capa.id())
-                        destino.insertChildNode(destino.children().index(primera), nodo_capa.clone())
-                        destino.removeChildNode(nodo_capa)
-                añadidas += capas_vista
+                    de_vistas.extend(añadidas)
                 if lid in ocultas:
                     for capa in añadidas:
                         nodo_capa = raiz.findLayer(capa.id())
@@ -376,14 +364,6 @@ class GeosianBrowserDock(QDockWidget):
         self.iface.messageBar().pushInfo(
             "Geosian", f"{len(capas_qgis)} capa(s) añadidas al proyecto."
         )
-
-    def _vista_superpuesta(self, cliente, vista):
-        """Si la vista se pinta encima de su capa (icono, calor…) o la sustituye."""
-        try:
-            completa = cliente.layer_view(vista["id"])
-        except GeosianError:
-            return False
-        return views.is_overlay(completa.get("style_config"))
 
     def _añadir_fondo(self, extension):
         """Un mapa base si el proyecto no tiene ninguno: el del IGN en España."""

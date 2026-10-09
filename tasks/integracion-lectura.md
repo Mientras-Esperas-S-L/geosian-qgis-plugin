@@ -51,8 +51,7 @@ de datos por detrás de la API.
 
 ## Casillas de lectura
 
-- [ ] Melilla local: comparar una a una las 8 capas y sus vistas activables, a varios zooms.
-      (capas base hechas el 09/10; vista 12 hecha; faltan 11 y 69)
+- [x] Melilla local: comparar una a una las 8 capas y sus vistas activables, a varios zooms.
 - [ ] Vistas de información adicional (`context_type = additional_info`): hoy no se abren.
 - [ ] Iconos de vista por categoría si el editor los admite; tamaños y halo comparados.
 - [ ] Visualizaciones sin equivalente (hexágonos, contornos, H3): decidir aproximación.
@@ -82,11 +81,11 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   Truco útil: `deck.pickMultipleObjects` NO sirve para saber qué se ve encima; leer el píxel
   con `gl.readPixels` tras `deck.redraw()`.
 
-- 09/10 · Vista 12 «Árboles Especie» (icono, categorizada) en Melilla local: el plugin
-  ocultaba la capa base, y la web la deja debajo porque las vistas de icono, calor y
-  agregaciones son superposiciones. Ahora el mapa entero añade base y vista, y pinta las
-  vistas encima de todas las capas base, como la web. Prueba
-  `test_vista_de_iconos_activa_deja_la_base_debajo_y_se_pinta_encima`.
+- 09/10 · Vistas 12, 11 y 69 de Melilla local (las 3 que ve la cuenta): coinciden filtro,
+  colores por categoría e iconos. Dos ajustes: las vistas se pintan encima de todas las
+  capas base, como la web (orden de pintado propio del proyecto), y una vista activa
+  sustituye siempre a su capa, también las de icono (`layerBaseVisible` de maps.jsx).
+  Prueba `test_vista_activa_sustituye_su_capa_y_se_pinta_encima`.
 
 ## Hallazgos para decidir
 
@@ -99,6 +98,10 @@ _(lo que no es del plugin o pide una decisión del usuario)_
   lote al fondo y añade las vistas después; lo dice un comentario, es a propósito). Una
   vista de una capa baja del panel tapa capas más altas. Choca con el «orden estricto del
   panel». QGIS lo imita de momento. ¿Se queda así o las vistas van en el sitio de su capa?
+- Código muerto en la web: `useMvtLayers.js:126-140` dice que las vistas de icono, calor
+  y agregación son superposiciones y dejan la base, pero `layerBaseVisible` (maps.jsx
+  1695-1710) oculta la base con CUALQUIER vista activa y esa rama nunca se alcanza. Lo que
+  se ve es lo segundo. ¿Se corrige el comentario o se quiere de verdad la superposición?
 - Iconos de vista: mismo tamaño (metros, mínimo 8 px), pero en la web se ven más
   difuminados; no parece de datos. Sin tocar.
 - El usuario usa a la vez la pestaña de `localhost:3000`: para comparar sin estorbarle,

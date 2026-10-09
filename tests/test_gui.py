@@ -245,8 +245,9 @@ def test_un_403_no_pide_volver_a_entrar(app_gui):
             connections.remove_connection("Integracion5")
 
 
-def test_vista_de_iconos_activa_deja_la_base_debajo_y_se_pinta_encima(app_gui, monkeypatch):
-    """Como en la web: las vistas de icono se superponen y van sobre las capas base."""
+def test_vista_activa_sustituye_su_capa_y_se_pinta_encima(app_gui, monkeypatch):
+    """Como en la web: una vista activa, también de iconos, oculta los datos base de su
+    capa (``layerBaseVisible``) y se pinta sobre las capas base."""
     from qgis.core import QgsProject
 
     from geosian.gui.browser_dock import ROL_DATOS, GeosianBrowserDock
@@ -267,8 +268,8 @@ def test_vista_de_iconos_activa_deja_la_base_debajo_y_se_pinta_encima(app_gui, m
             panel.añadir_mapa(raiz.child(0).child(0).data(0, ROL_DATOS))
 
             grupo = proyecto.layerTreeRoot().children()[0]
-            # En el panel: la vista y, debajo, su capa base.
-            assert [n.name() for n in grupo.findLayers()] == ["Arbolado · Iconos", "Arbolado"]
+            # Solo la vista: la capa base no se añade.
+            assert [n.name() for n in grupo.findLayers()] == ["Arbolado · Iconos"]
             # En el pintado: la vista encima de todo lo demás.
             orden = proyecto.layerTreeRoot().customLayerOrder()
             assert orden[0].name() == "Arbolado · Iconos"
