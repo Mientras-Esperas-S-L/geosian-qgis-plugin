@@ -239,7 +239,11 @@ class Handler(BaseHTTPRequestHandler):
         elif ruta == "/api/v1/layer-views/for-map/":
             listado = {k: VISTA_TILOS[k] for k in ("id", "layer", "name", "context_type")}
             iconos = {k: VISTA_ICONOS[k] for k in ("id", "layer", "name", "context_type")}
-            self._json([{"layer_id": 11, "layer_name": "Arbolado", "views": [listado, iconos]}])
+            # Una vista marcada como de información adicional: la web la pinta igual.
+            partes = {"id": 9, "layer": 11, "name": "Con partes", "context_type": "additional_info"}
+            self._json(
+                [{"layer_id": 11, "layer_name": "Arbolado", "views": [listado, iconos, partes]}]
+            )
 
         elif ruta == "/api/v1/user-map-settings/by-map/4/":
             # El usuario tiene la capa en una carpeta, apagada y con la vista

@@ -52,7 +52,7 @@ de datos por detrás de la API.
 ## Casillas de lectura
 
 - [x] Melilla local: comparar una a una las 8 capas y sus vistas activables, a varios zooms.
-- [ ] Vistas de información adicional (`context_type = additional_info`): hoy no se abren.
+- [x] Vistas de información adicional (`context_type = additional_info`): hoy no se abren.
 - [ ] Iconos de vista por categoría si el editor los admite; tamaños y halo comparados.
 - [ ] Visualizaciones sin equivalente (hexágonos, contornos, H3): decidir aproximación.
 - [ ] Tabla de atributos en capas grandes: hoy solo enseña lo descargado. ¿Recuento y
@@ -87,6 +87,11 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   sustituye siempre a su capa, también las de icono (`layerBaseVisible` de maps.jsx).
   Prueba `test_vista_activa_sustituye_su_capa_y_se_pinta_encima`.
 
+- 09/10 · Vistas `additional_info`: la web no mira `context_type` al pintar y su editor
+  solo crea vistas de elementos; en local no hay ninguna. El plugin las deshabilitaba;
+  ahora se abren como las demás. Prueba
+  `test_las_vistas_de_informacion_adicional_se_ofrecen_como_las_demas`.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión del usuario)_
@@ -102,6 +107,8 @@ _(lo que no es del plugin o pide una decisión del usuario)_
   y agregación son superposiciones y dejan la base, pero `layerBaseVisible` (maps.jsx
   1695-1710) oculta la base con CUALQUIER vista activa y esa rama nunca se alcanza. Lo que
   se ve es lo segundo. ¿Se corrige el comentario o se quiere de verdad la superposición?
+- `context_type = additional_info` en las vistas no lo usa nada de la web (solo existe en
+  el modelo y en el servicio). ¿Se retira o está previsto para algo?
 - Iconos de vista: mismo tamaño (metros, mínimo 8 px), pero en la web se ven más
   difuminados; no parece de datos. Sin tocar.
 - El usuario usa a la vez la pestaña de `localhost:3000`: para comparar sin estorbarle,

@@ -276,3 +276,23 @@ def test_vista_activa_sustituye_su_capa_y_se_pinta_encima(app_gui, monkeypatch):
         finally:
             proyecto.clear()
             connections.remove_connection("Integracion6")
+
+
+def test_las_vistas_de_informacion_adicional_se_ofrecen_como_las_demas(app_gui):
+    from geosian.gui.browser_dock import ROL_TIPO, TIPO_VISTA, GeosianBrowserDock
+
+    with FakeGeosian() as fake:
+        connections.save_connection("Integracion7", fake.url, "a@b.c")
+        connections.set_session("Integracion7", "tok-de-prueba", "jwt")
+        try:
+            panel = GeosianBrowserDock(IfaceFalso())
+            raiz = panel.arbol.topLevelItem(0)
+            panel._al_desplegar(raiz)
+            mapa = raiz.child(0).child(0)
+            panel._al_desplegar(mapa)
+            capa = mapa.child(0)
+            partes = [capa.child(i) for i in range(capa.childCount())][-1]
+            assert partes.text(0) == "Vista: Con partes"
+            assert partes.data(0, ROL_TIPO) == TIPO_VISTA
+        finally:
+            connections.remove_connection("Integracion7")

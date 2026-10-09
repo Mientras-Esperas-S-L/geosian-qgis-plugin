@@ -97,8 +97,3 @@ def _texto(valor):
         return "true" if valor else "false"
     return str(valor)
 
-
-def is_element_view(vista):
-    """Las vistas de información adicional muestran registros, no elementos."""
-    return (vista or {}).get("context_type", "elements") in ("", None, "elements")
-

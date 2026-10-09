@@ -53,8 +53,3 @@ def test_vista_vacia_no_filtra():
     assert views.filter_params({}) == ({}, [])
     assert views.filter_params({"query_groups": []}) == ({}, [])
 
-
-def test_vistas_de_informacion_adicional_no_son_de_elementos():
-    assert views.is_element_view({"context_type": "elements"})
-    assert not views.is_element_view({"context_type": "additional_info"})
-

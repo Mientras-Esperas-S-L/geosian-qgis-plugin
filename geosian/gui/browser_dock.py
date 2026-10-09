@@ -210,18 +210,17 @@ class GeosianBrowserDock(QDockWidget):
             )
             item.addChild(hijo)
             for vista in vistas.get(capa.get("id")) or []:
+                # Todas las vistas se abren igual, sea cual sea su context_type:
+                # la web no lo mira al pintarlas, y su editor solo crea vistas de
+                # elementos. Los filtros sobre información adicional ya se
+                # traducen a attr__<formulario>__<campo>.
                 nieto = QTreeWidgetItem([f"Vista: {vista.get('name')}"])
-                if views.is_element_view(vista):
-                    nieto.setData(0, ROL_TIPO, TIPO_VISTA)
-                    nieto.setData(
-                        0,
-                        ROL_DATOS,
-                        {"conexion": nombre, "mapa": mapa, "capa": capa, "vista": vista},
-                    )
-                else:
-                    # Muestra registros de información adicional, no elementos.
-                    nieto.setFlags(Qt.ItemFlag.ItemIsEnabled)
-                    nieto.setToolTip(0, "Vista de información adicional: todavía no se abre en QGIS.")
+                nieto.setData(0, ROL_TIPO, TIPO_VISTA)
+                nieto.setData(
+                    0,
+                    ROL_DATOS,
+                    {"conexion": nombre, "mapa": mapa, "capa": capa, "vista": vista},
+                )
                 hijo.addChild(nieto)
 
     # ------------------------------------------------------------------
