@@ -266,6 +266,9 @@ def _pagina_de_elementos(consulta, lasso=None):
             and min(xs) <= e["geometry"]["coordinates"][0] <= max(xs)
             and min(ys) <= e["geometry"]["coordinates"][1] <= max(ys)
         ]
+    if consulta.get("no_geometry") == ["true"]:
+        # Como la API desde el PR de no_geometry en /paginated/: los atributos, sin forma.
+        elementos = [{**e, "geometry": None} for e in elementos]
     pagina = int(consulta.get("page", ["1"])[0])
     return {"type": "FeatureCollection", "features": elementos if pagina == 1 else []}
 

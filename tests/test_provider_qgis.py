@@ -426,6 +426,26 @@ def test_capa_grande_sin_recuadro_carga_hasta_el_tope_y_avisa(capa_grande, servi
     assert any("la tabla muestra los primeros" in a for a in avisos)
 
 
+def test_la_tabla_de_una_capa_grande_pide_sin_geometria(capa_grande, servidor):
+    """La tabla no pinta formas: se piden solo los atributos (``no_geometry``)."""
+    servidor.peticiones.clear()
+    elementos = list(capa_grande.getFeatures())
+    assert len(elementos) == 3
+    assert all(c.get("no_geometry") == ["true"] for c in _pedidas_por_zona(servidor))
+
+    # «Ir al elemento» desde la tabla necesita su forma: se vuelve a pedir ese.
+    servidor.peticiones.clear()
+    [uno] = list(capa_grande.getFeatures(QgsFeatureRequest(1002)))
+    assert not uno.geometry().isNull()
+    assert [c["ids"] for r, c in servidor.peticiones if r == "/api/v1/geodata/paginated/"] == [["1002"]]
+
+    # Lo que no necesita forma no vuelve a la red.
+    servidor.peticiones.clear()
+    peticion = QgsFeatureRequest(1001).setFlags(QgsFeatureRequest.Flag.NoGeometry)
+    assert len(list(capa_grande.getFeatures(peticion))) == 1
+    assert servidor.peticiones == []
+
+
 def test_capa_grande_sugiere_escala(capa_grande):
     escala = capa_grande.dataProvider().suggested_min_scale()
     assert escala > 0

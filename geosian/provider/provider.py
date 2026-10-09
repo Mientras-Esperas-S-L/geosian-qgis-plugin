@@ -148,6 +148,9 @@ class GeosianProvider(QgsVectorDataProvider):
         self._by_zone = False
         self._zones = []
         self._tabla_cargada = False
+        # Elementos que llegaron sin forma (la tabla de una capa grande): si luego
+        # hace falta la forma de uno, se vuelve a pedir.
+        self._sin_forma = set()
         self._view = None
         self._filter = {}
         # Partes (información adicional): elementos cuyos partes ya se pidieron.
@@ -594,6 +597,8 @@ class GeosianProvider(QgsVectorDataProvider):
             self._attributes_from(propiedades, fid),
             propiedades.get("object_id"),
         )
+        if geojson:
+            self._sin_forma.discard(fid)
         return True
 
     def _attributes_from(self, propiedades, fid):
@@ -693,6 +698,7 @@ class GeosianProvider(QgsVectorDataProvider):
                 else server_params(expresion, self._attr_map)
             )
             self._cache.clear()
+            self._sin_forma.clear()
             self._zones = []
             self._loaded = False
             self._tabla_cargada = False
@@ -750,6 +756,7 @@ class GeosianProvider(QgsVectorDataProvider):
                 self._fallo(exc, "Recuperar la capa")
         with self._lock:
             self._cache.clear()
+            self._sin_forma.clear()
             self._zones = []
             self._loaded = False
             self._tabla_cargada = False
@@ -850,15 +857,16 @@ class GeosianProvider(QgsVectorDataProvider):
         return ids[:limite] if limite and limite > 0 else ids
 
     def _resolve_request(self, request):
+        con_forma = not request.flags() & QgsFeatureRequest.Flag.NoGeometry
         fid = request.filterFid()
         if fid is not None and fid >= 0:
-            self._ensure_ids([fid])
+            self._ensure_ids([fid], con_forma)
             return [fid] if fid in self._cache else []
 
         fids = request.filterFids()
         if fids:
             pedidos = [int(f) for f in fids]
-            self._ensure_ids(pedidos)
+            self._ensure_ids(pedidos, con_forma)
             return [f for f in pedidos if f in self._cache]
 
         if self._uri.info_name:
@@ -888,9 +896,14 @@ class GeosianProvider(QgsVectorDataProvider):
 
         return seleccion
 
-    def _ensure_ids(self, fids):
-        """Pide al servidor los elementos que no estén en la caché."""
-        faltan = [f for f in fids if f not in self._cache]
+    def _ensure_ids(self, fids, con_forma=True):
+        """Pide al servidor los elementos que no estén en la caché.
+
+        Con ``con_forma``, también los que llegaron sin ella (de la tabla).
+        """
+        faltan = [
+            f for f in fids if f not in self._cache or (con_forma and f in self._sin_forma)
+        ]
         if not faltan:
             return
         if self._loaded:
@@ -980,16 +993,20 @@ class GeosianProvider(QgsVectorDataProvider):
         total = 0
         try:
             while total < TABLE_CAP:
+                # La tabla no pinta formas: solo los atributos, que pesan mucho menos.
+                # Una API sin ``no_geometry`` lo ignora y las manda igual.
                 datos = self._client.geodata_paginated(
                     self._uri.layer_id,
                     page=pagina,
                     page_size=PAGE_SIZE,
                     data_type=self._uri.geometry_type,
-                    extra=self._extra(),
+                    extra={**self._extra(), "no_geometry": "true"},
                 )
                 elementos = _features_from(datos)
                 for elemento in elementos:
-                    self._store(elemento)
+                    if self._store(elemento) and not elemento.get("geometry"):
+                        fid = (elemento.get("properties") or {}).get("id", elemento.get("id"))
+                        self._sin_forma.add(int(fid))
                 total += len(elementos)
                 if len(elementos) < PAGE_SIZE:
                     break

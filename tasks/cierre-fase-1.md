@@ -56,7 +56,7 @@ plugin y empezar la fase de escritura.
       que cumplan algo) y globales de fecha, como parámetros de la URI y desde el panel.
 - [x] Fondos fijos del selector de la web (ortofoto PNOA y los demás que tenga la web),
       añadidos apagados como los propios del mapa.
-- [ ] Tabla de capas grandes: `no_geometry` en `/geodata/paginated/` (backend, su PR) y que
+- [x] Tabla de capas grandes: `no_geometry` en `/geodata/paginated/` (backend, su PR) y que
       el plugin lo use para la tabla sin recuadro.
 
 ### Compatibilidad, rendimiento y robustez
@@ -199,6 +199,19 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   vista; el oscuro pinta en 0,2 s con calles, rótulos, mar y edificios
   (`mando/cap/212-oscuro.png`); la ortofoto con calles pinta donde el IGN responde
   (`mando/cap/212-ortofoto-calles.png`), ver hallazgos.
+- 10/10 · Tabla de capas grandes sin geometría. Backend: `/geodata/paginated/` acepta
+  `no_geometry=true` (los constructores ya lo sabían hacer; faltaba leerlo y no anotar
+  `ST_AsGeoJSON`), rama `feat/paginated-no-geometry`, prueba
+  `test_paginated_sin_geometria.py` (fallaba), PR abierto sin fusionar. Plugin: la tabla de
+  una capa grande lo pide; lo que llega sin forma se apunta y, si después hace falta la
+  forma («ir al elemento»), se vuelve a pedir ese elemento; lo que no la necesita no va a
+  la red. Una API sin el cambio lo ignora y manda la forma: sigue funcionando. Prueba
+  `test_la_tabla_de_una_capa_grande_pide_sin_geometria` (fallaba). Medido en local con la
+  rama en una API temporal (`:8012`, parada al acabar): una página de 5.000 de la capa de
+  polígonos 319 de Nueva York, 18,5 MB y 0,82 s → 3,2 MB y 0,22 s; de puntos (327),
+  4,1 MB y 1,36 s → 3,6 MB y 0,97 s. En QGIS, la tabla de 50.000 árboles de Nueva York,
+  13,1 s → 11,3 s, e «ir al elemento» trae la forma en 0,04 s. Contra devel **no**: hasta
+  que se fusione el PR, devel lo ignora.
 
 ## Hallazgos para decidir
 
