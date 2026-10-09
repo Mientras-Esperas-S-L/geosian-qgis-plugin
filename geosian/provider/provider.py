@@ -20,6 +20,7 @@ from qgis.core import (
     QgsExpressionContext,
     QgsFeature,
     QgsFeatureRequest,
+    QgsFields,
     QgsGeometry,
     QgsJsonUtils,
     QgsMessageLog,
@@ -29,7 +30,7 @@ from qgis.core import (
     Qgis,
 )
 
-from ..core import connections, lad, media, views
+from ..core import connections, definitions, lad, media, views
 from ..core import schema as S
 from ..core.client import API_PREFIX
 from ..core.errors import (
@@ -158,6 +159,10 @@ class GeosianProvider(QgsVectorDataProvider):
         self._subset_expr = None
         self._subset_params = {}
         self._pasa = {}
+        # Lo que respondió la API al abrir la capa, para guardarlo; y lo guardado,
+        # cuando se abre sin sesión (``core/definitions.py``).
+        self._respuestas = {}
+        self._guardada = None
 
         try:
             self._uri = parse_uri(uri)
@@ -184,15 +189,20 @@ class GeosianProvider(QgsVectorDataProvider):
             if self._uri.subset and not self.setSubsetString(self._uri.subset):
                 self.log_warning(f"Filtro guardado no válido, se ignora: {self._uri.subset}")
         except AuthError:
-            # Lo normal al reabrir un proyecto días después: la capa no se pierde,
-            # queda «no disponible» y se recupera al volver a entrar.
+            # Lo normal al reabrir un proyecto días después. Con la definición
+            # guardada la capa abre vacía y con sus campos, sin que QGIS la dé por
+            # «no disponible»; sin ella, queda no disponible. En los dos casos se
+            # recupera al volver a entrar.
             connections.mark_expired(self._uri.connection)
             self._error = (
                 f"La sesión de «{self._uri.connection}» ha caducado o no es válida. "
                 "Hay que volver a entrar desde el panel de Geosian; las capas se "
                 "recuperan solas."
             )
-            self.log_error(self._error)
+            if self._abrir_sin_sesion():
+                self.log_warning(self._error)
+            else:
+                self.log_error(self._error)
         except NotFoundError:
             self._error = (
                 f"La capa {self._uri.layer_id} ya no existe en GCC o ha cambiado de mapa. "
@@ -220,24 +230,62 @@ class GeosianProvider(QgsVectorDataProvider):
     # Carga
     # ------------------------------------------------------------------
 
+    def _abrir_sin_sesion(self):
+        """Abre la capa con la definición guardada, sin elementos. ``False`` si no hay."""
+        guardada = definitions.load(self._uri.connection, self._client.base_url, self._uri)
+        if guardada is None:
+            return False
+        self._guardada = guardada
+        try:
+            self._load_definition()
+        except (GeosianError, AttributeError, KeyError, TypeError, ValueError) as exc:
+            self._guardada = None
+            self.log_warning(f"Definición guardada no válida: {exc}")
+            return False
+        self._valid = True
+        return True
+
+    def _pedir(self, nombre, funcion, *args):
+        """Una respuesta de la API para la definición: de la red o de lo guardado."""
+        if self._guardada is not None:
+            return self._guardada.get(nombre)
+        valor = funcion(*args)
+        self._respuestas[nombre] = valor
+        return valor
+
     def _load_definition(self):
         """Campos, tipo de geometría, extensión y recuento. Sin datos."""
+        self._respuestas = {}
         if self._uri.info_name:
             self._load_info_definition()
-            return
+        else:
+            self._load_layer_definition()
+        if self._guardada is None:
+            definitions.save(
+                self._uri.connection, self._client.base_url, self._uri, self._respuestas
+            )
+
+    def _load_layer_definition(self):
         if self._uri.view_id:
-            self._view = self._client.layer_view(self._uri.view_id)
+            self._view = self._pedir("vista", self._client.layer_view, self._uri.view_id) or {}
             self._filter, avisos = views.filter_params(self._view.get("filter_config"))
             for aviso in avisos:
                 self.log_warning(f"Vista «{self._view.get('name')}»: {aviso}")
-        definiciones = self._client.layer_attributes(self._uri.layer_id)
+        definiciones = self._pedir(
+            "definiciones", self._client.layer_attributes, self._uri.layer_id
+        )
         self._schema = self._pick_schema(definiciones)
         self._fields, self._attr_map = lad.build_fields(self._schema)
 
         metadatos = {}
         try:
             metadatos = (
-                self._client.layer_metadata(self._uri.layer_id, self._uri.map_id)
+                self._pedir(
+                    "metadatos",
+                    self._client.layer_metadata,
+                    self._uri.layer_id,
+                    self._uri.map_id,
+                )
                 or {}
             )
         except (NotFoundError, ForbiddenError):
@@ -266,7 +314,9 @@ class GeosianProvider(QgsVectorDataProvider):
 
     def _load_info_definition(self):
         """Una tabla sin geometría con los partes de un tipo."""
-        definiciones = self._client.layer_attributes(self._uri.layer_id)
+        definiciones = self._pedir(
+            "definiciones", self._client.layer_attributes, self._uri.layer_id
+        )
         esquema = self._pick_schema(definiciones)
         tipos = esquema.get("additional_information") or []
         info = next(
@@ -572,12 +622,16 @@ class GeosianProvider(QgsVectorDataProvider):
         return self.featureSource().getFeatures(request or QgsFeatureRequest())
 
     def fields(self):
-        return self._fields
+        # Nunca None: QGIS pregunta también a las capas que no abren, y un None
+        # en C++ tumba QGIS al leer el proyecto.
+        return self._fields if self._fields is not None else QgsFields()
 
     def wkbType(self):
         return self._wkb_type
 
     def featureCount(self):
+        if self._guardada is not None:
+            return 0  # sin sesión no hay elementos que enseñar
         if self._subset_expr is not None:
             if self._by_zone:
                 # Habría que bajar la capa entera para contarlos.
@@ -658,7 +712,18 @@ class GeosianProvider(QgsVectorDataProvider):
         return self._error
 
     def reloadData(self):
-        """Vacía la caché. Es el gancho del WebSocket y del botón de recargar."""
+        """Vacía la caché. Es el gancho del WebSocket y del botón de recargar.
+
+        Si la capa se abrió sin sesión, vuelve a pedir la definición: tras volver a
+        entrar, «recargar» es lo que la recupera.
+        """
+        if self._guardada is not None:
+            guardada, self._guardada = self._guardada, None
+            try:
+                self._load_definition()
+            except GeosianError as exc:
+                self._guardada = guardada
+                self._fallo(exc, "Recuperar la capa")
         with self._lock:
             self._cache.clear()
             self._zones = []
@@ -997,7 +1062,12 @@ class GeosianProvider(QgsVectorDataProvider):
         return connections.client_for(self._uri.connection)
 
     def _red(self):
-        """Si se puede ir a la red: tras un fallo de red, la conexión se pausa."""
+        """Si se puede ir a la red: tras un fallo de red, la conexión se pausa.
+
+        Abierta sin sesión no se pide nada hasta recargarla al volver a entrar.
+        """
+        if self._guardada is not None:
+            return False
         return not connections.is_offline(self._uri.connection)
 
     def _fallo(self, exc, que):

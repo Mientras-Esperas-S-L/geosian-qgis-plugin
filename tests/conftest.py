@@ -38,3 +38,16 @@ def app():
 def app_gui(app):
     """Alias: las pruebas de interfaz necesitan lo mismo que las demás."""
     return app
+
+
+@pytest.fixture(autouse=True)
+def estado_aparte(tmp_path, monkeypatch):
+    """Las definiciones guardadas, en una carpeta de la prueba y no en el perfil.
+
+    Y sin la pausa por falta de red que haya dejado otra prueba: dura 30 s y la
+    siguiente que use la misma conexión no descargaría nada.
+    """
+    from geosian.core import connections, definitions
+
+    monkeypatch.setattr(definitions, "DIRECTORIO", str(tmp_path / "definiciones"))
+    connections._sin_red.clear()

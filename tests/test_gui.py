@@ -790,6 +790,103 @@ def test_sesion_caducada_al_reabrir_y_recuperar_las_capas(app_gui):
             connections.remove_connection("Caducada")
 
 
+def test_al_reabrir_el_proyecto_sin_sesion_qgis_no_da_las_capas_por_perdidas(app_gui, tmp_path):
+    """QGIS manda las capas que no abren a su diálogo de «capas no disponibles». Las de
+    Geosian, ya abiertas antes en este equipo, abren vacías y vuelven al entrar."""
+    from qgis.core import QgsProject, QgsProjectBadLayerHandler, QgsVectorLayer
+
+    from geosian.gui import sesion
+    from geosian.provider.metadata import register_provider
+
+    class Anota(QgsProjectBadLayerHandler):
+        def __init__(self, nodos):
+            super().__init__()
+            self.nodos = nodos
+
+        def handleBadLayers(self, nodos):
+            self.nodos.extend(nodos)
+
+    register_provider()
+    proyecto = QgsProject.instance()
+    perdidas = []
+    with FakeGeosian() as fake:
+        try:
+            connections.save_connection("Reabre", fake.url, "a@b.c")
+            connections.set_session("Reabre", "tok-de-prueba", "jwt")
+            capa = QgsVectorLayer(
+                "geosian://Reabre/map/4/layer/11?geometry_type=points", "Arbolado", "geosian"
+            )
+            assert capa.isValid()
+            proyecto.addMapLayer(capa)
+            ruta = str(tmp_path / "p.qgz")
+            assert proyecto.write(ruta)
+            proyecto.clear()
+
+            connections.set_session("Reabre", "tok-caducado", "jwt")
+            sesion.clear_expired()
+            proyecto.setBadLayerHandler(Anota(perdidas))
+            assert proyecto.read(ruta)
+            assert perdidas == []
+            [reabierta] = proyecto.mapLayers().values()
+            assert reabierta.isValid() and reabierta.featureCount() == 0
+            assert sesion.expired() == {"Reabre"}
+
+            connections.set_session("Reabre", "tok-de-prueba", "jwt")
+            sesion.repair_layers("Reabre")
+            assert reabierta.featureCount() == 3
+            assert sesion.expired() == set()
+        finally:
+            proyecto.setBadLayerHandler(QgsProjectBadLayerHandler())
+            proyecto.clear()
+            sesion.clear_expired()
+            connections.remove_connection("Reabre")
+
+
+def test_un_proyecto_con_una_capa_que_no_abre_se_lee_sin_caerse(app_gui, tmp_path):
+    """Sin definición guardada la capa no abre: QGIS la manda a su diálogo, sin caerse."""
+    from qgis.core import QgsProject, QgsProjectBadLayerHandler, QgsVectorLayer
+
+    from geosian.core import definitions
+    from geosian.gui import sesion
+    from geosian.provider.metadata import register_provider
+
+    class Anota(QgsProjectBadLayerHandler):
+        def __init__(self, nodos):
+            super().__init__()
+            self.nodos = nodos
+
+        def handleBadLayers(self, nodos):
+            self.nodos.extend(nodos)
+
+    register_provider()
+    proyecto = QgsProject.instance()
+    perdidas = []
+    with FakeGeosian() as fake:
+        try:
+            connections.save_connection("SinCopia", fake.url, "a@b.c")
+            connections.set_session("SinCopia", "tok-de-prueba", "jwt")
+            capa = QgsVectorLayer(
+                "geosian://SinCopia/map/4/layer/11?geometry_type=points", "Arbolado", "geosian"
+            )
+            proyecto.addMapLayer(capa)
+            ruta = str(tmp_path / "p.qgz")
+            assert proyecto.write(ruta)
+            proyecto.clear()
+            definitions.forget("SinCopia")
+
+            connections.set_session("SinCopia", "tok-caducado", "jwt")
+            proyecto.setBadLayerHandler(Anota(perdidas))
+            assert proyecto.read(ruta)
+            assert len(perdidas) == 1
+            [reabierta] = proyecto.mapLayers().values()
+            assert not reabierta.isValid()
+        finally:
+            proyecto.setBadLayerHandler(QgsProjectBadLayerHandler())
+            proyecto.clear()
+            sesion.clear_expired()
+            connections.remove_connection("SinCopia")
+
+
 def test_volver_a_entrar_recupera_las_capas_caducadas(app_gui, monkeypatch):
     from geosian.gui import browser_dock, sesion
 
@@ -803,10 +900,13 @@ def test_volver_a_entrar_recupera_las_capas_caducadas(app_gui, monkeypatch):
         def exec(self):
             return True
 
+    quitados = []
+    monkeypatch.setattr(sesion, "dismiss_reconnect", lambda iface, nombre: quitados.append(nombre))
     monkeypatch.setattr(browser_dock, "ConnectionDialog", DialogoQueEntra)
     panel = browser_dock.GeosianBrowserDock(IfaceFalso())
     panel._pedir_reconexion("Caducada")
     assert reparadas == ["Caducada"]
+    assert quitados == ["Caducada"]
 
 
 def test_al_abrir_un_proyecto_con_sesion_caducada_se_ofrece_entrar(app_gui):
@@ -848,6 +948,38 @@ def test_al_abrir_un_proyecto_con_sesion_caducada_se_ofrece_entrar(app_gui):
     boton.click()
     assert pedidas == ["Caducada"]
     conexiones.clear_expired()
+
+
+def test_el_aviso_de_volver_a_entrar_no_se_repite_mientras_se_ve(app_gui):
+    """Al abrir el proyecto avisan la primera caducidad y el «proyecto leído»: un aviso."""
+    from qgis.gui import QgsMessageBar
+
+    from geosian.core import connections as conexiones
+    from geosian.gui import sesion
+
+    class Iface:
+        def __init__(self):
+            self.barra = QgsMessageBar()
+
+        def messageBar(self):
+            return self.barra
+
+    iface = Iface()
+    conexiones.clear_expired()
+    conexiones.mark_expired("Doble")
+    try:
+        sesion.offer_reconnect(iface, lambda nombre: None)
+        sesion.offer_reconnect(iface, lambda nombre: None)
+        assert len(iface.barra.items()) == 1
+        # Cerrado el aviso, vuelve a salir si hace falta.
+        iface.barra.clearWidgets()
+        sesion.offer_reconnect(iface, lambda nombre: None)
+        assert len(iface.barra.items()) == 1
+        # Y al volver a entrar se quita: las capas ya tienen datos.
+        sesion.dismiss_reconnect(iface, "Doble")
+        assert iface.barra.items() == []
+    finally:
+        conexiones.clear_expired()
 
 
 def test_la_sesion_que_caduca_a_mitad_avisa_una_vez(app_gui):

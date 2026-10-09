@@ -284,6 +284,7 @@ class GeosianBrowserDock(QDockWidget):
         if dialogo.exec():
             # Las capas que se quedaron sin datos por la sesión vuelven solas.
             sesion.repair_layers(nombre)
+            sesion.dismiss_reconnect(self.iface, nombre)
             self.refrescar()
 
     def _eliminar(self, nombre):

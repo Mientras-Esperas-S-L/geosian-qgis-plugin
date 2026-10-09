@@ -11,6 +11,7 @@ import time
 
 from qgis.core import QgsApplication, QgsAuthMethodConfig, QgsSettings
 
+from . import definitions
 from .client import GeosianClient
 
 GROUP = "geosian/connections"
@@ -88,6 +89,7 @@ def remove_connection(nombre):
     ajustes.endGroup()
     _memoria.pop(nombre, None)
     _clientes.pop(nombre, None)
+    definitions.forget(nombre)
 
 
 def get_credentials(nombre):

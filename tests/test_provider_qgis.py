@@ -854,3 +854,49 @@ def test_capa_de_un_mapa_sin_permiso_aunque_la_api_de_lista_vacia(servidor):
     capa = QgsVectorLayer(f"geosian://{CONEXION}/map/5/layer/51?geometry_type=points", "x", "geosian")
     assert not capa.isValid()
     assert "permiso" in capa.dataProvider().error()
+
+
+def test_con_la_sesion_caducada_abre_vacia_con_los_campos_que_ya_tenia(capa):
+    """Reabrir un proyecto días después: la capa no queda «no disponible» (QGIS
+    sacaría su diálogo y, al guardar, perdería la configuración de sus campos)."""
+    connections.clear_expired()
+    campos = capa.fields().names()
+    connections.set_session(CONEXION, "tok-caducado", "jwt")
+    try:
+        reabierta = QgsVectorLayer(capa.source(), "Arbolado", "geosian")
+        assert reabierta.isValid(), reabierta.dataProvider().error()
+        assert reabierta.fields().names() == campos
+        assert reabierta.featureCount() == 0
+        assert list(reabierta.getFeatures()) == []
+        assert CONEXION in connections.expired()
+
+        # Al volver a entrar, recargar la recupera con sus datos.
+        connections.set_session(CONEXION, "tok-de-prueba", "jwt-de-prueba")
+        reabierta.reload()
+        assert reabierta.featureCount() == 3
+        assert len(list(reabierta.getFeatures())) == 3
+    finally:
+        connections.set_session(CONEXION, "tok-de-prueba", "jwt-de-prueba")
+        connections.clear_expired()
+
+
+def test_sin_definicion_guardada_sigue_sin_estar_disponible(servidor):
+    connections.set_session(CONEXION, "tok-caducado", "jwt")
+    try:
+        capa = QgsVectorLayer(
+            f"geosian://{CONEXION}/map/4/layer/11?geometry_type=points", "Arbolado", "geosian"
+        )
+        assert not capa.isValid()
+    finally:
+        connections.set_session(CONEXION, "tok-de-prueba", "jwt-de-prueba")
+        connections.clear_expired()
+
+
+def test_quitar_la_conexion_borra_sus_definiciones(capa):
+    from geosian.core import definitions
+
+    uri = capa.dataProvider().layer_uri
+    base = connections.client_for(CONEXION).base_url
+    assert definitions.load(CONEXION, base, uri) is not None
+    definitions.forget(CONEXION)
+    assert definitions.load(CONEXION, base, uri) is None

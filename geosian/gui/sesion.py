@@ -1,9 +1,11 @@
 """Sesiones caducadas: avisar y recuperar las capas al volver a entrar.
 
-Al reabrir un proyecto con la sesión caducada, sus capas de Geosian quedan «no
-disponibles» (``provider.py`` lo anota en ``connections.mark_expired``). QGIS
-conserva su estilo, su formulario y su sitio en el árbol, así que basta con
-volver a crear el proveedor cuando haya sesión.
+Al reabrir un proyecto con la sesión caducada, sus capas de Geosian abren vacías
+con la definición guardada en este equipo (``core/definitions.py``) y basta con
+recargarlas al volver a entrar. Las que nunca se abrieron aquí quedan «no
+disponibles» y se vuelven a crear. En los dos casos ``provider.py`` lo anota en
+``connections.mark_expired`` y QGIS conserva su estilo, su formulario y su sitio
+en el árbol.
 """
 
 from qgis.core import Qgis, QgsDataProvider, QgsProject
@@ -61,16 +63,36 @@ def offer_reconnect(iface, pedir):
     Args:
         pedir: lo que abre el diálogo de la conexión; recibe su nombre.
     """
+    barra = iface.messageBar()
+    # Al abrir un proyecto avisan la primera caducidad y el «proyecto leído»; si
+    # el aviso de esa conexión sigue a la vista, no se repite.
+    a_la_vista = {
+        w.property(_PROPIEDAD) for w in getattr(barra, "items", list)() if w is not None
+    }
     for nombre in sorted(connections.expired()):
-        aviso = iface.messageBar().createMessage(
+        if nombre in a_la_vista:
+            continue
+        aviso = barra.createMessage(
             "Geosian",
             f"La sesión de «{nombre}» ha caducado: sus capas están sin datos hasta "
             "volver a entrar.",
         )
+        aviso.setProperty(_PROPIEDAD, nombre)
         boton = QPushButton("Volver a entrar")
         boton.clicked.connect(lambda _=False, n=nombre: pedir(n))
         aviso.layout().addWidget(boton)
-        iface.messageBar().pushWidget(aviso, Qgis.Warning)
+        barra.pushWidget(aviso, Qgis.Warning)
+
+
+_PROPIEDAD = "geosian_volver_a_entrar"
+
+
+def dismiss_reconnect(iface, nombre):
+    """Quita el aviso de «Volver a entrar» de esa conexión, si está a la vista."""
+    barra = iface.messageBar()
+    for aviso in list(getattr(barra, "items", list)()):
+        if aviso is not None and aviso.property(_PROPIEDAD) == nombre:
+            barra.popWidget(aviso)
 
 
 class _Avisador(QObject):
