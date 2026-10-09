@@ -801,3 +801,22 @@ def test_al_abrir_un_proyecto_con_sesion_caducada_se_ofrece_entrar(app_gui):
     boton.click()
     assert pedidas == ["Caducada"]
     conexiones.clear_expired()
+
+
+def test_la_sesion_que_caduca_a_mitad_avisa_una_vez(app_gui):
+    from qgis.PyQt.QtCore import QCoreApplication
+
+    from geosian.core import connections as conexiones
+    from geosian.gui import sesion
+
+    avisadas = []
+    conexiones.clear_expired()
+    sesion.watch_expired(avisadas.append)
+    try:
+        conexiones.mark_expired("Mitad")
+        conexiones.mark_expired("Mitad")  # otra capa de la misma conexión
+        QCoreApplication.processEvents()
+        assert avisadas == ["Mitad"]
+    finally:
+        sesion.unwatch_expired()
+        conexiones.clear_expired()

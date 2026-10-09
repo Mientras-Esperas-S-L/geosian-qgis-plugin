@@ -73,7 +73,7 @@ vez de solo anotarlos.
 - [x] Estructura publicada del mapa (`map_structure`, modo básico) con grupos anidados.
 - [x] Tiempo real (WebSocket `/ws/layer-data/`): refrescar lo que cambie en la web.
 - [x] Proyecto guardado: reabrir, refrescar credenciales caducadas, mensajes claros.
-- [ ] Errores: 401, 403, red caída, capa borrada; ninguno debe colgar QGIS.
+- [x] Errores: 401, 403, red caída, capa borrada; ninguno debe colgar QGIS.
 
 ## Hecho
 
@@ -194,6 +194,18 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   a entrar, sale un aviso con «Volver a entrar» y, al hacerlo, las capas se recuperan sin
   rehacer el proyecto. Pruebas `test_el_filtro_*`, `test_al_reabrir_*`,
   `test_sesion_caducada_*`, `test_volver_a_entrar_*` y `test_al_abrir_un_proyecto_*`.
+
+- 09/10 · Errores. Seis arreglos, cada uno con su prueba:
+  - El tiempo de espera de las peticiones no se aplicaba (`QgsBlockingNetworkRequest`
+    usaba el de QGIS, 60 s); un servidor que no contesta congelaba QGIS un minuto.
+  - Sin red, la conexión se pausa 30 s: la tabla y la ficha piden datos sin parar y
+    cada intento congelaba. Con la red caída, abrir o leer falla al momento.
+  - Capa borrada o sacada del mapa: «ya no existe en GCC», no una capa válida y vacía
+    (la API da una lista vacía en `/layer-attributes/`, no un 404).
+  - Sin permiso: lo dice. Con la sesión caducada a mitad, la capa no se queda vacía
+    para siempre: sale el aviso de «Volver a entrar» (una vez) y al hacerlo se recarga.
+  - La capa usaba el cliente de cuando se abrió; tras volver a entrar seguía con la
+    credencial vieja. Ahora pide siempre el vigente.
 
 ## Hallazgos para decidir
 

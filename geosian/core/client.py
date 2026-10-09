@@ -205,7 +205,10 @@ class GeosianClient:
         for capa in self.layers(map_id):
             if isinstance(capa, dict) and capa.get("id") == layer_id:
                 return capa.get("tile_metadata") or {}
-        return {}
+        # Ni está en el mapa ni el usuario la ve en él. La API no da 404 por la
+        # capa en /layer-attributes/ (devuelve una lista vacía), así que este es
+        # el sitio donde se sabe que ya no existe.
+        raise NotFoundError(404, f"La capa {layer_id} no está en el mapa {map_id}", b"", "")
 
     def layer_attributes(self, layer_id):
         """Definiciones de atributos (LAD) de una capa, con su esquema.

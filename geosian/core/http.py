@@ -109,6 +109,10 @@ class QgisTransport(Transport):
             QNetworkRequest.Attribute.CacheSaveControlAttribute, False
         )
 
+        # El tiempo de espera pedido, no el general de QGIS (60 s por omisión):
+        # estas peticiones bloquean la interfaz mientras duran.
+        request.setTransferTimeout(int(timeout * 1000))
+
         blocking = QgsBlockingNetworkRequest()
 
         # El cuerpo va en un QBuffer y no en un QByteArray: QGIS 4 espera un

@@ -32,7 +32,13 @@ from qgis.core import (
 from ..core import connections, lad, media, views
 from ..core import schema as S
 from ..core.client import API_PREFIX
-from ..core.errors import AuthError, GeosianError
+from ..core.errors import (
+    AuthError,
+    ForbiddenError,
+    GeosianError,
+    NetworkError,
+    NotFoundError,
+)
 from .feature_source import GeosianFeatureSource
 from .subset import parse as parse_subset
 from .subset import server_params
@@ -160,7 +166,6 @@ class GeosianProvider(QgsVectorDataProvider):
             self.log_error(f"URI no válida: {exc}")
             return
 
-        self._client = connections.client_for(self._uri.connection)
         if self._client is None:
             self._error = (
                 f"No hay ninguna conexión guardada con el nombre "
@@ -187,6 +192,22 @@ class GeosianProvider(QgsVectorDataProvider):
                 "Hay que volver a entrar desde el panel de Geosian; las capas se "
                 "recuperan solas."
             )
+            self.log_error(self._error)
+        except NotFoundError:
+            self._error = (
+                f"La capa {self._uri.layer_id} ya no existe en GCC o ha cambiado de mapa. "
+                "Quítala del proyecto y vuelve a añadirla desde el panel de Geosian."
+            )
+            self.log_error(self._error)
+        except ForbiddenError:
+            self._error = (
+                f"No tienes permiso para ver la capa {self._uri.layer_id} en GCC. "
+                "Pídelo a quien administre el mapa."
+            )
+            self.log_error(self._error)
+        except NetworkError as exc:
+            connections.mark_offline(self._uri.connection)
+            self._error = f"No se pudo conectar con GCC: {exc}"
             self.log_error(self._error)
         except GeosianError as exc:
             self._error = str(exc)
@@ -219,6 +240,8 @@ class GeosianProvider(QgsVectorDataProvider):
                 self._client.layer_metadata(self._uri.layer_id, self._uri.map_id)
                 or {}
             )
+        except NotFoundError:
+            raise
         except GeosianError as exc:
             # Sin metadatos se puede trabajar: el recuento y la extensión se
             # calculan al cargar los datos. No merece la pena fallar por esto.
@@ -316,11 +339,16 @@ class GeosianProvider(QgsVectorDataProvider):
                 self._load_all()
 
     def _load_all(self):
+        if not self._red():
+            return
         try:
             total = self._download_all()
         except GeosianError as exc:
-            self.log_error(f"No se pudieron descargar los datos: {exc}")
-            self._loaded = True
+            self._fallo(exc, "No se pudieron descargar los datos")
+            # Sin red se vuelve a intentar pasada la pausa; con otro error no,
+            # para no repetir la misma petición fallida en cada repintado.
+            if not isinstance(exc, NetworkError):
+                self._loaded = True
             return
 
         self._loaded = True
@@ -461,10 +489,12 @@ class GeosianProvider(QgsVectorDataProvider):
                     fid for fid, r in self._cache.items() if r.attributes[indice] == gid
                 ]
                 continue
+            if not self._red():
+                return
             try:
                 self._partes_de[gid] = self._download_partes(geodata_id=gid)
             except GeosianError as exc:
-                self.log_warning(f"No se pudieron pedir los partes del elemento {gid}: {exc}")
+                self._fallo(exc, f"No se pudieron pedir los partes del elemento {gid}")
                 return
 
     def _store(self, elemento):
@@ -767,6 +797,8 @@ class GeosianProvider(QgsVectorDataProvider):
             # Ya se descargó todo: lo que falta es que no existe o que el
             # usuario no lo puede ver.
             return
+        if not self._red():
+            return
         try:
             datos = self._client.geodata_paginated(
                 self._uri.layer_id,
@@ -778,10 +810,12 @@ class GeosianProvider(QgsVectorDataProvider):
             for elemento in _features_from(datos):
                 self._store(elemento)
         except GeosianError as exc:
-            self.log_warning(f"No se pudieron pedir elementos sueltos: {exc}")
+            self._fallo(exc, "No se pudieron pedir elementos sueltos")
 
     def _ensure_zone(self, recuadro):
         """Trae lo que cae en un recuadro, si no se trajo ya."""
+        if not self._red():
+            return
         for zona in self._zones:
             if zona.contains(recuadro):
                 return
@@ -832,14 +866,14 @@ class GeosianProvider(QgsVectorDataProvider):
                     return
                 pagina += 1
         except GeosianError as exc:
-            self.log_warning(f"No se pudo traer la zona: {exc}")
+            self._fallo(exc, "No se pudo traer la zona")
             return
 
         self._zones.append(QgsRectangle(*area))
 
     def _ensure_tabla(self):
         """Carga hasta TABLE_CAP elementos de una capa grande, por páginas."""
-        if self._tabla_cargada:
+        if self._tabla_cargada or not self._red():
             return
         self._tabla_cargada = True
         pagina = 1
@@ -861,7 +895,9 @@ class GeosianProvider(QgsVectorDataProvider):
                     break
                 pagina += 1
         except GeosianError as exc:
-            self.log_warning(f"No se pudo cargar la tabla: {exc}")
+            self._fallo(exc, "No se pudo cargar la tabla")
+            if isinstance(exc, NetworkError):
+                self._tabla_cargada = False
             return
         if self._feature_count > total:
             self.log_warning(
@@ -943,6 +979,39 @@ class GeosianProvider(QgsVectorDataProvider):
         return self._uri
 
     # ------------------------------------------------------------------
+
+    @property
+    def _client(self):
+        """El cliente vigente de la conexión, no el de cuando se abrió la capa.
+
+        Al volver a entrar se crea uno nuevo con la sesión nueva; si la capa se
+        quedara con el viejo, seguiría pidiendo con la credencial caducada.
+        """
+        return connections.client_for(self._uri.connection)
+
+    def _red(self):
+        """Si se puede ir a la red: tras un fallo de red, la conexión se pausa."""
+        return not connections.is_offline(self._uri.connection)
+
+    def _fallo(self, exc, que):
+        """Un fallo al pedir datos: se anota lo que toca y se registra.
+
+        Sin red, la conexión entera se pausa un rato (cada intento bloquea la
+        interfaz hasta agotar la espera); con la sesión rechazada, la conexión
+        queda para volver a entrar.
+        """
+        if isinstance(exc, NetworkError):
+            connections.mark_offline(self._uri.connection)
+            self.log_warning(
+                f"{que}: sin conexión con GCC. Se reintenta dentro de "
+                f"{connections.PAUSA_SIN_RED} s. ({exc})"
+            )
+            return
+        if isinstance(exc, AuthError):
+            connections.mark_expired(self._uri.connection)
+            self.log_warning(f"{que}: la sesión de «{self._uri.connection}» ha caducado.")
+            return
+        self.log_warning(f"{que}: {exc}")
 
     def log_error(self, mensaje):
         QgsMessageLog.logMessage(mensaje, LOG_TAG, Qgis.Critical)

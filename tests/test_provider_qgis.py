@@ -756,3 +756,88 @@ def test_el_filtro_se_conserva_al_guardar_y_reabrir_el_proyecto(capa, tmp_path):
     assert reabierta.subsetString() == "\"especie\" = 'Tilia platyphyllos'"
     assert [f["id"] for f in reabierta.getFeatures()] == [1002]
     proyecto.clear()
+
+
+# ----------------------------------------------------------------------
+# Errores: ninguno debe colgar QGIS y el mensaje tiene que decir qué pasa
+# ----------------------------------------------------------------------
+
+def test_capa_borrada_en_gcc(servidor):
+    capa = QgsVectorLayer(f"geosian://{CONEXION}/map/4/layer/999?geometry_type=points", "x", "geosian")
+    assert not capa.isValid()
+    assert "ya no existe" in capa.dataProvider().error()
+
+
+def test_capa_sin_permiso(servidor):
+    capa = QgsVectorLayer(f"geosian://{CONEXION}/map/5/layer/50?geometry_type=points", "x", "geosian")
+    assert not capa.isValid()
+    assert "permiso" in capa.dataProvider().error()
+
+
+def test_sesion_caducada_a_mitad_no_deja_la_capa_vacia_para_siempre(capa, servidor):
+    connections.clear_expired()
+    connections.set_session(CONEXION, "tok-revocado", "jwt")
+    capa.dataProvider().reloadData()
+
+    assert list(capa.getFeatures()) == []
+    assert CONEXION in connections.expired()
+
+    # Al volver a entrar, la capa vuelve a pedir sus datos.
+    from geosian.gui import sesion
+
+    connections.set_session(CONEXION, "tok-de-prueba", "jwt")
+    sesion.repair_layers(CONEXION, [capa])
+    assert sorted(f["id"] for f in capa.getFeatures()) == [1001, 1002, 1003]
+    connections.clear_expired()
+
+
+def test_red_caida_no_reintenta_en_cada_peticion(capa, servidor):
+    import time
+
+    proveedor = capa.dataProvider()
+    servidor.__exit__()  # el servidor deja de contestar
+    proveedor.reloadData()
+
+    inicio = time.monotonic()
+    assert list(capa.getFeatures()) == []
+    # Tras el primer fallo, la capa espera un poco antes de volver a la red: la
+    # tabla de atributos y la ficha piden datos sin parar y cada intento congela.
+    llamadas = []
+    original = proveedor._client._get
+    proveedor._client._get = lambda *a, **k: (llamadas.append(a), original(*a, **k))[1]
+    for _ in range(5):
+        proveedor.reloadData()
+        list(capa.getFeatures())
+    assert llamadas == []
+    assert time.monotonic() - inicio < 5
+
+
+def test_servidor_que_no_contesta_respeta_el_tiempo_de_espera(app):
+    import socket
+    import time
+
+    from geosian.core.client import GeosianClient
+    from geosian.core.errors import NetworkError
+    from geosian.core.http import QgisTransport
+
+    mudo = socket.socket()
+    mudo.bind(("127.0.0.1", 0))
+    mudo.listen(1)  # acepta conexiones y no contesta nunca
+    try:
+        cliente = GeosianClient(
+            f"http://127.0.0.1:{mudo.getsockname()[1]}", transport=QgisTransport(), timeout=1
+        )
+        inicio = time.monotonic()
+        with pytest.raises(NetworkError):
+            cliente.maps()
+        assert time.monotonic() - inicio < 5
+    finally:
+        mudo.close()
+
+
+def test_capa_que_ya_no_esta_en_el_mapa(servidor):
+    # La API contesta a /layer-attributes/ de una capa inexistente con una lista
+    # vacía, no con un 404: la capa se abría válida y vacía.
+    capa = QgsVectorLayer(f"geosian://{CONEXION}/map/4/layer/777?geometry_type=points", "x", "geosian")
+    assert not capa.isValid()
+    assert "ya no existe" in capa.dataProvider().error()

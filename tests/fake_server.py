@@ -357,6 +357,14 @@ class Handler(BaseHTTPRequestHandler):
         elif ruta == "/api/v1/layer-views/7/":
             self._json(VISTA_TILOS)
 
+        elif ruta == "/api/v1/layer-attributes/" and consulta.get("layer_id") == ["999"]:
+            # Una capa borrada en GCC.
+            self._json({"detail": "No encontrado."}, 404)
+
+        elif ruta == "/api/v1/layer-attributes/" and consulta.get("layer_id") == ["50"]:
+            # Una capa de un mapa sin permiso.
+            self._json({"detail": "No tiene permiso para ver esta capa."}, 403)
+
         elif ruta == "/api/v1/layer-attributes/":
             self._json(
                 [

@@ -38,6 +38,8 @@ class GeosianPlugin:
         realtime_hub.watch_project(self.iface)
         # Un proyecto reabierto con la sesión caducada: ofrecer volver a entrar.
         self.iface.projectRead.connect(self._tras_abrir_proyecto)
+        # Y si caduca a mitad de trabajo, lo mismo.
+        sesion.watch_expired(lambda _nombre: self._tras_abrir_proyecto())
 
         self.dock = GeosianBrowserDock(self.iface, self.iface.mainWindow())
         self.iface.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock)
@@ -85,6 +87,7 @@ class GeosianPlugin:
 
     def unload(self):
         realtime_hub.unwatch_project()
+        sesion.unwatch_expired()
         try:
             self.iface.projectRead.disconnect(self._tras_abrir_proyecto)
         except TypeError:
