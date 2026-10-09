@@ -131,6 +131,16 @@ def set_session(nombre, token, jwt=None):
     _clientes.pop(nombre, None)
 
 
+def cached_client(nombre):
+    """El cliente de una conexión si ya se creó, sin crearlo.
+
+    Crear uno lee la sesión del almacén de credenciales, y eso puede pedir la
+    contraseña maestra de QGIS. Lo que no necesite hablar con el servidor, como
+    repintar el panel, no debe provocarlo.
+    """
+    return _clientes.get(nombre)
+
+
 def client_for(nombre):
     """Cliente listo para usar, reutilizado entre capas de la misma conexión.
 

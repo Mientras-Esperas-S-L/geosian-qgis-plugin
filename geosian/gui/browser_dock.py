@@ -119,7 +119,7 @@ class GeosianBrowserDock(QDockWidget):
     def refrescar(self):
         self.arbol.clear()
         for nombre in connections.list_connections():
-            cliente = connections.client_for(nombre)
+            cliente = connections.cached_client(nombre)
             if cliente is not None:
                 cliente.forget_layers()
             item = QTreeWidgetItem([nombre])

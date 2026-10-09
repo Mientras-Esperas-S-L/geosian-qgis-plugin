@@ -209,7 +209,7 @@ def test_la_vista_cuelga_de_su_capa_y_se_pinta_con_su_estilo(app_gui):
             assert vista.data(0, ROL_TIPO) == TIPO_VISTA
 
             panel.añadir_capa(vista.data(0, ROL_DATOS))
-            capa = next(iter(proyecto.mapLayers().values()))
+            capa = next(c for c in proyecto.mapLayers().values() if c.isSpatial())
             assert capa.name() == "Arbolado · Tilos"
             assert capa.featureCount() == 1
             assert capa.renderer().symbol().color().name() == "#ff0000"
@@ -360,3 +360,23 @@ def test_los_partes_de_la_capa_salen_en_su_ficha(app_gui):
         finally:
             proyecto.clear()
             connections.remove_connection("Partes")
+
+
+def test_abrir_el_panel_no_toca_el_almacen_de_credenciales(app_gui, monkeypatch):
+    """Leer una sesión guardada puede pedir la contraseña maestra de QGIS. Al arrancar
+    QGIS no se debe pedir nada: solo cuando el usuario despliega la conexión."""
+    from geosian.gui.browser_dock import GeosianBrowserDock
+
+    connections.save_connection("SinTocar", "http://localhost:9", "a@b.c")
+    connections._clientes.pop("SinTocar", None)
+
+    def prohibido(_nombre):
+        raise AssertionError("se leyó el almacén de credenciales al abrir el panel")
+
+    monkeypatch.setattr(connections, "get_credentials", prohibido)
+    try:
+        panel = GeosianBrowserDock(IfaceFalso())
+        panel.refrescar()
+    finally:
+        monkeypatch.undo()
+        connections.remove_connection("SinTocar")
