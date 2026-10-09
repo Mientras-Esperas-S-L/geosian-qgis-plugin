@@ -581,3 +581,33 @@ def test_menu_de_la_capa_cambia_la_etiqueta(app_gui):
         finally:
             QgsProject.instance().clear()
             connections.remove_connection("Etiquetas")
+
+
+def test_informacion_adicional_va_al_final_del_mapa(app_gui):
+    """El grupo se crea al añadir la primera capa con partes; las capas que vienen
+    después quedaban debajo de él, en medio del mapa."""
+    from qgis.core import QgsProject, QgsVectorLayer
+
+    from geosian.gui.browser_dock import GRUPO_PARTES, _partes_al_final
+
+    proyecto = QgsProject.instance()
+    proyecto.clear()
+    try:
+        mapa = proyecto.layerTreeRoot().addGroup("Mapa de ejemplo")
+        partes = mapa.addGroup(GRUPO_PARTES)
+        partes.setExpanded(False)
+        tabla = QgsVectorLayer("None?field=geodata_id:integer", "Arbolado · Parte de poda", "memory")
+        proyecto.addMapLayer(tabla, False)
+        partes.addLayer(tabla)
+        mobiliario = QgsVectorLayer("Point?crs=EPSG:4326", "Mobiliario", "memory")
+        proyecto.addMapLayer(mobiliario, False)
+        mapa.addLayer(mobiliario)
+
+        _partes_al_final(mapa)
+
+        assert [n.name() for n in mapa.children()] == ["Mobiliario", GRUPO_PARTES]
+        movido = mapa.children()[-1]
+        assert not movido.isExpanded()
+        assert [n.name() for n in movido.findLayers()] == ["Arbolado · Parte de poda"]
+    finally:
+        proyecto.clear()

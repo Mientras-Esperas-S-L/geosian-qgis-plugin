@@ -13,6 +13,7 @@ from urllib.parse import quote
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
+    QgsLayerTreeGroup,
     QgsMapBoxGlStyleConverter,
     QgsMapLayerType,
     QgsProject,
@@ -369,6 +370,7 @@ class GeosianBrowserDock(QDockWidget):
 
         de_vistas = []
         poblar(grupo, maptree.layer_tree(ajustes, list(por_id)))
+        _partes_al_final(grupo)
 
         capas_qgis = [
             n.layer() for n in grupo.findLayers()
@@ -711,6 +713,23 @@ def _grupo_de_partes(grupo):
     nuevo = destino.addGroup(GRUPO_PARTES)
     nuevo.setExpanded(False)
     return nuevo
+
+
+def _partes_al_final(grupo_mapa):
+    """Lleva «Información adicional» al final del mapa.
+
+    Se crea al añadir la primera capa con partes, y las que se añaden después
+    quedaban debajo, en medio del árbol del mapa.
+    """
+    partes = next(
+        (n for n in grupo_mapa.children()
+         if isinstance(n, QgsLayerTreeGroup) and n.name() == GRUPO_PARTES),
+        None,
+    )
+    if partes is None or grupo_mapa.children()[-1] is partes:
+        return
+    grupo_mapa.addChildNode(partes.clone())
+    grupo_mapa.removeChildNode(partes)
 
 
 def _extension_de(capas):

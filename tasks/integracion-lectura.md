@@ -70,7 +70,7 @@ vez de solo anotarlos.
 - [x] Etiquetas: las que la web permite encender, no solo las de por defecto.
 - [x] Mapa base: equivalente al GEOSIAN vectorial (estilo MapLibre) o, al menos, el que
       tenga elegido el mapa (`basemaps[]`).
-- [ ] Estructura publicada del mapa (`map_structure`, modo básico) con grupos anidados.
+- [x] Estructura publicada del mapa (`map_structure`, modo básico) con grupos anidados.
 - [ ] Tiempo real (WebSocket `/ws/layer-data/`): refrescar lo que cambie en la web.
 - [ ] Proyecto guardado: reabrir, refrescar credenciales caducadas, mensajes claros.
 - [ ] Errores: 401, 403, red caída, capa borrada; ninguno debe colgar QGIS.
@@ -165,6 +165,14 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   mapa (`basemaps` del detalle) se añaden apagados; Melilla no tiene ninguno. Si GEOSIAN
   no se puede montar, queda el del IGN u OSM como antes. Pruebas `test_basemaps.py` y la
   de añadir mapa.
+
+- 09/10 · Estructura publicada. El plugin ya seguía `layerTree.js` (básico por defecto,
+  la publicada si la hay, carpetas anidadas por `children`, capas sueltas al final). En
+  local ningún mapa tenía estructura publicada: publiqué en Melilla una de prueba con
+  «Riego» dentro de «Zonas verdes y arbolado», comparé y la despubliqué. Coinciden
+  anidación, plegado y número de capas por carpeta. Un fallo: el grupo «Información
+  adicional» se quedaba en medio del mapa (se crea con la primera capa con partes);
+  ahora va al final. Prueba `test_informacion_adicional_va_al_final_del_mapa`.
 
 ## Hallazgos para decidir
 
