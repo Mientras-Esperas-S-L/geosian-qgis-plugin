@@ -49,6 +49,10 @@ de datos por detrás de la API.
 6. Anotar en «Hecho» qué se cerró, con la prueba y el commit, y en «Hallazgos» lo que
    haya que decidir.
 
+Desde el 09/10 el usuario pide que **los fallos de la web que se encuentren se arreglen**,
+cada uno en su rama del frontal (o del backend) con su prueba y su PR, sin fusionar, en
+vez de solo anotarlos.
+
 ## Casillas de lectura
 
 - [x] Melilla local: comparar una a una las 8 capas y sus vistas activables, a varios zooms.
@@ -151,10 +155,10 @@ _(lo que no es del plugin o pide una decisión del usuario)_
   las secciones que se quedan sin ninguno (en la palmera, «Plantación zona verde» y
   «Zona plantación, tocón»). QGIS sí: su formulario es por capa y servirá para editar. Se
   deja así salvo que se quiera una ficha de solo lectura aparte.
-- **Fallo de la web (no copiado)**: en «Registro adicional» el pie dice «1-10 de 10» con
-  2 partes (la API da `total_items: 2`). `AdditionalInfo.jsx:165` solo actualiza el total
-  interno si el nuevo es mayor que 0 y distinto, así que arrastra el de un elemento
-  anterior y no baja a 0 nunca. ¿Lo arreglo en el frontal?
+- **Fallo de la web, arreglado en el PR frontal #202**: en «Registro adicional» el pie decía
+  «1-10 de 10» con 2 partes. El total salía de páginas × 10 porque `FeatureInfo` no pasaba
+  `totalItems` a `AdditionalInfo` (no era el `useEffect` de la línea 165, como apunté al
+  principio).
 - Los partes no enseñan aún sus fotos ni adjuntos: es la casilla siguiente.
 - El usuario usa a la vez la pestaña de `localhost:3000`: para comparar sin estorbarle,
   abrir una pestaña propia. Activar vistas en la web cambia los ajustes de `tester2`.
