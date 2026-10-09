@@ -7,7 +7,12 @@ vea igual a cualquier escala.
 """
 
 from qgis.core import (
+    Qgis,
     QgsFillSymbol,
+    QgsPalLayerSettings,
+    QgsTextBufferSettings,
+    QgsTextFormat,
+    QgsVectorLayerSimpleLabeling,
     QgsGradientColorRamp,
     QgsGraduatedSymbolRenderer,
     QgsHeatmapRenderer,
@@ -234,3 +239,29 @@ def view_renderer(style_config, geometry_type, schema, resolver):
         return calor, avisos
 
     return QgsSingleSymbolRenderer(make_symbol(familia, styles.FALLBACK_ANY)), avisos
+
+
+def apply_labels(layer, campo, geometry_type):
+    """Etiquetas como las de la web: texto oscuro con halo blanco, de cerca."""
+    formato = QgsTextFormat()
+    formato.setSize(8)
+    formato.setColor(QColor(25, 25, 25))
+    halo = QgsTextBufferSettings()
+    halo.setEnabled(True)
+    halo.setSize(1)
+    halo.setColor(QColor(255, 255, 255))
+    formato.setBuffer(halo)
+
+    ajustes = QgsPalLayerSettings()
+    ajustes.fieldName = campo
+    ajustes.setFormat(formato)
+    ajustes.scaleVisibility = True
+    ajustes.maximumScale = 0
+    ajustes.minimumScale = styles.LABEL_MAX_SCALE
+    if styles.geometry_family(geometry_type) == "point":
+        # Debajo del punto, como en las teselas del frontal.
+        ajustes.placement = Qgis.LabelPlacement.OverPoint
+        ajustes.quadOffset = Qgis.LabelQuadrantPosition.Below
+        ajustes.yOffset = 2
+    layer.setLabeling(QgsVectorLayerSimpleLabeling(ajustes))
+    layer.setLabelsEnabled(True)

@@ -155,7 +155,18 @@ def test_anadir_mapa_entero_crea_un_grupo(app_gui):
 
             grupo = proyecto.layerTreeRoot().children()[0]
             assert grupo.name() == "Ciudad de Ejemplo: arbolado y zonas verdes"
-            assert [c.name() for c in grupo.findLayers()] == ["Arbolado"]
+            # La carpeta del usuario, plegada, con la capa apagada y su vista.
+            carpeta = grupo.children()[0]
+            assert carpeta.name() == "Arbolado urbano"
+            assert not carpeta.isExpanded()
+            nodo = carpeta.findLayers()[0]
+            assert nodo.name() == "Arbolado · Tilos"
+            assert not nodo.itemVisibilityChecked()
+            # Etiqueta encendida como en la web y fondo puesto.
+            assert nodo.layer().labelsEnabled()
+            assert nodo.layer().labeling().settings().fieldName == "especie"
+            fondos = [c for c in proyecto.mapLayers().values() if c.name().startswith("Fondo")]
+            assert [c.name() for c in fondos] == ["Fondo: mapa base del IGN"]
         finally:
             proyecto.clear()
             connections.remove_connection("Integracion3")

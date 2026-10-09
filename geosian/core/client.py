@@ -249,6 +249,14 @@ class GeosianClient:
         """Vistas guardadas de una capa."""
         return _as_list(self._get(f"{API_PREFIX}/layers/{layer_id}/views/"))
 
+    def map_settings(self, map_id):
+        """Preferencias del usuario en un mapa: orden, carpetas, vistas activas.
+
+        Es la respuesta de ``user-map-settings/by-map``, con la estructura
+        publicada en ``map_structure`` si la hay.
+        """
+        return self._get(f"{API_PREFIX}/user-map-settings/by-map/{map_id}/") or {}
+
     def map_views(self, map_id):
         """Vistas de las capas de un mapa: ``{layer_id: [vista, ...]}``.
 

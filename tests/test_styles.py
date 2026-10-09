@@ -96,3 +96,17 @@ def test_expresiones_de_reglas():
     assert styles.filter_group_expression(grupo) == (
         "(to_string(\"riesgo\") IN ('Alto', 'Muy alto') OR to_real(\"altura\") >= 10.0)"
     )
+
+
+def test_etiqueta_por_defecto_como_la_web():
+    esquema = {
+        "attributes_on_map": ["riesgo"],
+        "attributes": [
+            {"name": "codigo", "type": "string", "label": True},  # no está en el mapa
+            {"name": "seccion", "type": "section", "contents": [
+                {"name": "riesgo", "type": "select", "label": True},
+            ]},
+        ],
+    }
+    assert styles.label_attribute(esquema) == "riesgo"
+    assert styles.label_attribute({"attributes": [{"name": "a", "label": True}]}) is None

@@ -22,6 +22,7 @@ ESQUEMA_ARBOLADO = {
             "type": "select",
             "title": "Especie",
             "allowed_values": ["Platanus x hispanica", "Tilia platyphyllos"],
+            "label": True,
         },
         {"name": "altura", "type": "number", "title": "Altura (m)"},
         {"name": "fecha_plantacion", "type": "calendar", "title": "Plantación"},
@@ -221,6 +222,23 @@ class Handler(BaseHTTPRequestHandler):
         elif ruta == "/api/v1/layer-views/for-map/":
             listado = {k: VISTA_TILOS[k] for k in ("id", "layer", "name", "context_type")}
             self._json([{"layer_id": 11, "layer_name": "Arbolado", "views": [listado]}])
+
+        elif ruta == "/api/v1/user-map-settings/by-map/4/":
+            # El usuario tiene la capa en una carpeta, apagada y con la vista
+            # de tilos activa.
+            self._json(
+                {
+                    "settings": {
+                        "layer_order": ["group:g1"],
+                        "layer_groups": {
+                            "g1": {"name": "Arbolado urbano", "expanded": False, "children": [11]}
+                        },
+                        "visible_layers": {"11": False},
+                        "active_view_ids": [7],
+                    },
+                    "map_structure": None,
+                }
+            )
 
         elif ruta == "/api/v1/layer-views/7/":
             self._json(VISTA_TILOS)

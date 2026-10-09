@@ -439,3 +439,35 @@ def _rule_expression(campo, operador, valor):
     if op in ("is_not_null", "is_not_empty"):
         return f"({ref} IS NOT NULL AND {texto} <> '')"
     return None
+
+
+# ----------------------------------------------------------------------
+# Etiquetas
+# ----------------------------------------------------------------------
+
+# La web solo pinta etiquetas con zoom 15 o más; en escala, unos 1:17.000.
+LABEL_MAX_SCALE = 17000
+
+
+def label_attribute(schema):
+    """Atributo que la web etiqueta por defecto, o ``None``.
+
+    Las etiquetas no se guardan en ningún sitio: son estado de la sesión del
+    navegador. Lo que sí está en el esquema es cuáles se encienden solas
+    (``LabelSelector.jsx``): un atributo con ``label: true`` que además está en
+    ``attributes_on_map`` o colorea la capa en ``styles.colors``. Se devuelve
+    el primero, porque la web etiqueta un atributo por capa.
+    """
+    esquema = schema or {}
+    en_mapa = {str(a) for a in esquema.get("attributes_on_map") or []}
+    for regla in ((esquema.get("styles") or {}).get("colors") or []):
+        if isinstance(regla, dict) and regla.get("attribute"):
+            en_mapa.add(str(regla["attribute"]))
+
+    for attr in S.flatten_attributes(esquema):
+        etiqueta = attr.get("label")
+        if etiqueta is True or str(etiqueta).lower() == "true":
+            nombre = str(attr.get("name") or "")
+            if nombre and (nombre in en_mapa or any(p.split(".")[-1] == nombre for p in en_mapa)):
+                return nombre
+    return None

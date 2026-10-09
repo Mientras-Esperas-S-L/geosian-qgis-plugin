@@ -8,7 +8,15 @@ capas al desplegar el mapa. Con conexiones que tienen decenas de mapas, cargarlo
 todo de golpe al abrir QGIS sería una espera que nadie ha pedido.
 """
 
-from qgis.core import QgsProject, QgsVectorLayer
+from qgis.core import (
+    QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform,
+    QgsMapLayerType,
+    QgsProject,
+    QgsRasterLayer,
+    QgsRectangle,
+    QgsVectorLayer,
+)
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView,
@@ -23,7 +31,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
-from ..core import connections, lad, symbology, views
+from ..core import connections, lad, maptree, styles, symbology, views
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri
@@ -36,6 +44,19 @@ TIPO_CONEXION = "conexion"
 TIPO_MAPA = "mapa"
 TIPO_CAPA = "capa"
 TIPO_VISTA = "vista"
+
+# Fondos. El mapa base propio de GCC son teselas vectoriales con un estilo de
+# MapLibre; en QGIS se usa el equivalente ráster público más cercano.
+ESPAÑA = QgsRectangle(-18.5, 27.4, 4.6, 44.0)
+FONDO_IGN = (
+    "Fondo: mapa base del IGN",
+    "type=xyz&url=https://tms-ign-base.idee.es/1.0.0/IGNBaseTodo/{z}/{x}/{-y}.jpeg"
+    "&zmin=0&zmax=17",
+)
+FONDO_OSM = (
+    "Fondo: OpenStreetMap",
+    "type=xyz&url=https://tile.openstreetmap.org/{z}/{x}/{y}.png&zmin=0&zmax=19",
+)
 
 # Nombres legibles de los tipos de geometría, para cuando una capa tiene más
 # de uno y hay que abrir una capa de QGIS por cada uno.
@@ -243,7 +264,12 @@ class GeosianBrowserDock(QDockWidget):
             self.refrescar()
 
     def añadir_mapa(self, datos):
-        """Mete todas las capas del mapa en un grupo con su nombre."""
+        """Mete el mapa entero en un grupo, ordenado y encendido como en GCC.
+
+        Respeta el orden y las carpetas del panel de capas, las capas apagadas
+        y la vista activa de cada capa, según las preferencias del usuario en
+        ese mapa. Si el proyecto no tiene fondo, le pone uno.
+        """
         conexion = datos["conexion"]
         mapa = datos["mapa"]
         cliente = connections.client_for(conexion)
@@ -258,22 +284,100 @@ class GeosianBrowserDock(QDockWidget):
             self._error(f"No se pudieron cargar las capas: {exc}")
             return
 
-        cliente.prefetch_layer_attributes([c["id"] for c in capas if "id" in c])
+        # Lo que no sea imprescindible no impide abrir el mapa.
+        try:
+            ajustes = cliente.map_settings(mapa["id"])
+        except GeosianError:
+            ajustes = {}
+        try:
+            vistas = cliente.map_views(mapa["id"])
+        except GeosianError:
+            vistas = {}
 
-        raiz = QgsProject.instance().layerTreeRoot()
+        por_id = {c["id"]: c for c in capas if "id" in c}
+        cliente.prefetch_layer_attributes(list(por_id))
+        activas = maptree.active_views(ajustes, vistas)
+        ocultas = maptree.hidden_layers(ajustes)
+
+        proyecto = QgsProject.instance()
+        vacio = not proyecto.mapLayers()
+        raiz = proyecto.layerTreeRoot()
         grupo = raiz.insertGroup(0, mapa.get("name") or f"Mapa {mapa['id']}")
-        for capa in capas:
-            self.añadir_capa(
-                {"conexion": conexion, "mapa": mapa, "capa": capa},
-                grupo=grupo,
-                avisar=False,
-            )
+
+        def poblar(destino, nodos):
+            for nodo in nodos:
+                if nodo[0] == "group":
+                    _, nombre, expandido, hijos = nodo
+                    subgrupo = destino.addGroup(nombre)
+                    subgrupo.setExpanded(expandido)
+                    poblar(subgrupo, hijos)
+                    continue
+                lid = nodo[1]
+                añadidas = self.añadir_capa(
+                    {
+                        "conexion": conexion,
+                        "mapa": mapa,
+                        "capa": por_id[lid],
+                        "vista": activas.get(lid),
+                    },
+                    grupo=destino,
+                    avisar=False,
+                )
+                if lid in ocultas:
+                    for capa in añadidas:
+                        nodo_capa = raiz.findLayer(capa.id())
+                        if nodo_capa is not None:
+                            nodo_capa.setItemVisibilityChecked(False)
+
+        poblar(grupo, maptree.layer_tree(ajustes, list(por_id)))
+
+        capas_qgis = [n.layer() for n in grupo.findLayers() if n.layer() is not None]
+        if vacio and capas_qgis:
+            proyecto.setCrs(QgsCoordinateReferenceSystem("EPSG:3857"))
+        extension = _extension_de(capas_qgis)
+        self._añadir_fondo(extension)
+        self._encuadrar(extension)
         self.iface.messageBar().pushInfo(
-            "Geosian", f"{len(grupo.findLayers())} capa(s) añadidas al proyecto."
+            "Geosian", f"{len(capas_qgis)} capa(s) añadidas al proyecto."
         )
 
+    def _añadir_fondo(self, extension):
+        """Un mapa base si el proyecto no tiene ninguno: el del IGN en España."""
+        proyecto = QgsProject.instance()
+        if any(c.type() == QgsMapLayerType.RasterLayer for c in proyecto.mapLayers().values()):
+            return
+        en_españa = not extension.isNull() and ESPAÑA.contains(extension.center())
+        nombre, url = FONDO_IGN if en_españa else FONDO_OSM
+        fondo = QgsRasterLayer(url, nombre, "wms")
+        if not fondo.isValid():
+            return
+        proyecto.addMapLayer(fondo, False)
+        proyecto.layerTreeRoot().addLayer(fondo)
+
+    def _encuadrar(self, extension):
+        lienzo = getattr(self.iface, "mapCanvas", lambda: None)()
+        if lienzo is None or extension.isNull():
+            return
+        if extension.isEmpty():
+            # Un solo punto: se le da un margen para no encuadrar a escala cero.
+            extension = QgsRectangle(extension)
+            extension.grow(0.001)
+        transformacion = QgsCoordinateTransform(
+            QgsCoordinateReferenceSystem("EPSG:4326"),
+            QgsProject.instance().crs(),
+            QgsProject.instance(),
+        )
+        try:
+            lienzo.setExtent(transformacion.transformBoundingBox(extension))
+        except Exception:
+            return
+        lienzo.refresh()
+
     def añadir_capa(self, datos, grupo=None, avisar=True):
-        """Mete la capa en el proyecto, una por tipo de geometría."""
+        """Mete la capa en el proyecto, una por tipo de geometría.
+
+        Devuelve las capas de QGIS añadidas.
+        """
         conexion = datos["conexion"]
         capa = datos["capa"]
         mapa = datos["mapa"]
@@ -283,14 +387,9 @@ class GeosianBrowserDock(QDockWidget):
         if not tipos:
             tipos = [None]
 
-        añadidas = 0
+        añadidas = []
         for tipo in tipos:
             nombre = capa.get("name") or f"Capa {capa['id']}"
-            if vista:
-                nombre = f"{nombre} · {vista.get('name')}"
-            if tipo and len(tipos) > 1:
-                nombre = f"{nombre} ({ETIQUETAS_GEOMETRIA.get(tipo, tipo)})"
-
             uri = build_uri(
                 conexion,
                 mapa["id"],
@@ -306,21 +405,46 @@ class GeosianBrowserDock(QDockWidget):
                 self._error(f"No se pudo abrir «{nombre}». {motivo}")
                 continue
 
+            # El título que enseña la web es el del esquema, no el de la capa.
+            esquema = getattr(vectorial.dataProvider(), "schema", None) or {}
+            nombre = str(esquema.get("title") or nombre)
+            if vista:
+                nombre = f"{nombre} · {vista.get('name')}"
+            if tipo and len(tipos) > 1:
+                nombre = f"{nombre} ({ETIQUETAS_GEOMETRIA.get(tipo, tipo)})"
+            vectorial.setName(nombre)
+
             self._aplicar_esquema(vectorial)
             self._aplicar_estilo(vectorial)
+            self._aplicar_etiquetas(vectorial)
             self._limitar_escala(vectorial)
             if grupo is None:
                 QgsProject.instance().addMapLayer(vectorial)
             else:
                 QgsProject.instance().addMapLayer(vectorial, False)
                 grupo.addLayer(vectorial)
-            añadidas += 1
+            añadidas.append(vectorial)
 
         if añadidas and avisar:
             self.iface.messageBar().pushInfo(
                 "Geosian",
-                f"{añadidas} capa(s) añadidas al proyecto.",
+                f"{len(añadidas)} capa(s) añadidas al proyecto.",
             )
+        return añadidas
+
+    def _aplicar_etiquetas(self, capa):
+        """Las etiquetas que la web enciende sola, a partir de la misma escala."""
+        proveedor = capa.dataProvider()
+        try:
+            atributo = styles.label_attribute(proveedor.schema)
+            if not atributo:
+                return
+            resolver = symbology.field_resolver(proveedor.fields(), proveedor.attr_map)
+            campo = resolver(atributo)
+            if campo:
+                symbology.apply_labels(capa, campo, proveedor.layer_uri.geometry_type)
+        except Exception as exc:
+            proveedor.log_warning(f"{capa.name()}: no se pudieron poner las etiquetas: {exc}")
 
     def _aplicar_estilo(self, capa):
         """Pinta la capa como la pinta Geosian, con el estilo de su esquema."""
@@ -388,3 +512,18 @@ def _tipos_de_geometria(capa):
     if isinstance(tipos, dict):
         tipos = list(tipos.keys())
     return [t for t in tipos if t in GEOMETRY_TYPES]
+
+
+def _extension_de(capas):
+    """Extensión conjunta, en grados, de las capas que la tengan.
+
+    Una capa de un solo punto tiene extensión de tamaño cero: cuenta igual.
+    """
+    total = QgsRectangle()
+    total.setNull()
+    for capa in capas:
+        extension = capa.extent()
+        if extension.isNull():
+            continue
+        total.combineExtentWith(extension)
+    return total
