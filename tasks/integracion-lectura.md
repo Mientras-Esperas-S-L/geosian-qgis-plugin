@@ -53,8 +53,10 @@ de datos por detrás de la API.
 
 - [x] Melilla local: comparar una a una las 8 capas y sus vistas activables, a varios zooms.
 - [x] Vistas de información adicional (`context_type = additional_info`): hoy no se abren.
-- [ ] Iconos de vista por categoría si el editor los admite; tamaños y halo comparados.
+- [x] Iconos de vista por categoría si el editor los admite; tamaños y halo comparados.
+      (no aplica: el editor solo tiene `defaultIcon`; tamaño y halo coinciden)
 - [ ] Visualizaciones sin equivalente (hexágonos, contornos, H3): decidir aproximación.
+      (PENDIENTE DE DECISIÓN, ver hallazgos; se sigue con lo demás)
 - [ ] Tabla de atributos en capas grandes: hoy solo enseña lo descargado. ¿Recuento y
       paginado desde la API?
 - [ ] Ficha del elemento: secciones, `visible_if` y valores, comparadas con la web.
@@ -107,6 +109,12 @@ _(lo que no es del plugin o pide una decisión del usuario)_
   y agregación son superposiciones y dejan la base, pero `layerBaseVisible` (maps.jsx
   1695-1710) oculta la base con CUALQUIER vista activa y esa rama nunca se alcanza. Lo que
   se ve es lo segundo. ¿Se corrige el comentario o se quiere de verdad la superposición?
+- **Hexágonos, contornos y H3**: local tiene 1 vista de hexágonos y devel ninguna (devel:
+  17 de color, 13 de icono, 2 de calor). Propuesta para igualar la web: pedir las teselas
+  ya agregadas del servidor (`/geodata/tiles/…mvt?agg=hex…`) como capa de teselas
+  vectoriales de QGIS, autenticada con el token en un authcfg de tipo cabecera, y colorear
+  por `count` con la misma escala logarítmica. Exacto pero con trabajo; sin decisión, hoy
+  se pintan con el color de la vista y se avisa.
 - `context_type = additional_info` en las vistas no lo usa nada de la web (solo existe en
   el modelo y en el servicio). ¿Se retira o está previsto para algo?
 - Iconos de vista: mismo tamaño (metros, mínimo 8 px), pero en la web se ven más
