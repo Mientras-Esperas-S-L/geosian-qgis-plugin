@@ -52,6 +52,7 @@ de datos por detrás de la API.
 ## Casillas de lectura
 
 - [ ] Melilla local: comparar una a una las 8 capas y sus vistas activables, a varios zooms.
+      (capas base hechas el 09/10; faltan las vistas 69, 12 y 11)
 - [ ] Vistas de información adicional (`context_type = additional_info`): hoy no se abren.
 - [ ] Iconos de vista por categoría si el editor los admite; tamaños y halo comparados.
 - [ ] Visualizaciones sin equivalente (hexágonos, contornos, H3): decidir aproximación.
@@ -73,9 +74,23 @@ de datos por detrás de la API.
 
 _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
 
+- 09/10 · Melilla local, capas base a zoom 13, 14 y 15 contra la web en el mismo encuadre:
+  coinciden capas, orden, colores del LAD y tamaños. La única diferencia (árboles sobre el
+  riego en el Parque Hernández) era de la web: el PR frontal #201 no tapaba entre tramos por
+  la prueba de profundidad. Corregido en ese PR (`1b84121b`), comprobado leyendo el píxel
+  del canvas. Banco: `comparar.py` usaba `customLayerOrder()` sin orden propio; corregido.
+  Truco útil: `deck.pickMultipleObjects` NO sirve para saber qué se ve encima; leer el píxel
+  con `gl.readPixels` tras `deck.redraw()`.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión del usuario)_
+
+- La cuenta de QGIS solo ve las vistas públicas o propias: de las 8 vistas de Melilla local
+  ve 3 (69, 12, 11). Las privadas de otros usuarios no las ve, igual que en la web. Si se
+  quieren comparar todas, hay que hacerlas públicas o crearlas con esa cuenta.
+- El usuario usa a la vez la pestaña de `localhost:3000`: para comparar sin estorbarle,
+  abrir una pestaña propia. Activar vistas en la web cambia los ajustes de `tester2`.
 
 ## Antecedentes
 
