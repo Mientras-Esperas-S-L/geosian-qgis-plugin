@@ -202,7 +202,7 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
 - 10/10 · Tabla de capas grandes sin geometría. Backend: `/geodata/paginated/` acepta
   `no_geometry=true` (los constructores ya lo sabían hacer; faltaba leerlo y no anotar
   `ST_AsGeoJSON`), rama `feat/paginated-no-geometry`, prueba
-  `test_paginated_sin_geometria.py` (fallaba), PR abierto sin fusionar. Plugin: la tabla de
+  `test_paginated_sin_geometria.py` (fallaba), **PR #293** abierto sin fusionar. Plugin: la tabla de
   una capa grande lo pide; lo que llega sin forma se apunta y, si después hace falta la
   forma («ir al elemento»), se vuelve a pedir ese elemento; lo que no la necesita no va a
   la red. Una API sin el cambio lo ignora y manda la forma: sigue funcionando. Prueba
@@ -239,3 +239,7 @@ _(lo que no es del plugin o pide una decisión)_
   al momento. Nuestro proxy `/ortofoto` (nginx de CT101) pide al WMTS, y lo cacheado sale
   bien. Cambiar el origen del proxy al TMS, o tenerlo de reserva, es cosa del nginx de
   producción: no lo he tocado.
+- **Suite del backend, dos cosas ajenas a #293** (vistas el 10/10): `tests/test_open_feature_info.py`
+  se queda colgado en el entorno de pruebas local, también solo (Redis responde bien); y
+  ocho pruebas de calendario de tareas y la de reglas IoT fallan igual con el código de
+  `main`, corridas a las 00:48 (aún día 9 en UTC): parecen depender de la fecha.
