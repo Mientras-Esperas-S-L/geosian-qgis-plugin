@@ -50,7 +50,7 @@ from ..core import (
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri
-from . import media_widget, realtime_hub
+from . import media_widget, sesion
 from .connection_dialog import ConnectionDialog
 
 ROL_TIPO = Qt.ItemDataRole.UserRole
@@ -282,6 +282,8 @@ class GeosianBrowserDock(QDockWidget):
     def _pedir_reconexion(self, nombre):
         dialogo = ConnectionDialog(self, nombre=nombre)
         if dialogo.exec():
+            # Las capas que se quedaron sin datos por la sesión vuelven solas.
+            sesion.repair_layers(nombre)
             self.refrescar()
 
     def _eliminar(self, nombre):
@@ -497,8 +499,6 @@ class GeosianBrowserDock(QDockWidget):
             self._añadir_partes(vectorial, conexion, mapa["id"], capa["id"], tipo, grupo)
             añadidas.append(vectorial)
 
-        if añadidas:
-            realtime_hub.subscribe(conexion, mapa["id"], self.iface)
 
         if añadidas and avisar:
             self.iface.messageBar().pushInfo(

@@ -21,7 +21,7 @@ class LayerUri:
     """Partes de una URI del proveedor."""
 
     def __init__(self, connection, map_id, layer_id, geometry_type=None,
-                 view_id=None, crs="EPSG:4326", info_name=None):
+                 view_id=None, crs="EPSG:4326", info_name=None, subset=""):
         self.connection = connection
         self.map_id = int(map_id)
         self.layer_id = int(layer_id)
@@ -29,6 +29,9 @@ class LayerUri:
         self.view_id = int(view_id) if view_id else None
         self.crs = crs
         self.info_name = info_name or None
+        # El filtro de la capa («Filtrar…»). Va en la URI porque es lo que QGIS
+        # guarda en el proyecto; fuera de ella se perdería al reabrirlo.
+        self.subset = subset or ""
 
     def __str__(self):
         base = (
@@ -44,6 +47,8 @@ class LayerUri:
             params.append(f"view={self.view_id}")
         if self.crs and self.crs != "EPSG:4326":
             params.append(f"crs={self.crs}")
+        if self.subset:
+            params.append(f"subset={quote(self.subset, safe='')}")
         return base + ("?" + "&".join(params) if params else "")
 
     def __eq__(self, otro):
@@ -99,6 +104,7 @@ def parse_uri(uri):
         view_id=uno("view"),
         crs=uno("crs", "EPSG:4326"),
         info_name=unquote(valores["info"]) if valores.get("info") else None,
+        subset=uno("subset", ""),
     )
 
 

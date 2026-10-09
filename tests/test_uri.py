@@ -61,3 +61,12 @@ def test_igualdad():
     a = LayerUri("Prod", 1, 2, "points")
     b = parse_uri("geosian://Prod/map/1/layer/2?geometry_type=points")
     assert a == b
+
+
+def test_el_filtro_de_la_capa_viaja_en_la_uri():
+    # QGIS guarda en el proyecto la URI del proveedor: sin el filtro dentro, se pierde.
+    uri = LayerUri("Local", 3, 64, geometry_type="points", subset="\"tipo\" = 'papelera' AND x < 5")
+    texto = str(uri)
+    assert "subset=" in texto and "&x" not in texto.split("subset=")[1]
+    assert parse_uri(texto).subset == "\"tipo\" = 'papelera' AND x < 5"
+    assert parse_uri("geosian://Local/map/3/layer/64").subset == ""

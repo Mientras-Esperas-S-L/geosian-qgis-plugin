@@ -738,3 +738,21 @@ def test_el_limite_se_aplica_despues_del_filtro(capa):
     capa.setSubsetString("\"altura\" < 10")
     peticion = QgsFeatureRequest().setLimit(1)
     assert [f["id"] for f in capa.getFeatures(peticion)] == [1002]
+
+
+def test_el_filtro_se_conserva_al_guardar_y_reabrir_el_proyecto(capa, tmp_path):
+    from qgis.core import QgsProject
+
+    proyecto = QgsProject.instance()
+    proyecto.clear()
+    proyecto.addMapLayer(capa)
+    capa.setSubsetString("\"especie\" = 'Tilia platyphyllos'")
+    ruta = str(tmp_path / "prueba.qgz")
+    assert proyecto.write(ruta)
+    proyecto.clear()
+    assert proyecto.read(ruta)
+
+    [reabierta] = [c for c in proyecto.mapLayers().values() if c.providerType() == "geosian"]
+    assert reabierta.subsetString() == "\"especie\" = 'Tilia platyphyllos'"
+    assert [f["id"] for f in reabierta.getFeatures()] == [1002]
+    proyecto.clear()

@@ -72,7 +72,7 @@ vez de solo anotarlos.
       tenga elegido el mapa (`basemaps[]`).
 - [x] Estructura publicada del mapa (`map_structure`, modo básico) con grupos anidados.
 - [x] Tiempo real (WebSocket `/ws/layer-data/`): refrescar lo que cambie en la web.
-- [ ] Proyecto guardado: reabrir, refrescar credenciales caducadas, mensajes claros.
+- [x] Proyecto guardado: reabrir, refrescar credenciales caducadas, mensajes claros.
 - [ ] Errores: 401, 403, red caída, capa borrada; ninguno debe colgar QGIS.
 
 ## Hecho
@@ -186,6 +186,15 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   (contra un servidor WebSocket falso) y `test_un_cambio_en_gcc_recarga_la_capa_en_qgis`.
   En local la URL del canal se fija por conexión (`ws_url`), como la web usa el 8001.
 
+- 09/10 · Proyecto guardado. Melilla guardado y reabierto: capas, estilos, fichas,
+  relaciones de partes y fondo, igual. Tres arreglos: el filtro de la capa se perdía
+  (ahora viaja en la URI, que es lo que QGIS guarda); el tiempo real no se suscribía al
+  reabrir (ahora se suscribe a toda capa de Geosian que entre en el proyecto); y con la
+  sesión caducada la capa daba un error genérico. Ahora el error dice que hay que volver
+  a entrar, sale un aviso con «Volver a entrar» y, al hacerlo, las capas se recuperan sin
+  rehacer el proyecto. Pruebas `test_el_filtro_*`, `test_al_reabrir_*`,
+  `test_sesion_caducada_*`, `test_volver_a_entrar_*` y `test_al_abrir_un_proyecto_*`.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión del usuario)_
@@ -235,6 +244,9 @@ _(lo que no es del plugin o pide una decisión del usuario)_
   (`layer_schema_changed`) solo avisa: hay que volver a añadir la capa.
 - En local el canal de la web (`:8001`) no está levantado: el `runserver` es WSGI. La web
   local no tiene tiempo real.
+- Con la sesión caducada, antes de nuestro aviso sale el diálogo de QGIS «capas no
+  disponibles» con todas las de Geosian; se cierra con «Mantener sin disponibles» y luego
+  «Volver a entrar» las recupera. Quitarlo pide un gestor de capas no disponibles propio.
 - Filtros de la web que QGIS no tiene: los de información adicional (elementos con partes
   que cumplan algo) y los globales de fecha. Se podrían añadir como parámetros de la URI.
 - La web manda `attr__status` vacío al filtrar (`/geodata/?…&attr__status&…`); el servidor

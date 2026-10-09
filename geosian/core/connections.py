@@ -144,6 +144,26 @@ def set_session(nombre, token, jwt=None):
     _clientes.pop(nombre, None)
 
 
+# Conexiones cuya sesión ha rechazado el servidor al abrir una capa (al reabrir un
+# proyecto, normalmente). La interfaz las ofrece para volver a entrar.
+_caducadas = set()
+
+
+def mark_expired(nombre):
+    _caducadas.add(nombre)
+
+
+def expired():
+    return set(_caducadas)
+
+
+def clear_expired(nombre=None):
+    if nombre is None:
+        _caducadas.clear()
+    else:
+        _caducadas.discard(nombre)
+
+
 def cached_client(nombre):
     """El cliente de una conexión si ya se creó, sin crearlo.
 

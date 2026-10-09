@@ -4,7 +4,7 @@ from qgis.core import QgsMapLayerType
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QAction
 
-from .gui import realtime_hub
+from .gui import realtime_hub, sesion
 from .gui.browser_dock import GeosianBrowserDock, menu_de_etiquetas
 from .gui.connection_dialog import ConnectionDialog
 from .gui.media_widget import register_media_widget
@@ -34,6 +34,10 @@ class GeosianPlugin:
 
         # Igual con el panel de fotos de la ficha, que es un tipo de campo.
         register_media_widget()
+        # Tiempo real para toda capa de Geosian del proyecto, también al reabrirlo.
+        realtime_hub.watch_project(self.iface)
+        # Un proyecto reabierto con la sesión caducada: ofrecer volver a entrar.
+        self.iface.projectRead.connect(self._tras_abrir_proyecto)
 
         self.dock = GeosianBrowserDock(self.iface, self.iface.mainWindow())
         self.iface.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock)
@@ -70,12 +74,21 @@ class GeosianPlugin:
             self.dock.refrescar()
             self.dock.show()
 
+    def _tras_abrir_proyecto(self):
+        if self.dock is not None:
+            sesion.offer_reconnect(self.iface, self.dock._pedir_reconexion)
+
     def _menu_de_capa(self, menu):
         capa = self.iface.layerTreeView().currentLayer()
         if capa is not None and capa.type() == QgsMapLayerType.VectorLayer:
             menu_de_etiquetas(menu, capa)
 
     def unload(self):
+        realtime_hub.unwatch_project()
+        try:
+            self.iface.projectRead.disconnect(self._tras_abrir_proyecto)
+        except TypeError:
+            pass
         realtime_hub.stop_all()
         vista = self.iface.layerTreeView()
         if vista is not None and hasattr(vista, "contextMenuAboutToShow"):

@@ -33,6 +33,38 @@ def subscribe(conexion, map_id, iface=None):
     return hub
 
 
+_vigilando = {"iface": None, "activo": False}
+
+
+def watch_project(iface=None):
+    """Se suscribe a los mapas de toda capa de Geosian que entre en el proyecto.
+
+    Da igual cómo entre: desde el panel o al abrir un proyecto guardado.
+    """
+    _vigilando["iface"] = iface
+    if not _vigilando["activo"]:
+        QgsProject.instance().layersAdded.connect(_al_añadir_capas)
+        _vigilando["activo"] = True
+
+
+def unwatch_project():
+    if _vigilando["activo"]:
+        try:
+            QgsProject.instance().layersAdded.disconnect(_al_añadir_capas)
+        except TypeError:
+            pass
+        _vigilando["activo"] = False
+
+
+def _al_añadir_capas(capas):
+    for capa in capas:
+        if capa.providerType() != "geosian" or not capa.isValid():
+            continue
+        uri = getattr(capa.dataProvider(), "layer_uri", None)
+        if uri is not None:
+            subscribe(uri.connection, uri.map_id, _vigilando["iface"])
+
+
 def stop_all():
     for hub in list(_hubs.values()):
         hub.stop()

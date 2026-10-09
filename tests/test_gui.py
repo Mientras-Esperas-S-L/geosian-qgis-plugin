@@ -638,6 +638,7 @@ def test_un_cambio_en_gcc_recarga_la_capa_en_qgis(app_gui):
     canal = FakeWebSocket()
     with FakeGeosian() as fake:
         try:
+            realtime_hub.watch_project()
             connections.save_connection("Vivo", fake.url, "a@b.c")
             connections.set_ws_url("Vivo", canal.url)
             capa = _capa_de_prueba(fake, "Vivo")
@@ -666,7 +667,137 @@ def test_un_cambio_en_gcc_recarga_la_capa_en_qgis(app_gui):
             assert recargas == []
             assert "/api/v1/geodata/paginated/" not in [r for r, _ in fake.peticiones]
         finally:
+            realtime_hub.unwatch_project()
             realtime_hub.stop_all()
             QgsProject.instance().clear()
             connections.remove_connection("Vivo")
             canal.cerrar()
+
+
+def test_al_reabrir_un_proyecto_se_suscribe_a_sus_mapas(app_gui, tmp_path):
+    from qgis.core import QgsProject, QgsVectorLayer
+
+    from geosian.gui import realtime_hub
+    from geosian.provider.metadata import register_provider
+    from tests.fake_ws import FakeWebSocket
+
+    register_provider()
+    canal = FakeWebSocket()
+    proyecto = QgsProject.instance()
+    with FakeGeosian() as fake:
+        try:
+            connections.save_connection("Reabrir", fake.url, "a@b.c")
+            connections.set_session("Reabrir", "tok-de-prueba", "jwt")
+            connections.set_ws_url("Reabrir", canal.url)
+            capa = QgsVectorLayer("geosian://Reabrir/map/4/layer/11?geometry_type=points", "Arbolado", "geosian")
+            proyecto.clear()
+            proyecto.addMapLayer(capa)
+            ruta = str(tmp_path / "reabrir.qgz")
+            assert proyecto.write(ruta)
+            proyecto.clear()
+
+            realtime_hub.watch_project()
+            assert proyecto.read(ruta)
+            assert canal.conectado.wait(3)
+            hub = realtime_hub._hubs["Reabrir"]
+            assert 4 in hub._canal._mapas
+        finally:
+            realtime_hub.unwatch_project()
+            realtime_hub.stop_all()
+            proyecto.clear()
+            connections.remove_connection("Reabrir")
+            canal.cerrar()
+
+
+def test_sesion_caducada_al_reabrir_y_recuperar_las_capas(app_gui):
+    """Con la sesión caducada la capa no se puede abrir; el error lo dice claro y, al
+    volver a entrar, las capas del proyecto se recuperan sin rehacerlo."""
+    from qgis.core import QgsProject, QgsVectorLayer
+
+    from geosian.gui import sesion
+    from geosian.provider.metadata import register_provider
+
+    register_provider()
+    proyecto = QgsProject.instance()
+    with FakeGeosian() as fake:
+        try:
+            connections.save_connection("Caducada", fake.url, "a@b.c")
+            connections.set_session("Caducada", "tok-caducado", "jwt")
+            sesion.clear_expired()
+            capa = QgsVectorLayer(
+                "geosian://Caducada/map/4/layer/11?geometry_type=points", "Arbolado", "geosian"
+            )
+            assert not capa.isValid()
+            assert "volver a entrar" in capa.dataProvider().error().lower()
+            assert sesion.expired() == {"Caducada"}
+            proyecto.clear()
+            proyecto.addMapLayer(capa)
+
+            connections.set_session("Caducada", "tok-de-prueba", "jwt")
+            assert sesion.repair_layers("Caducada") == 1
+            assert capa.isValid()
+            assert capa.featureCount() == 3
+            assert sesion.expired() == set()
+        finally:
+            proyecto.clear()
+            connections.remove_connection("Caducada")
+
+
+def test_volver_a_entrar_recupera_las_capas_caducadas(app_gui, monkeypatch):
+    from geosian.gui import browser_dock, sesion
+
+    reparadas = []
+    monkeypatch.setattr(sesion, "repair_layers", reparadas.append)
+
+    class DialogoQueEntra:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def exec(self):
+            return True
+
+    monkeypatch.setattr(browser_dock, "ConnectionDialog", DialogoQueEntra)
+    panel = browser_dock.GeosianBrowserDock(IfaceFalso())
+    panel._pedir_reconexion("Caducada")
+    assert reparadas == ["Caducada"]
+
+
+def test_al_abrir_un_proyecto_con_sesion_caducada_se_ofrece_entrar(app_gui):
+    from geosian.core import connections as conexiones
+    from geosian.gui import sesion
+
+    class Barra:
+        def __init__(self):
+            self.avisos = []
+
+        def createMessage(self, titulo, texto):  # noqa: N802
+            from qgis.gui import QgsMessageBar
+
+            return QgsMessageBar().createMessage(titulo, texto)
+
+        def pushWidget(self, widget, nivel=None):  # noqa: N802
+            self.avisos.append(widget)
+
+    class Iface:
+        def __init__(self):
+            self.barra = Barra()
+
+        def messageBar(self):  # noqa: N802
+            return self.barra
+
+    iface = Iface()
+    conexiones.clear_expired()
+    sesion.offer_reconnect(iface, lambda nombre: None)
+    assert iface.barra.avisos == []
+
+    conexiones.mark_expired("Caducada")
+    pedidas = []
+    sesion.offer_reconnect(iface, pedidas.append)
+    [aviso] = iface.barra.avisos
+    assert "Caducada" in aviso.text()
+    from qgis.PyQt.QtWidgets import QPushButton
+
+    [boton] = aviso.findChildren(QPushButton)
+    boton.click()
+    assert pedidas == ["Caducada"]
+    conexiones.clear_expired()

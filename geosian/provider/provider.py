@@ -32,7 +32,7 @@ from qgis.core import (
 from ..core import connections, lad, media, views
 from ..core import schema as S
 from ..core.client import API_PREFIX
-from ..core.errors import GeosianError
+from ..core.errors import AuthError, GeosianError
 from .feature_source import GeosianFeatureSource
 from .subset import parse as parse_subset
 from .subset import server_params
@@ -176,6 +176,18 @@ class GeosianProvider(QgsVectorDataProvider):
         try:
             self._load_definition()
             self._valid = True
+            if self._uri.subset and not self.setSubsetString(self._uri.subset):
+                self.log_warning(f"Filtro guardado no válido, se ignora: {self._uri.subset}")
+        except AuthError:
+            # Lo normal al reabrir un proyecto días después: la capa no se pierde,
+            # queda «no disponible» y se recupera al volver a entrar.
+            connections.mark_expired(self._uri.connection)
+            self._error = (
+                f"La sesión de «{self._uri.connection}» ha caducado o no es válida. "
+                "Hay que volver a entrar desde el panel de Geosian; las capas se "
+                "recuperan solas."
+            )
+            self.log_error(self._error)
         except GeosianError as exc:
             self._error = str(exc)
             self.log_error(f"No se pudo abrir la capa: {exc}")
@@ -564,6 +576,7 @@ class GeosianProvider(QgsVectorDataProvider):
             expresion.prepare(QgsExpressionContext())
         with self._lock:
             self._subset = texto
+            self._uri.subset = texto
             self._subset_expr = expresion
             self._subset_params = (
                 {} if expresion is None or self._uri.info_name
@@ -597,7 +610,9 @@ class GeosianProvider(QgsVectorDataProvider):
         return "Geosian REST API"
 
     def dataSourceUri(self, expandAuthConfig=False):
-        return self._uri_text
+        if getattr(self, "_uri", None) is None:
+            return self._uri_text
+        return str(self._uri)
 
     def capabilities(self):
         # Fase 1: solo lectura. La edición llega en la fase 2, junto con el
