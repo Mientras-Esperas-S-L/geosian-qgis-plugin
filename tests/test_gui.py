@@ -86,7 +86,7 @@ def test_el_panel_despliega_mapas_y_capas(app_gui):
             raiz = panel.arbol.topLevelItem(0)
 
             panel._al_desplegar(raiz)
-            assert raiz.childCount() == 1
+            assert raiz.childCount() == 2
             mapa = raiz.child(0)
             assert "Ciudad de Ejemplo" in mapa.text(0)
 
@@ -208,3 +208,30 @@ def test_la_vista_cuelga_de_su_capa_y_se_pinta_con_su_estilo(app_gui):
         finally:
             proyecto.clear()
             connections.remove_connection("Integracion4")
+
+
+def test_un_403_no_pide_volver_a_entrar(app_gui):
+    """Sin permiso sobre las capas no es sesión caducada: se avisa y ya."""
+    from geosian.gui.browser_dock import ROL_DATOS, GeosianBrowserDock
+
+    with FakeGeosian() as fake:
+        connections.save_connection("Integracion5", fake.url, "a@b.c")
+        connections.set_session("Integracion5", "tok-de-prueba", "jwt")
+        try:
+            iface = IfaceFalso()
+            panel = GeosianBrowserDock(iface)
+            reconexiones = []
+            panel._pedir_reconexion = reconexiones.append
+            raiz = panel.arbol.topLevelItem(0)
+            panel._al_desplegar(raiz)
+            sin_permiso = raiz.child(1)
+
+            panel._al_desplegar(sin_permiso)
+            panel.añadir_mapa(sin_permiso.data(0, ROL_DATOS))
+
+            assert reconexiones == []
+            errores = [m for m in iface.mensajes if m[0] == "error"]
+            assert len(errores) == 2
+            assert "permisos" in errores[0][2]
+        finally:
+            connections.remove_connection("Integracion5")

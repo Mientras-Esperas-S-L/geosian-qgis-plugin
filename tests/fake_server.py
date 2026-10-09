@@ -67,7 +67,11 @@ ESQUEMA_ARBOLADO = {
     },
 }
 
-MAPAS = [{"id": 4, "name": "Ciudad de Ejemplo: arbolado y zonas verdes"}]
+MAPAS = [
+    {"id": 4, "name": "Ciudad de Ejemplo: arbolado y zonas verdes"},
+    # Un mapa que el usuario ve pero sobre cuyas capas no tiene permiso.
+    {"id": 5, "name": "Mapa sin permiso"},
+]
 
 CAPAS = [
     {
@@ -205,6 +209,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if ruta == "/api/v1/maps/":
             self._json(MAPAS)
+
+        elif ruta == "/api/v1/maps/5/layers/":
+            self._json({"error": "No tiene permisos para acceder a estas capas."}, 403)
 
         elif ruta == "/api/v1/maps/4/layers/":
             capas = [dict(c) for c in CAPAS]

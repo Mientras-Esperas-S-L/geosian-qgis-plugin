@@ -13,6 +13,7 @@ from .errors import (
     ApiError,
     AuthError,
     ConflictError,
+    ForbiddenError,
     GeosianError,
     NotFoundError,
 )
@@ -85,8 +86,10 @@ class GeosianClient:
         except (ValueError, UnicodeDecodeError):
             cuerpo = None
 
-        if response.status in (401, 403):
+        if response.status == 401:
             raise AuthError(response.status, mensaje, response.body, url)
+        if response.status == 403:
+            raise ForbiddenError(response.status, mensaje, response.body, url)
         if response.status == 404:
             raise NotFoundError(response.status, mensaje, response.body, url)
         if response.status == 409:

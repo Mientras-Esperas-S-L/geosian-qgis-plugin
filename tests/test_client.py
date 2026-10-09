@@ -5,7 +5,7 @@ import json
 import pytest
 
 from geosian.core.client import GeosianClient
-from geosian.core.errors import ApiError, AuthError, NotFoundError
+from geosian.core.errors import ApiError, AuthError, ForbiddenError, NotFoundError
 from geosian.core.http import Response, Transport
 
 
@@ -95,7 +95,7 @@ def test_cabecera_de_autorizacion():
 def test_traduccion_de_errores():
     casos = [
         (401, AuthError),
-        (403, AuthError),
+        (403, ForbiddenError),
         (404, NotFoundError),
         (500, ApiError),
     ]
