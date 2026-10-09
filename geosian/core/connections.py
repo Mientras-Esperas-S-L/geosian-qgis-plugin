@@ -40,6 +40,19 @@ def get_connection(nombre):
     return {"name": nombre, "url": url, "email": email, "authcfg": authcfg}
 
 
+def ws_url(nombre):
+    """URL del canal de tiempo real si la conexión la fija, o ``None``.
+
+    Normalmente es la de la API (``wss://<api>/ws/layer-data/``). En desarrollo
+    la sirve otro proceso en otro puerto, como en la web (``:8001``).
+    """
+    return QgsSettings().value(f"{GROUP}/{nombre}/ws_url", "") or None
+
+
+def set_ws_url(nombre, url):
+    QgsSettings().setValue(f"{GROUP}/{nombre}/ws_url", url or "")
+
+
 def save_connection(nombre, url, email, token=None, jwt=None):
     """Guarda la conexión y, si se puede, la credencial cifrada."""
     authcfg = ""

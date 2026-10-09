@@ -611,3 +611,62 @@ def test_informacion_adicional_va_al_final_del_mapa(app_gui):
         assert [n.name() for n in movido.findLayers()] == ["Arbolado · Parte de poda"]
     finally:
         proyecto.clear()
+
+
+def test_un_cambio_en_gcc_recarga_la_capa_en_qgis(app_gui):
+    """Tiempo real: el servidor avisa por /ws/layer-data/ y la capa se vuelve a pedir,
+    como hace la web (useLayerDataWebSocket.js)."""
+    import time
+
+    from qgis.core import QgsProject
+    from qgis.PyQt.QtCore import QCoreApplication
+
+    from geosian.gui import realtime_hub
+    from geosian.provider.metadata import register_provider
+    from tests.fake_ws import FakeWebSocket
+
+    def esperar(condicion, segundos=4):
+        limite = time.monotonic() + segundos
+        while time.monotonic() < limite:
+            QCoreApplication.processEvents()
+            if condicion():
+                return True
+            time.sleep(0.02)
+        return False
+
+    register_provider()
+    canal = FakeWebSocket()
+    with FakeGeosian() as fake:
+        try:
+            connections.save_connection("Vivo", fake.url, "a@b.c")
+            connections.set_ws_url("Vivo", canal.url)
+            capa = _capa_de_prueba(fake, "Vivo")
+            assert capa.featureCount() == 3
+            assert canal.conectado.wait(3)
+            assert esperar(lambda: {"type": "subscribe_map", "map_id": 4} in canal.recibidos)
+
+            fake.peticiones.clear()
+            canal.enviar({"type": "layer_data_changed", "map_id": 4, "layer_id": 11,
+                          "change_type": "update", "feature_id": 1001})
+            assert esperar(lambda: any(r == "/api/v1/geodata/paginated/" for r, _ in fake.peticiones)
+                           or (list(capa.getFeatures()) and any(
+                               r == "/api/v1/geodata/paginated/" for r, _ in fake.peticiones)))
+
+            # Un aviso de otra capa no recarga esta.
+            esperar(lambda: False, 1)
+            list(capa.getFeatures())
+            recargas = []
+            original = capa.dataProvider().reloadData
+            capa.dataProvider().reloadData = lambda: (recargas.append(1), original())
+            fake.peticiones.clear()
+            canal.enviar({"type": "layer_data_changed", "map_id": 4, "layer_id": 99,
+                          "change_type": "update"})
+            esperar(lambda: False, 1)
+            list(capa.getFeatures())
+            assert recargas == []
+            assert "/api/v1/geodata/paginated/" not in [r for r, _ in fake.peticiones]
+        finally:
+            realtime_hub.stop_all()
+            QgsProject.instance().clear()
+            connections.remove_connection("Vivo")
+            canal.cerrar()

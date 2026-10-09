@@ -71,7 +71,7 @@ vez de solo anotarlos.
 - [x] Mapa base: equivalente al GEOSIAN vectorial (estilo MapLibre) o, al menos, el que
       tenga elegido el mapa (`basemaps[]`).
 - [x] Estructura publicada del mapa (`map_structure`, modo básico) con grupos anidados.
-- [ ] Tiempo real (WebSocket `/ws/layer-data/`): refrescar lo que cambie en la web.
+- [x] Tiempo real (WebSocket `/ws/layer-data/`): refrescar lo que cambie en la web.
 - [ ] Proyecto guardado: reabrir, refrescar credenciales caducadas, mensajes claros.
 - [ ] Errores: 401, 403, red caída, capa borrada; ninguno debe colgar QGIS.
 
@@ -174,6 +174,18 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   adicional» se quedaba en medio del mapa (se crea con la primera capa con partes);
   ahora va al final. Prueba `test_informacion_adicional_va_al_final_del_mapa`.
 
+- 09/10 · Tiempo real. Cliente WebSocket propio en Python (`core/realtime.py`): el QGIS de
+  cada uno no siempre trae el módulo de Qt (aquí falta `libQt6WebSockets`). Mismo
+  protocolo que la web: JWT del login por subprotocolo, `subscribe_map` por mapa abierto,
+  latido cada 25 s, reconexión con espera creciente y sin reintentos si el JWT no vale
+  (4001). Al llegar `layer_data_changed`, las capas de QGIS de esa capa se recargan
+  (agrupando medio segundo). Hay que mandar `Origin`: sin él, `AllowedHostsOriginValidator`
+  de Channels rechaza con 403. Probado de punta a punta contra el backend local, con un
+  uvicorn de prueba en el 8011 (contenedor `qgis-local-ws`, ya parado) y un aviso real de
+  `notify_layer_data_changed`: QGIS volvió a pedir la capa. Pruebas `test_realtime.py`
+  (contra un servidor WebSocket falso) y `test_un_cambio_en_gcc_recarga_la_capa_en_qgis`.
+  En local la URL del canal se fija por conexión (`ws_url`), como la web usa el 8001.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión del usuario)_
@@ -218,6 +230,11 @@ _(lo que no es del plugin o pide una decisión del usuario)_
   sirviera el `style.json` y que lo leyeran la web y QGIS. ¿Lo hacemos?
 - El selector de la web ofrece además ortofoto y otros fondos fijos; QGIS solo añade
   GEOSIAN y los propios del mapa.
+- Tiempo real: una conexión sin JWT (guardada antes de que el plugin lo pidiera, o con
+  solo el token) no tiene canal; lo dice en el registro. Y un cambio de campos en GCC
+  (`layer_schema_changed`) solo avisa: hay que volver a añadir la capa.
+- En local el canal de la web (`:8001`) no está levantado: el `runserver` es WSGI. La web
+  local no tiene tiempo real.
 - Filtros de la web que QGIS no tiene: los de información adicional (elementos con partes
   que cumplan algo) y los globales de fecha. Se podrían añadir como parámetros de la URI.
 - La web manda `attr__status` vacío al filtrar (`/geodata/?…&attr__status&…`); el servidor

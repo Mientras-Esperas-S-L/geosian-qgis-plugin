@@ -50,7 +50,7 @@ from ..core import (
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri
-from . import media_widget
+from . import media_widget, realtime_hub
 from .connection_dialog import ConnectionDialog
 
 ROL_TIPO = Qt.ItemDataRole.UserRole
@@ -496,6 +496,9 @@ class GeosianBrowserDock(QDockWidget):
                 grupo.addLayer(vectorial)
             self._añadir_partes(vectorial, conexion, mapa["id"], capa["id"], tipo, grupo)
             añadidas.append(vectorial)
+
+        if añadidas:
+            realtime_hub.subscribe(conexion, mapa["id"], self.iface)
 
         if añadidas and avisar:
             self.iface.messageBar().pushInfo(

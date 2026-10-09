@@ -4,6 +4,7 @@ from qgis.core import QgsMapLayerType
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QAction
 
+from .gui import realtime_hub
 from .gui.browser_dock import GeosianBrowserDock, menu_de_etiquetas
 from .gui.connection_dialog import ConnectionDialog
 from .gui.media_widget import register_media_widget
@@ -75,6 +76,7 @@ class GeosianPlugin:
             menu_de_etiquetas(menu, capa)
 
     def unload(self):
+        realtime_hub.stop_all()
         vista = self.iface.layerTreeView()
         if vista is not None and hasattr(vista, "contextMenuAboutToShow"):
             try:
