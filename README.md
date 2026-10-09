@@ -27,8 +27,19 @@ campo.
 ## Qué hace hoy
 
 - Conexión al servidor con usuario y contraseña, incluido el doble factor.
-- Panel con las conexiones, sus mapas y las capas de cada mapa.
+- Panel con las conexiones, sus mapas, las capas de cada mapa y sus **vistas**.
 - Apertura de capas con doble clic, una por tipo de geometría.
+- **Mapa entero** (clic derecho en el mapa): las capas en el orden y las
+  carpetas del panel de GCC, con las que el usuario tiene apagadas apagadas y
+  la vista activa de cada capa aplicada. Si el proyecto no tiene fondo, pone el
+  mapa base del IGN (o OpenStreetMap fuera de España).
+- **La simbología de GCC**: el estilo de cada capa sale de su esquema (colores
+  por valor de atributo, con sus prioridades y su color por defecto), con los
+  mismos tamaños que la web y las etiquetas que la web enciende sola.
+- **Vistas de GCC**: se abren con su filtro, aplicado como lo aplica la web, y
+  su estilo (único, categorizado, graduado, por reglas o mapa de calor).
+- **Capas grandes por zona**: por encima de 50.000 elementos no se descarga la
+  capa entera; se pinta a partir de una escala y solo se pide lo que se ve.
 - Campos, tipos, alias y **formularios generados a partir del esquema de la
   capa**, con sus pestañas, sus listas de valores y su visibilidad condicional.
 - Recuento y extensión sin descargar la capa, y valores de los desplegables
@@ -37,6 +48,11 @@ campo.
 ## Qué no hace todavía
 
 - Editar. La capa se abre en modo consulta (fase 2).
+- Las visualizaciones de hexágonos, contornos y H3 de las vistas: se pintan con
+  sus colores. Los iconos de las vistas se pintan como puntos.
+- Las vistas de información adicional (muestran registros, no elementos).
+- En las capas grandes, la tabla de atributos muestra lo ya descargado, no la
+  capa entera. Usa «Mostrar objetos visibles en el mapa».
 - Trabajar sin conexión. Es una consecuencia buscada del diseño.
 - Fotos, adjuntos y partes de trabajo (fase 4).
 - Refresco en vivo por WebSocket (fase 3).

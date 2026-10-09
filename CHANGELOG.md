@@ -4,6 +4,18 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Sin publicar]
 
+### Añadido
+
+- Simbología de GCC a partir del esquema de cada capa, con los tamaños de la
+  web, y etiquetas por defecto.
+- Vistas de capa: en el panel, con su filtro (traducido a `attr__` como hace la
+  web) y su estilo.
+- «Añadir el mapa entero»: orden, carpetas, capas apagadas y vistas activas de
+  las preferencias del usuario, y un fondo si el proyecto no lo tiene.
+- Capas de más de 50.000 elementos por zona, con escala mínima calculada.
+- Los LAD de un mapa se piden en paralelo: 50 capas en 1,4 s en vez de 17 s.
+- Recargar el complemento recarga también el proveedor.
+
 ### Corregido
 
 Encontrado al probarlo por primera vez contra un Geosian real:
