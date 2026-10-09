@@ -44,6 +44,7 @@ TIPO_CONEXION = "conexion"
 TIPO_MAPA = "mapa"
 TIPO_CAPA = "capa"
 TIPO_VISTA = "vista"
+TIPO_ESPACIO = "espacio"
 
 # Fondos. El mapa base propio de GCC son teselas vectoriales con un estilo de
 # MapLibre; en QGIS se usa el equivalente ráster público más cercano.
@@ -158,12 +159,22 @@ class GeosianBrowserDock(QDockWidget):
             item.addChild(_hoja_informativa("Este usuario no tiene mapas"))
             return
 
+        # Agrupados por espacio de trabajo, como en el selector de mapas de la web.
+        espacios = {}
         for mapa in mapas:
+            espacio = mapa.get("workspace_name") or "Sin espacio de trabajo"
+            if espacio not in espacios:
+                carpeta = QTreeWidgetItem([espacio])
+                carpeta.setData(0, ROL_TIPO, TIPO_ESPACIO)
+                carpeta.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                espacios[espacio] = carpeta
             hijo = QTreeWidgetItem([mapa.get("name") or f"Mapa {mapa.get('id')}"])
             hijo.setData(0, ROL_TIPO, TIPO_MAPA)
             hijo.setData(0, ROL_DATOS, {"conexion": nombre, "mapa": mapa})
             hijo.setChildIndicatorPolicy(QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
-            item.addChild(hijo)
+            espacios[espacio].addChild(hijo)
+        for espacio in sorted(espacios, key=str.casefold):
+            item.addChild(espacios[espacio])
 
     def _cargar_capas(self, item):
         datos = item.data(0, ROL_DATOS)

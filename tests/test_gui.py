@@ -86,8 +86,12 @@ def test_el_panel_despliega_mapas_y_capas(app_gui):
             raiz = panel.arbol.topLevelItem(0)
 
             panel._al_desplegar(raiz)
-            assert raiz.childCount() == 2
-            mapa = raiz.child(0)
+            # Los mapas cuelgan de su espacio de trabajo, como en la web.
+            assert [raiz.child(i).text(0) for i in range(raiz.childCount())] == [
+                "Ayuntamiento de Ejemplo",
+                "Otro Ayuntamiento",
+            ]
+            mapa = raiz.child(0).child(0)
             assert "Ciudad de Ejemplo" in mapa.text(0)
 
             panel._al_desplegar(mapa)
@@ -114,7 +118,7 @@ def test_anadir_capa_la_mete_en_el_proyecto(app_gui):
             panel = GeosianBrowserDock(iface)
             raiz = panel.arbol.topLevelItem(0)
             panel._al_desplegar(raiz)
-            mapa = raiz.child(0)
+            mapa = raiz.child(0).child(0)
             panel._al_desplegar(mapa)
 
             from geosian.gui.browser_dock import ROL_DATOS
@@ -151,7 +155,7 @@ def test_anadir_mapa_entero_crea_un_grupo(app_gui):
             panel = GeosianBrowserDock(IfaceFalso())
             raiz = panel.arbol.topLevelItem(0)
             panel._al_desplegar(raiz)
-            panel.añadir_mapa(raiz.child(0).data(0, ROL_DATOS))
+            panel.añadir_mapa(raiz.child(0).child(0).data(0, ROL_DATOS))
 
             grupo = proyecto.layerTreeRoot().children()[0]
             assert grupo.name() == "Ciudad de Ejemplo: arbolado y zonas verdes"
@@ -196,7 +200,7 @@ def test_la_vista_cuelga_de_su_capa_y_se_pinta_con_su_estilo(app_gui):
             panel = GeosianBrowserDock(IfaceFalso())
             raiz = panel.arbol.topLevelItem(0)
             panel._al_desplegar(raiz)
-            mapa = raiz.child(0)
+            mapa = raiz.child(0).child(0)
             panel._al_desplegar(mapa)
             vista = mapa.child(0).child(0)
             assert vista.text(0) == "Vista: Tilos"
@@ -226,7 +230,7 @@ def test_un_403_no_pide_volver_a_entrar(app_gui):
             panel._pedir_reconexion = reconexiones.append
             raiz = panel.arbol.topLevelItem(0)
             panel._al_desplegar(raiz)
-            sin_permiso = raiz.child(1)
+            sin_permiso = raiz.child(1).child(0)
 
             panel._al_desplegar(sin_permiso)
             panel.añadir_mapa(sin_permiso.data(0, ROL_DATOS))
