@@ -57,7 +57,7 @@ de datos por detrás de la API.
       (no aplica: el editor solo tiene `defaultIcon`; tamaño y halo coinciden)
 - [ ] Visualizaciones sin equivalente (hexágonos, contornos, H3): decidir aproximación.
       (PENDIENTE DE DECISIÓN, ver hallazgos; se sigue con lo demás)
-- [ ] Tabla de atributos en capas grandes: hoy solo enseña lo descargado. ¿Recuento y
+- [x] Tabla de atributos en capas grandes: hoy solo enseña lo descargado. ¿Recuento y
       paginado desde la API?
 - [ ] Ficha del elemento: secciones, `visible_if` y valores, comparadas con la web.
 - [ ] Información adicional (partes) de un elemento, en solo lectura.
@@ -94,6 +94,10 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   ahora se abren como las demás. Prueba
   `test_las_vistas_de_informacion_adicional_se_ofrecen_como_las_demas`.
 
+- 09/10 · Tabla de capas grandes: sin recuadro, el proveedor carga por páginas los primeros
+  50.000 (`TABLE_CAP`) y avisa del total. Nueva York local: 50.000 de 1.078.380 en 13,6 s.
+  Prueba `test_capa_grande_sin_recuadro_carga_hasta_el_tope_y_avisa`.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión del usuario)_
@@ -115,6 +119,9 @@ _(lo que no es del plugin o pide una decisión del usuario)_
   vectoriales de QGIS, autenticada con el token en un authcfg de tipo cabecera, y colorear
   por `count` con la misma escala logarítmica. Exacto pero con trabajo; sin decisión, hoy
   se pintan con el color de la vista y se avisa.
+- **API, mejora posible**: `/geodata/paginated/` no admite `no_geometry` (solo el listado
+  simple, que rechaza más de 100.000). Con él, la tabla de capas grandes bajaría solo
+  atributos y tardaría bastante menos. Cambio pequeño en `list_paginated`; no hecho aún.
 - `context_type = additional_info` en las vistas no lo usa nada de la web (solo existe en
   el modelo y en el servicio). ¿Se retira o está previsto para algo?
 - Iconos de vista: mismo tamaño (metros, mínimo 8 px), pero en la web se ven más

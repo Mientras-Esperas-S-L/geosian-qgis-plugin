@@ -53,6 +53,11 @@ ZONE_CAP = 50000
 # lo nuevo ya está en la caché y no hay que volver a la red.
 ZONE_MARGIN = 0.25
 
+# Lo que se carga de una capa grande cuando QGIS la pide entera, sin recuadro: la
+# tabla de atributos. La web la pagina en el servidor (Listas); la tabla de QGIS no
+# sabe, así que se cargan los primeros y se avisa.
+TABLE_CAP = 50000
+
 # Elementos que se quieren a la vista como mucho en una capa grande. De aquí sale
 # la escala a partir de la cual la capa deja de pintarse.
 VISIBLE_TARGET = 20000
@@ -120,6 +125,7 @@ class GeosianProvider(QgsVectorDataProvider):
         self._lock = threading.RLock()
         self._by_zone = False
         self._zones = []
+        self._tabla_cargada = False
         self._view = None
         self._filter = {}
 
@@ -415,6 +421,7 @@ class GeosianProvider(QgsVectorDataProvider):
             self._cache.clear()
             self._zones = []
             self._loaded = False
+            self._tabla_cargada = False
 
     def invalidate_feature(self, fid):
         """Olvida un elemento suelto, para refrescar solo lo que cambió."""
@@ -511,8 +518,9 @@ class GeosianProvider(QgsVectorDataProvider):
         recuadro = request.filterRect()
         if self._by_zone and recuadro is not None and not recuadro.isNull():
             self._ensure_zone(recuadro)
-        # Una capa grande sin recuadro (la tabla de atributos, por ejemplo)
-        # recibe lo que ya está en la caché, no la capa entera.
+        elif self._by_zone:
+            # Sin recuadro (la tabla de atributos): los primeros TABLE_CAP.
+            self._ensure_tabla()
 
         if recuadro is not None and not recuadro.isNull():
             seleccion = [
@@ -607,6 +615,39 @@ class GeosianProvider(QgsVectorDataProvider):
             return
 
         self._zones.append(QgsRectangle(*area))
+
+    def _ensure_tabla(self):
+        """Carga hasta TABLE_CAP elementos de una capa grande, por páginas."""
+        if self._tabla_cargada:
+            return
+        self._tabla_cargada = True
+        pagina = 1
+        total = 0
+        try:
+            while total < TABLE_CAP:
+                datos = self._client.geodata_paginated(
+                    self._uri.layer_id,
+                    page=pagina,
+                    page_size=PAGE_SIZE,
+                    data_type=self._uri.geometry_type,
+                    extra=self._filter,
+                )
+                elementos = _features_from(datos)
+                for elemento in elementos:
+                    self._store(elemento)
+                total += len(elementos)
+                if len(elementos) < PAGE_SIZE:
+                    break
+                pagina += 1
+        except GeosianError as exc:
+            self.log_warning(f"No se pudo cargar la tabla: {exc}")
+            return
+        if self._feature_count > total:
+            self.log_warning(
+                f"«{self._layer_name}» tiene {self._feature_count} elementos; la tabla "
+                f"muestra los primeros {total}. Para ver otros, filtra la tabla por "
+                "«objetos visibles en el mapa» y muévete por el mapa."
+            )
 
     def suggested_min_scale(self):
         """Escala más alejada a la que conviene pintar una capa grande.

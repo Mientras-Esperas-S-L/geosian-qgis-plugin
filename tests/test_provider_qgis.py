@@ -382,9 +382,22 @@ def test_capa_grande_pide_solo_la_zona(capa_grande, servidor):
     assert len(_pedidas_por_zona(servidor)) == 1
 
 
-def test_capa_grande_sin_recuadro_no_se_descarga_entera(capa_grande, servidor):
-    assert list(capa_grande.getFeatures()) == []
-    assert _pedidas_por_zona(servidor) == []
+def test_capa_grande_sin_recuadro_carga_hasta_el_tope_y_avisa(capa_grande, servidor, monkeypatch):
+    """La tabla de atributos pide la capa sin recuadro: los primeros TABLE_CAP."""
+    from geosian.provider import provider as modulo
+
+    monkeypatch.setattr(modulo, "TABLE_CAP", 2)
+    monkeypatch.setattr(modulo, "PAGE_SIZE", 2)
+    proveedor = capa_grande.dataProvider()
+    avisos = []
+    monkeypatch.setattr(proveedor, "log_warning", avisos.append)
+    proveedor._feature_count = 10  # más que el tope
+
+    elementos = list(capa_grande.getFeatures())
+    assert elementos  # ya no sale vacía
+    # Ni una zona pedida: es una descarga por páginas, sin recuadro.
+    assert all("ids" not in c and c.get("page") for c in _pedidas_por_zona(servidor))
+    assert any("la tabla muestra los primeros" in a for a in avisos)
 
 
 def test_capa_grande_sugiere_escala(capa_grande):
