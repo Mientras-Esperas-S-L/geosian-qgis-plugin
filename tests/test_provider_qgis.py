@@ -320,3 +320,22 @@ def test_credencial_mala_no_tumba_qgis(app):
             assert not vectorial.isValid()
         finally:
             connections.remove_connection("Mala")
+
+
+# ----------------------------------------------------------------------
+# Login con doble factor, por la pila de red de QGIS
+# ----------------------------------------------------------------------
+
+
+def test_login_con_doble_factor_por_la_red_de_qgis(app):
+    from geosian.core.client import GeosianClient
+    from geosian.core.http import QgisTransport
+
+    with FakeGeosian() as fake:
+        cliente = GeosianClient(fake.url, QgisTransport())
+        resultado = cliente.login("doble@ejemplo.com", "secreto")
+        assert resultado["mfa_required"]
+
+        cliente.verify_2fa(resultado["mfa_token"], "123456")
+        assert cliente.token == "tok-de-prueba"
+        assert cliente.jwt == "jwt-de-prueba"

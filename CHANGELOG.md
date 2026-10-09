@@ -4,6 +4,20 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ## [Sin publicar]
 
+### Corregido
+
+Encontrado al probarlo por primera vez contra un Geosian real:
+
+- El doble factor no funcionaba. El código iba a `/users/login/verify-2fa`, sin
+  la barra final, y la redirección del servidor acababa en «Protocolo
+  desconocido». Además viajaba en el campo `otp` y el servidor lo espera en
+  `otp_code`.
+- Las capas se abrían sin tipo de geometría y el mapa salía en blanco. El
+  detalle `/layers/<id>/` no devuelve `tile_metadata`; ahora se toma del listado
+  de capas del mapa, que sí lo trae.
+- `make install` enlazaba siempre en el perfil de QGIS 3. Ahora pregunta la
+  versión al PyQGIS instalado y usa `QGIS3/` o `QGIS4/`.
+
 ### Añadido
 
 - Proveedor de datos `geosian://` registrado en QGIS, de solo lectura.

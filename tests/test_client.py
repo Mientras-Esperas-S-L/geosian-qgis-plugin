@@ -67,6 +67,23 @@ def test_login_con_doble_factor_no_da_token_todavia():
     assert not cliente.authenticated
 
 
+def test_segundo_factor_va_a_la_ruta_con_barra():
+    transporte = TransporteFalso(
+        {
+            "/users/login/verify-2fa/": respuesta(
+                {"api_token": "tok123", "jwt_token": "jwt456"}, 202
+            )
+        }
+    )
+    cliente = GeosianClient("https://api.ejemplo.com", transporte)
+    cliente.verify_2fa("mfa", "123456")
+
+    # Sin la barra, Django responde con una redirección y QGIS no la sigue.
+    assert transporte.llamadas[0]["url"].endswith("/users/login/verify-2fa/")
+    assert transporte.llamadas[0]["body"]["otp_code"] == "123456"
+    assert cliente.token == "tok123"
+
+
 def test_cabecera_de_autorizacion():
     transporte = TransporteFalso({"/maps/": respuesta([])})
     cliente = GeosianClient("https://api.ejemplo.com", transporte, token="tok")
@@ -114,16 +131,21 @@ def test_geodata_arma_bien_la_consulta():
     assert "response_format=geojson" in url
 
 
-def test_layer_metadata_devuelve_el_bloque():
+def test_layer_metadata_sale_del_listado_del_mapa():
     transporte = TransporteFalso(
         {
-            "/layers/11/": respuesta(
-                {"id": 11, "tile_metadata": {"feature_count": 42}}
+            "/maps/4/layers/": respuesta(
+                [
+                    {"id": 10, "tile_metadata": {"feature_count": 7}},
+                    {"id": 11, "tile_metadata": {"feature_count": 42}},
+                ]
             )
         }
     )
     cliente = GeosianClient("https://x", transporte, token="t")
-    assert cliente.layer_metadata(11)["feature_count"] == 42
+    assert cliente.layer_metadata(11, 4)["feature_count"] == 42
+    # El detalle /layers/<id>/ no trae los metadatos aunque se le pidan.
+    assert "/maps/4/layers/" in transporte.llamadas[0]["url"]
     assert "include_tile_metadata=true" in transporte.llamadas[0]["url"]
 
 

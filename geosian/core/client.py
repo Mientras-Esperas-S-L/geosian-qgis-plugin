@@ -125,10 +125,10 @@ class GeosianClient:
     def verify_2fa(self, mfa_token, code, remember_device=False):
         """Segunda fase del login cuando hay doble factor."""
         resultado = self._post(
-            "/users/login/verify-2fa",
+            "/users/login/verify-2fa/",
             {
                 "mfa_token": mfa_token,
-                "otp": code,
+                "otp_code": code,
                 "remember_device": remember_device,
             },
         )
@@ -158,21 +158,30 @@ class GeosianClient:
         return _as_list(self._get(f"{API_PREFIX}/maps/"))
 
     def layers(self, map_id):
-        """Capas de un mapa."""
-        return _as_list(self._get(f"{API_PREFIX}/maps/{map_id}/layers/"))
+        """Capas de un mapa, cada una con su ``tile_metadata``.
 
-    def layer_metadata(self, layer_id):
+        Sin esos metadatos el panel no sabe qué tipos de geometría tiene cada
+        capa. El servidor los omite si trabaja solo con GeoJSON
+        (``GEODATA_TILE_MODE``).
+        """
+        return _as_list(
+            self._get(
+                f"{API_PREFIX}/maps/{map_id}/layers/",
+                {"include_tile_metadata": "true"},
+            )
+        )
+
+    def layer_metadata(self, layer_id, map_id):
         """Metadatos de tiling de una capa: recuento, extensión y geometrías.
 
-        Es lo que permite al proveedor responder ``featureCount()`` y
-        ``extent()`` sin descargar la capa.
+        Es lo que permite al proveedor responder ``wkbType()``,
+        ``featureCount()`` y ``extent()`` sin descargar la capa. Salen del
+        listado de capas del mapa: el detalle ``/layers/<id>/`` no los devuelve
+        aunque se le pida ``include_tile_metadata``.
         """
-        datos = self._get(
-            f"{API_PREFIX}/layers/{layer_id}/",
-            {"include_tile_metadata": "true"},
-        )
-        if isinstance(datos, dict):
-            return datos.get("tile_metadata") or {}
+        for capa in self.layers(map_id):
+            if isinstance(capa, dict) and capa.get("id") == layer_id:
+                return capa.get("tile_metadata") or {}
         return {}
 
     def layer_attributes(self, layer_id):

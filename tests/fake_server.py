@@ -147,12 +147,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json(MAPAS)
 
         elif ruta == "/api/v1/maps/4/layers/":
-            self._json(CAPAS)
+            capas = [dict(c) for c in CAPAS]
+            if not consulta.get("include_tile_metadata"):
+                for capa in capas:
+                    capa.pop("tile_metadata", None)
+            self._json(capas)
 
         elif ruta == "/api/v1/layers/11/":
+            # Como el backend: el detalle nunca trae tile_metadata.
             datos = dict(CAPAS[0])
-            if not consulta.get("include_tile_metadata"):
-                datos.pop("tile_metadata", None)
+            datos.pop("tile_metadata", None)
             self._json(datos)
 
         elif ruta == "/api/v1/layer-attributes/":
@@ -188,6 +192,36 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         partes = urlparse(self.path)
+        largo = int(self.headers.get("Content-Length") or 0)
+        datos = json.loads(self.rfile.read(largo) or b"{}")
+
+        # Como Django con APPEND_SLASH: sin la barra final no hay respuesta,
+        # hay una redirección relativa que QGIS no sabe seguir.
+        if not partes.path.endswith("/"):
+            self.send_response(301)
+            self.send_header("Location", partes.path + "/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        if partes.path == "/users/login/" and datos.get("email") == "doble@ejemplo.com":
+            self._json({"mfa_required": True, "mfa_token": "mfa-de-prueba"}, 202)
+            return
+
+        if partes.path == "/users/login/verify-2fa/":
+            if datos.get("mfa_token") != "mfa-de-prueba" or datos.get("otp_code") != "123456":
+                self._json({"detail": "Código no válido"}, 401)
+                return
+            self._json(
+                {
+                    "api_token": "tok-de-prueba",
+                    "jwt_token": "jwt-de-prueba",
+                    "user": {"email": "doble@ejemplo.com"},
+                },
+                202,
+            )
+            return
+
         if partes.path == "/users/login/":
             self._json(
                 {

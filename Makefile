@@ -1,5 +1,8 @@
 PLUGIN  := geosian
-QGIS_PROFILE ?= $(HOME)/.local/share/QGIS/QGIS3/profiles/default
+# QGIS 3 y QGIS 4 guardan el perfil en carpetas distintas (QGIS3/, QGIS4/).
+# Se pregunta la versión al PyQGIS instalado; si no responde, se asume la 3.
+QGIS_MAJOR   ?= $(shell python3 -c 'from qgis.core import Qgis; print(Qgis.versionInt() // 10000)' 2>/dev/null || echo 3)
+QGIS_PROFILE ?= $(HOME)/.local/share/QGIS/QGIS$(QGIS_MAJOR)/profiles/default
 PLUGIN_DIR   := $(QGIS_PROFILE)/python/plugins/$(PLUGIN)
 PYTHON  ?= .venv/bin/python
 VERSION := $(shell sed -n 's/^version=//p' $(PLUGIN)/metadata.txt)

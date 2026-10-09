@@ -138,7 +138,10 @@ class GeosianProvider(QgsVectorDataProvider):
 
         metadatos = {}
         try:
-            metadatos = self._client.layer_metadata(self._uri.layer_id) or {}
+            metadatos = (
+                self._client.layer_metadata(self._uri.layer_id, self._uri.map_id)
+                or {}
+            )
         except GeosianError as exc:
             # Sin metadatos se puede trabajar: el recuento y la extensión se
             # calculan al cargar los datos. No merece la pena fallar por esto.
