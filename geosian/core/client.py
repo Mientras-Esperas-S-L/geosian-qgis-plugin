@@ -249,6 +249,24 @@ class GeosianClient:
         """Vistas guardadas de una capa."""
         return _as_list(self._get(f"{API_PREFIX}/layers/{layer_id}/views/"))
 
+    def map_views(self, map_id):
+        """Vistas de las capas de un mapa: ``{layer_id: [vista, ...]}``.
+
+        El listado no trae el filtro ni el estilo de cada vista; para eso está
+        :meth:`layer_view`.
+        """
+        salida = {}
+        for bloque in _as_list(
+            self._get(f"{API_PREFIX}/layer-views/for-map/", {"map_id": map_id})
+        ):
+            if isinstance(bloque, dict) and bloque.get("layer_id") is not None:
+                salida[bloque["layer_id"]] = bloque.get("views") or []
+        return salida
+
+    def layer_view(self, view_id):
+        """Una vista completa, con ``filter_config`` y ``style_config``."""
+        return self._get(f"{API_PREFIX}/layer-views/{view_id}/") or {}
+
     # ------------------------------------------------------------------
     # Datos
     # ------------------------------------------------------------------
@@ -291,7 +309,7 @@ class GeosianClient:
         return self._get(f"{API_PREFIX}/geodata/", params)
 
     def geodata_paginated(self, layer_id, page=1, page_size=5000, data_type=None,
-                          extra=None, area=None, ids=None, view_id=None):
+                          extra=None, area=None, ids=None):
         """Igual que :meth:`geodata` pero por páginas.
 
         La API rechaza el endpoint sin paginar por encima de 100.000 elementos,
@@ -302,7 +320,7 @@ class GeosianClient:
                 cae dentro. Va como ``lasso_geometry`` en un POST, que es como
                 lo acepta la API.
             ids: identificadores concretos.
-            view_id: vista de la capa; el servidor aplica su filtro.
+            extra: más parámetros, por ejemplo los ``attr__`` de una vista.
         """
         params = {
             "layer_id": layer_id,
@@ -312,8 +330,6 @@ class GeosianClient:
         }
         if ids:
             params["ids"] = ",".join(str(i) for i in ids)
-        if view_id:
-            params["view_ids"] = view_id
         params.update(extra or {})
         ruta = f"{API_PREFIX}/geodata/paginated/"
         if area:

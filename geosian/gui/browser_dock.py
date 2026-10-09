@@ -23,7 +23,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
-from ..core import connections, lad, symbology
+from ..core import connections, lad, symbology, views
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri
@@ -35,6 +35,7 @@ ROL_DATOS = Qt.ItemDataRole.UserRole + 1
 TIPO_CONEXION = "conexion"
 TIPO_MAPA = "mapa"
 TIPO_CAPA = "capa"
+TIPO_VISTA = "vista"
 
 # Nombres legibles de los tipos de geometría, para cuando una capa tiene más
 # de uno y hay que abrir una capa de QGIS por cada uno.
@@ -160,6 +161,12 @@ class GeosianBrowserDock(QDockWidget):
             item.addChild(_hoja_informativa("Este mapa no tiene capas"))
             return
 
+        try:
+            vistas = cliente.map_views(mapa["id"])
+        except GeosianError:
+            # Sin vistas el mapa se puede usar igual.
+            vistas = {}
+
         for capa in capas:
             hijo = QTreeWidgetItem([capa.get("name") or f"Capa {capa.get('id')}"])
             hijo.setData(0, ROL_TIPO, TIPO_CAPA)
@@ -167,13 +174,27 @@ class GeosianBrowserDock(QDockWidget):
                 0, ROL_DATOS, {"conexion": nombre, "mapa": mapa, "capa": capa}
             )
             item.addChild(hijo)
+            for vista in vistas.get(capa.get("id")) or []:
+                nieto = QTreeWidgetItem([f"Vista: {vista.get('name')}"])
+                if views.is_element_view(vista):
+                    nieto.setData(0, ROL_TIPO, TIPO_VISTA)
+                    nieto.setData(
+                        0,
+                        ROL_DATOS,
+                        {"conexion": nombre, "mapa": mapa, "capa": capa, "vista": vista},
+                    )
+                else:
+                    # Muestra registros de información adicional, no elementos.
+                    nieto.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                    nieto.setToolTip(0, "Vista de información adicional: todavía no se abre en QGIS.")
+                hijo.addChild(nieto)
 
     # ------------------------------------------------------------------
     # Acciones
     # ------------------------------------------------------------------
 
     def _al_doble_clic(self, item, _columna):
-        if item.data(0, ROL_TIPO) == TIPO_CAPA:
+        if item.data(0, ROL_TIPO) in (TIPO_CAPA, TIPO_VISTA):
             self.añadir_capa(item.data(0, ROL_DATOS))
 
     def _menu_contextual(self, punto):
@@ -183,7 +204,7 @@ class GeosianBrowserDock(QDockWidget):
         tipo = item.data(0, ROL_TIPO)
         menu = QMenu(self)
 
-        if tipo == TIPO_CAPA:
+        if tipo in (TIPO_CAPA, TIPO_VISTA):
             menu.addAction(
                 "Añadir al proyecto",
                 lambda: self.añadir_capa(item.data(0, ROL_DATOS)),
@@ -256,6 +277,7 @@ class GeosianBrowserDock(QDockWidget):
         conexion = datos["conexion"]
         capa = datos["capa"]
         mapa = datos["mapa"]
+        vista = datos.get("vista")
 
         tipos = _tipos_de_geometria(capa)
         if not tipos:
@@ -264,10 +286,18 @@ class GeosianBrowserDock(QDockWidget):
         añadidas = 0
         for tipo in tipos:
             nombre = capa.get("name") or f"Capa {capa['id']}"
+            if vista:
+                nombre = f"{nombre} · {vista.get('name')}"
             if tipo and len(tipos) > 1:
                 nombre = f"{nombre} ({ETIQUETAS_GEOMETRIA.get(tipo, tipo)})"
 
-            uri = build_uri(conexion, mapa["id"], capa["id"], geometry_type=tipo)
+            uri = build_uri(
+                conexion,
+                mapa["id"],
+                capa["id"],
+                geometry_type=tipo,
+                view_id=vista.get("id") if vista else None,
+            )
             vectorial = QgsVectorLayer(uri, nombre, "geosian")
 
             if not vectorial.isValid():
@@ -297,9 +327,13 @@ class GeosianBrowserDock(QDockWidget):
         proveedor = capa.dataProvider()
         try:
             resolver = symbology.field_resolver(proveedor.fields(), proveedor.attr_map)
-            renderizador, avisos = symbology.base_renderer(
-                proveedor.schema, proveedor.layer_uri.geometry_type, resolver
-            )
+            tipo = proveedor.layer_uri.geometry_type
+            if proveedor.view is not None:
+                renderizador, avisos = symbology.view_renderer(
+                    proveedor.view.get("style_config"), tipo, proveedor.schema, resolver
+                )
+            else:
+                renderizador, avisos = symbology.base_renderer(proveedor.schema, tipo, resolver)
             capa.setRenderer(renderizador)
             for aviso in avisos:
                 proveedor.log_warning(f"{capa.name()}: {aviso}")

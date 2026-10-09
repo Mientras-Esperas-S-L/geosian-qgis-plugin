@@ -26,7 +26,7 @@ from qgis.core import (
     Qgis,
 )
 
-from ..core import connections, lad
+from ..core import connections, lad, views
 from ..core import schema as S
 from ..core.errors import GeosianError
 from .feature_source import GeosianFeatureSource
@@ -118,6 +118,8 @@ class GeosianProvider(QgsVectorDataProvider):
         self._lock = threading.RLock()
         self._by_zone = False
         self._zones = []
+        self._view = None
+        self._filter = {}
 
         try:
             self._uri = parse_uri(uri)
@@ -155,6 +157,11 @@ class GeosianProvider(QgsVectorDataProvider):
 
     def _load_definition(self):
         """Campos, tipo de geometría, extensión y recuento. Sin datos."""
+        if self._uri.view_id:
+            self._view = self._client.layer_view(self._uri.view_id)
+            self._filter, avisos = views.filter_params(self._view.get("filter_config"))
+            for aviso in avisos:
+                self.log_warning(f"Vista «{self._view.get('name')}»: {aviso}")
         definiciones = self._client.layer_attributes(self._uri.layer_id)
         self._schema = self._pick_schema(definiciones)
         self._fields, self._attr_map = lad.build_fields(self._schema)
@@ -248,7 +255,9 @@ class GeosianProvider(QgsVectorDataProvider):
 
         self._loaded = True
         self._feature_count = total
-        if self._extent.isNull() or self._extent.isEmpty():
+        # La extensión de los metadatos es la de la capa entera; con una vista
+        # se queda grande, así que se calcula con lo que el filtro devolvió.
+        if self._extent.isNull() or self._extent.isEmpty() or self._view is not None:
             self._recompute_extent()
 
     def _download_all(self):
@@ -266,7 +275,7 @@ class GeosianProvider(QgsVectorDataProvider):
                 page=pagina,
                 page_size=PAGE_SIZE,
                 data_type=self._uri.geometry_type,
-                view_id=self._uri.view_id,
+                extra=self._filter,
             )
             elementos = _features_from(datos)
             for elemento in elementos:
@@ -368,7 +377,7 @@ class GeosianProvider(QgsVectorDataProvider):
         return len(self._cache)
 
     def extent(self):
-        if self._extent.isNull() or self._extent.isEmpty():
+        if self._extent.isNull() or self._extent.isEmpty() or self._view is not None:
             self._ensure_loaded()
         return self._extent
 
@@ -533,7 +542,7 @@ class GeosianProvider(QgsVectorDataProvider):
                 page_size=max(len(faltan), 1),
                 data_type=self._uri.geometry_type,
                 ids=faltan,
-                view_id=self._uri.view_id,
+                extra=self._filter,
             )
             for elemento in _features_from(datos):
                 self._store(elemento)
@@ -565,7 +574,7 @@ class GeosianProvider(QgsVectorDataProvider):
                     page_size=PAGE_SIZE,
                     data_type=self._uri.geometry_type,
                     area=area,
-                    view_id=self._uri.view_id,
+                    extra=self._filter,
                 )
                 elementos = _features_from(datos)
                 for elemento in elementos:
@@ -618,6 +627,11 @@ class GeosianProvider(QgsVectorDataProvider):
     @property
     def schema(self):
         return self._schema
+
+    @property
+    def view(self):
+        """La vista de GCC que filtra esta capa, o ``None``."""
+        return self._view
 
     @property
     def attr_map(self):

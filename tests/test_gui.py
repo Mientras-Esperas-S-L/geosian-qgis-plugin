@@ -159,3 +159,36 @@ def test_anadir_mapa_entero_crea_un_grupo(app_gui):
         finally:
             proyecto.clear()
             connections.remove_connection("Integracion3")
+
+
+def test_la_vista_cuelga_de_su_capa_y_se_pinta_con_su_estilo(app_gui):
+    from qgis.core import QgsProject
+
+    from geosian.gui.browser_dock import ROL_DATOS, ROL_TIPO, TIPO_VISTA, GeosianBrowserDock
+    from geosian.provider.metadata import register_provider
+
+    register_provider()
+    proyecto = QgsProject.instance()
+    proyecto.clear()
+
+    with FakeGeosian() as fake:
+        connections.save_connection("Integracion4", fake.url, "a@b.c")
+        connections.set_session("Integracion4", "tok-de-prueba", "jwt")
+        try:
+            panel = GeosianBrowserDock(IfaceFalso())
+            raiz = panel.arbol.topLevelItem(0)
+            panel._al_desplegar(raiz)
+            mapa = raiz.child(0)
+            panel._al_desplegar(mapa)
+            vista = mapa.child(0).child(0)
+            assert vista.text(0) == "Vista: Tilos"
+            assert vista.data(0, ROL_TIPO) == TIPO_VISTA
+
+            panel.añadir_capa(vista.data(0, ROL_DATOS))
+            capa = list(proyecto.mapLayers().values())[0]
+            assert capa.name() == "Arbolado · Tilos"
+            assert capa.featureCount() == 1
+            assert capa.renderer().symbol().color().name() == "#ff0000"
+        finally:
+            proyecto.clear()
+            connections.remove_connection("Integracion4")

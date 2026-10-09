@@ -398,15 +398,18 @@ def test_capa_grande_sugiere_escala(capa_grande):
 # ----------------------------------------------------------------------
 
 
-def test_vista_filtra_en_el_servidor(servidor):
+def test_vista_filtra_como_la_web(servidor):
     uri = f"geosian://{CONEXION}/map/4/layer/11?geometry_type=points&view=7"
     vectorial = QgsVectorLayer(uri, "Tilos", "geosian")
     assert vectorial.isValid(), vectorial.dataProvider().error()
 
     assert [f["codigo"] for f in vectorial.getFeatures()] == ["A-002"]
     assert vectorial.featureCount() == 1
+    assert vectorial.dataProvider().view["name"] == "Tilos"
+    # Como la web: el filtro viaja en attr__, no en view_ids.
     consultas = [c for r, c in servidor.peticiones if r == "/api/v1/geodata/paginated/"]
-    assert all(c.get("view_ids") == ["7"] for c in consultas)
+    assert consultas and all(c.get("attr__especie") == ["Tilia platyphyllos"] for c in consultas)
+    assert not any("view_ids" in c for c in consultas)
 
 
 # ----------------------------------------------------------------------
@@ -455,3 +458,12 @@ def test_varios_get_a_la_vez_por_la_red_de_qgis(app):
     assert all(isinstance(r, Response) for r in respuestas)
     assert [r.status for r in respuestas] == [200, 404]
     assert respuestas[0].json()[0]["id"] == 4
+
+
+def test_la_extension_de_una_vista_es_la_de_lo_filtrado(servidor):
+    uri = f"geosian://{CONEXION}/map/4/layer/11?geometry_type=points&view=7"
+    vectorial = QgsVectorLayer(uri, "Tilos", "geosian")
+    extension = vectorial.extent()
+    # Solo el 1002, en (-3.71, 40.41); la capa entera llega a -3.72.
+    assert round(extension.xMinimum(), 2) == -3.71
+    assert round(extension.xMaximum(), 2) == -3.71

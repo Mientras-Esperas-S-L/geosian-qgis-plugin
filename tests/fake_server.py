@@ -130,9 +130,26 @@ ELEMENTOS = [
 ]
 
 
-# Vista 7 de la capa 11: solo los tilos. El servidor real aplica el filter_config
-# de la vista cuando se le pasa view_ids.
-VISTAS = {"7": lambda e: e["properties"].get("especie") == "Tilia platyphyllos"}
+# Vista 7 de la capa 11: solo los tilos, pintados de rojo.
+VISTA_TILOS = {
+    "id": 7,
+    "layer": 11,
+    "name": "Tilos",
+    "context_type": "elements",
+    "filter_config": {
+        "query_groups": [
+            {
+                "context": "elements",
+                "operator": "and",
+                "rules": [
+                    {"field": "especie", "operator": "in", "value": ["Tilia platyphyllos"]}
+                ],
+            }
+        ],
+        "global_operator": "and",
+    },
+    "style_config": {"mode": "single", "color": {"value": [255, 0, 0, 230]}},
+}
 
 
 def _pagina_de_elementos(consulta, lasso=None):
@@ -142,9 +159,11 @@ def _pagina_de_elementos(consulta, lasso=None):
     if ids:
         pedidos = {int(i) for i in ids.split(",") if i}
         elementos = [e for e in elementos if e["properties"]["id"] in pedidos]
-    vista = consulta.get("view_ids", [""])[0]
-    if vista in VISTAS:
-        elementos = [e for e in elementos if VISTAS[vista](e)]
+    # Los attr__ de igualdad, como el AttributeFilterMixin: varios valores, OR.
+    for clave, valores in consulta.items():
+        if clave.startswith("attr__") and "__" not in clave[len("attr__"):]:
+            campo = clave[len("attr__"):]
+            elementos = [e for e in elementos if e["properties"].get(campo) in valores]
     if lasso:
         xs = [p[0] for p in lasso["coordinates"][0]]
         ys = [p[1] for p in lasso["coordinates"][0]]
@@ -198,6 +217,13 @@ class Handler(BaseHTTPRequestHandler):
             datos = dict(CAPAS[0])
             datos.pop("tile_metadata", None)
             self._json(datos)
+
+        elif ruta == "/api/v1/layer-views/for-map/":
+            listado = {k: VISTA_TILOS[k] for k in ("id", "layer", "name", "context_type")}
+            self._json([{"layer_id": 11, "layer_name": "Arbolado", "views": [listado]}])
+
+        elif ruta == "/api/v1/layer-views/7/":
+            self._json(VISTA_TILOS)
 
         elif ruta == "/api/v1/layer-attributes/":
             self._json(
