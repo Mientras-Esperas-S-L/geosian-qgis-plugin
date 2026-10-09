@@ -69,7 +69,7 @@ def items_from(registro, image_url=None, file_url=None):
                 name=foto.get("name") or "",
                 url=url,
                 data=datos,
-                thumb_url=foto.get("thumbnail_url"),
+                thumb_url=foto.get("thumbnail_url") or _miniatura(url),
                 main=bool(foto.get("main_image")),
                 created_at=foto.get("created_at"),
                 field_name=foto.get("field_name"),
@@ -96,6 +96,13 @@ def items_from(registro, image_url=None, file_url=None):
             )
         )
     return fotos + ficheros
+
+
+def _miniatura(url):
+    """Miniatura de 240 px de una foto servida por la API (``?as_thumbnail=1``)."""
+    if not url or not url.startswith("/api/v1/") or "/image/" not in url or "?" in url:
+        return None
+    return url + "?as_thumbnail=1"
 
 
 def _decode_data_url(texto):

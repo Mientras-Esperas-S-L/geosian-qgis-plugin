@@ -71,16 +71,22 @@ def test_sin_medios():
 def test_foto_por_enlace_con_miniatura():
     # El detalle con embed_images=false: enlace a la foto y a su miniatura.
     detalle = {"pictures": [{"id": 7, "url": "/api/v1/geodata/image/7/",
-                             "thumbnail_url": "/api/v1/geodata/image/7/?size=thumb",
+                             "thumbnail_url": "/api/v1/geodata/image/7/?as_thumbnail=1",
                              "main_image": True}]}
 
     [foto] = media.items_from(detalle)
 
     assert foto.data is None
     assert foto.url == "/api/v1/geodata/image/7/"
-    assert foto.thumb_url == "/api/v1/geodata/image/7/?size=thumb"
+    assert foto.thumb_url == "/api/v1/geodata/image/7/?as_thumbnail=1"
 
 
-def test_sin_miniatura_la_galeria_usa_la_foto():
+def test_las_fotos_de_la_api_sin_miniatura_declarada_la_piden():
+    # Las de los partes traen solo «url»; su vista sirve la miniatura igual.
+    [foto] = media.items_from({"pictures": [{"id": 9, "url": "/api/v1/additional-information/image/9/"}]})
+    assert foto.thumb_url == "/api/v1/additional-information/image/9/?as_thumbnail=1"
+
+
+def test_una_foto_que_no_es_de_la_api_no_tiene_miniatura():
     [foto] = media.items_from({"pictures": [{"id": 9, "url": "/a/9/"}]})
     assert foto.thumb_url is None

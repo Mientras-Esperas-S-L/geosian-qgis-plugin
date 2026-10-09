@@ -469,7 +469,7 @@ def test_el_panel_de_fotos_ensena_las_del_elemento(app_gui, monkeypatch, tmp_pat
             assert [r for r, _ in fake.peticiones] == [
                 "/api/v1/geodata/1001/", "/api/v1/geodata/image/72/", "/api/v1/geodata/image/71/"
             ]
-            assert all(c.get("size") == ["thumb"] for r, c in fake.peticiones[1:])
+            assert all(c.get("as_thumbnail") == ["1"] for r, c in fake.peticiones[1:])
 
             abiertos = []
             monkeypatch.setattr(media_widget, "_abrir_fuera", abiertos.append)

@@ -397,7 +397,7 @@ class Handler(BaseHTTPRequestHandler):
                         "pictures": [
                             {k: v for k, v in f.items() if k != "data"}
                             | {"url": f"/api/v1/geodata/image/{f['id']}/",
-                               "thumbnail_url": f"/api/v1/geodata/image/{f['id']}/?size=thumb"}
+                               "thumbnail_url": f"/api/v1/geodata/image/{f['id']}/?as_thumbnail=1"}
                             for f in detalle["pictures"]
                         ],
                         "files": [f | {"url": f"/api/v1/geodata/file/{f['id']}/"} for f in detalle["files"]],
@@ -405,7 +405,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({**elemento, "id": fid, **detalle})
 
         elif re.fullmatch(r"/api/v1/geodata/image/\d+/", ruta):
-            self._bytes(MINIATURA_PNG if consulta.get("size") == ["thumb"] else FOTO_PNG, "image/png")
+            self._bytes(MINIATURA_PNG if consulta.get("as_thumbnail") == ["1"] else FOTO_PNG, "image/png")
 
         elif ruta == "/api/v1/geodata/file/31/":
             self._bytes(FICHERO_PDF, "application/pdf")
