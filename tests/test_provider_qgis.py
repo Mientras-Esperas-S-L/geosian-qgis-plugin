@@ -446,6 +446,60 @@ def test_la_tabla_de_una_capa_grande_pide_sin_geometria(capa_grande, servidor):
     assert servidor.peticiones == []
 
 
+def test_la_tabla_de_una_capa_grande_no_congela_qgis(capa_grande, monkeypatch):
+    """QGIS carga la tabla de atributos en el hilo de la ventana: cada página es ~1 s
+    congelado. Con 1 M de árboles (Nueva York) eran 10 páginas y 15 s; ahora una."""
+    proveedor = capa_grande.dataProvider()
+    proveedor._feature_count = 1_000_000
+    llamadas = []
+
+    def pagina_llena(layer_id, page=1, page_size=5000, **kwargs):
+        llamadas.append(page)
+        return {"features": [
+            {"type": "Feature", "geometry": None, "properties": {"id": page * page_size + i}}
+            for i in range(page_size)
+        ]}
+
+    monkeypatch.setattr(proveedor._client, "geodata_paginated", pagina_llena)
+    list(capa_grande.getFeatures())
+    assert llamadas == [1]
+
+
+def test_la_tabla_recortada_se_avisa_en_la_barra(capa_grande, monkeypatch):
+    """Con 5.000 de un millón, el aviso no puede quedarse en el registro de mensajes."""
+    import qgis.utils
+    from qgis.PyQt.QtCore import QCoreApplication
+
+    from geosian.provider import provider as modulo
+
+    class Barra:
+        def __init__(self):
+            self.avisos = []
+
+        def pushWarning(self, titulo, texto):
+            self.avisos.append(texto)
+
+    class Iface:
+        barra = Barra()
+
+        def messageBar(self):
+            return self.barra
+
+    iface = Iface()
+    monkeypatch.setattr(qgis.utils, "iface", iface)
+    monkeypatch.setattr(modulo, "TABLE_CAP", 2)
+    monkeypatch.setattr(modulo, "PAGE_SIZE", 2)
+    proveedor = capa_grande.dataProvider()
+    proveedor._feature_count = 1_000_000
+    list(capa_grande.getFeatures())
+    proveedor.reloadData()
+    list(capa_grande.getFeatures())
+    assert iface.barra.avisos == []  # al volver al bucle de la ventana, no dentro de la carga
+    QCoreApplication.processEvents()
+    [aviso] = iface.barra.avisos  # una vez por capa, no en cada recarga
+    assert "los primeros" in aviso
+
+
 def test_capa_grande_sugiere_escala(capa_grande):
     escala = capa_grande.dataProvider().suggested_min_scale()
     assert escala > 0

@@ -63,7 +63,7 @@ plugin y empezar la fase de escritura.
 - [x] QGIS 3.34 LTR (la mínima de `metadata.txt`): pasar la suite en un contenedor de QGIS
       3.34 (`qgis/qgis` de esa versión, con podman) y corregir lo que falle. Si no se puede,
       subir la mínima y anotarlo.
-- [ ] Mapas grandes: Nueva York (1 M de puntos) y el Gran Parque de Mijas en local: abrir,
+- [x] Mapas grandes: Nueva York (1 M de puntos) y el Gran Parque de Mijas en local: abrir,
       mover, tabla y ficha sin bloquear QGIS más de 2 s; medir memoria. Anotar cifras.
 - [ ] Errores en devel: red cortada a mitad (detener el acceso a la API), servidor lento,
       token revocado; ninguno cuelga QGIS y los mensajes se entienden.
@@ -224,6 +224,20 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   Arbolado de Melilla válido con 11.950 en 0,56 s, ficha con sus pestañas y las 4 fotos del
   61706, filtro por partes 949, y los fondos GEOSIAN y oscuro se crean. **No comprobado**:
   la interfaz de QGIS 3.34 a la vista (panel, menús), solo en modo sin pantalla.
+- 10/10 · Mapas grandes en local (`:8010`). **Nueva York** (arbolado, 1.078.380 puntos, por
+  zonas desde 1:20.000): abrir el mapa 0,3-0,8 s; moverse, cuatro encuadres a 1:6.300 en
+  0,4-0,9 s cada uno (en los hilos de pintado, sin congelar la ventana), +21 MB con 17.424 en
+  caché; ficha 0,01 s. **Fallo**: la tabla de atributos cargaba 50.000 en el hilo de la
+  ventana, 14,7 s congelado. Ahora una página (5.000): **1,27 s**, y el aviso de «la tabla
+  muestra los primeros 5.000» sale en la barra (antes solo en el registro), una vez por
+  capa y al volver al bucle de la ventana. QGIS recién abierto con Nueva York y la tabla:
+  689 MB. **Gran Parque de Mijas** (45 capas, 19.396 elementos): abrir 1,5 s; pintar el parque
+  entero 2,3 s en hilos de pintado; la tabla en frío de la capa mayor (7.337) 0,89 s; ficha
+  0,18 s. Pruebas `test_la_tabla_de_una_capa_grande_no_congela_qgis` y
+  `test_la_tabla_recortada_se_avisa_en_la_barra` (fallaban); suite 204 en QGIS 4 y en 3.34.
+  Ojo al medir: la QGIS de pruebas se cayó tres veces por un fallo **de mis órdenes**, no
+  del complemento (un `QgsVectorLayerCache` sin referencia en Python que se recogía con la
+  tabla en uso).
 
 ## Hallazgos para decidir
 

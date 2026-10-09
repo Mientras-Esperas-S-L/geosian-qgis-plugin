@@ -26,7 +26,7 @@ from qgis.core import (
     QgsWkbTypes,
     Qgis,
 )
-from qgis.PyQt.QtCore import QTimeZone
+from qgis.PyQt.QtCore import QCoreApplication, QThread, QTimer, QTimeZone
 
 from ..core import compat, connections, definitions, lad, media, views
 from ..core import schema as S
@@ -66,8 +66,9 @@ ZONE_MARGIN = 0.25
 
 # Lo que se carga de una capa grande cuando QGIS la pide entera, sin recuadro: la
 # tabla de atributos. La web la pagina en el servidor (Listas); la tabla de QGIS no
-# sabe, así que se cargan los primeros y se avisa.
-TABLE_CAP = 50000
+# sabe, así que se cargan los primeros y se avisa. Una sola página: QGIS la carga en
+# el hilo de la ventana y cada página la congela ~1 s (50.000 eran 15 s en Nueva York).
+TABLE_CAP = PAGE_SIZE
 
 # Elementos que se quieren a la vista como mucho en una capa grande. De aquí sale
 # la escala a partir de la cual la capa deja de pintarse.
@@ -145,6 +146,7 @@ class GeosianProvider(QgsVectorDataProvider):
         self._by_zone = False
         self._zones = []
         self._tabla_cargada = False
+        self._tabla_avisada = False
         # Elementos que llegaron sin forma (la tabla de una capa grande): si luego
         # hace falta la forma de uno, se vuelve a pedir.
         self._sin_forma = set()
@@ -1012,11 +1014,14 @@ class GeosianProvider(QgsVectorDataProvider):
                 self._tabla_cargada = False
             return
         if self._feature_count > total:
-            self.log_warning(
+            texto = (
                 f"«{self._layer_name}» tiene {self._feature_count} elementos; la tabla "
                 f"muestra los primeros {total}. Para ver otros, filtra la tabla por "
                 "«objetos visibles en el mapa» y muévete por el mapa."
             )
+            self.log_warning(texto)
+            if not self._tabla_avisada:
+                self._tabla_avisada = _a_la_vista(texto)
 
     def suggested_min_scale(self):
         """Escala más alejada a la que conviene pintar una capa grande.
@@ -1152,6 +1157,21 @@ _GEOMETRY_TYPE_TO_LAD = {
     "multi_polygons": "MultiPolygon",
     "geometry_collections": "GeometryCollection",
 }
+
+
+def _a_la_vista(texto):
+    """Un aviso en la barra de QGIS, si hay ventana y se está en su hilo.
+
+    Se pone al volver al bucle de la ventana, no aquí: esto corre dentro de la carga
+    de la tabla, con la caché bloqueada, y no es sitio para crear widgets.
+    """
+    from qgis.utils import iface
+
+    app = QCoreApplication.instance()
+    if iface is None or app is None or QThread.currentThread() != app.thread():
+        return False
+    QTimer.singleShot(0, lambda: iface.messageBar().pushWarning("Geosian", texto))
+    return True
 
 
 def _elementos_del_filtro(request):
