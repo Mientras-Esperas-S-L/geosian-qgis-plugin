@@ -52,7 +52,7 @@ plugin y empezar la fase de escritura.
 - [x] Tiempo real sin JWT: avisar una vez y ofrecer volver a entrar, no solo el registro.
 - [x] `layer_schema_changed`: recargar campos y formulario de la capa en vez de pedir que se
       vuelva a añadir.
-- [ ] Filtros de la web que QGIS no tiene: por información adicional (elementos con partes
+- [x] Filtros de la web que QGIS no tiene: por información adicional (elementos con partes
       que cumplan algo) y globales de fecha, como parámetros de la URI y desde el panel.
 - [ ] Fondos fijos del selector de la web (ortofoto PNOA y los demás que tenga la web),
       añadidos apagados como los propios del mapa.
@@ -169,6 +169,23 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   capa (13 campos) y en la ficha sin quitarla; al quitarlo, desaparece (12). Contra devel
   **no**: habría que cambiar un esquema de un cliente. **Queda fuera**: un tipo de parte
   nuevo no crea su tabla; hay que volver a añadir la capa.
+- 09/10 · Filtros por partes y fechas. La API ya los tenía en `/geodata/paginated/` (lo
+  mismo que manda la web, `MapContext.jsx`): `attr__<tipo>__<campo>[__gte|gt|lte|lt]` para
+  «elementos con algún parte que cumpla», y `date_from`, `date_to`, `timezone` y
+  `most_recent` para las fechas de los partes. En la URI de la capa: `parte=<tipo>__<campo>
+  =<valor>` (repetido = «o» en el mismo campo), `date_from`, `date_to`, `most_recent=1`;
+  se guardan con el proyecto. Un tipo de parte que no está en el esquema deja la capa no
+  válida con su motivo. Desde el panel: «Filtrar por partes y fechas…» en el menú de la
+  capa (`gui/filtro_partes.py`), que reescribe la URI sin tocar estilo ni ficha. No se usa
+  `filter_groups` (partes ligados a una sección): la web solo lo arma para eso. Pruebas en
+  `test_uri.py` (4), `test_provider_qgis.py` (2) y
+  `test_filtrar_por_partes_y_fechas_desde_el_menu_de_la_capa`, todas fallaban. Trampa
+  encontrada: **PyQt6 tumba QGIS al conectar una señal a un método con «ñ» en el nombre**
+  (`agregar`, no `añadir`). Comprobado contra devel (Melilla, Arbolado): 11.950 sin filtro;
+  «Parte de trabajo · poda = Poda general», 949 en 0,5 s; con partes desde 01/01/2026, 3; la
+  API directa con los mismos parámetros da 949 y 3; al quitar los filtros vuelve a 11.950
+  con sus 84 campos y 5 pestañas. **No comprobado en la web**: la cuenta de auditoría no
+  tiene contraseña y las demás piden doble factor.
 
 ## Hallazgos para decidir
 

@@ -29,6 +29,7 @@ from qgis.core import (
     QgsWkbTypes,
     Qgis,
 )
+from qgis.PyQt.QtCore import QTimeZone
 
 from ..core import connections, definitions, lad, media, views
 from ..core import schema as S
@@ -159,6 +160,8 @@ class GeosianProvider(QgsVectorDataProvider):
         self._subset_expr = None
         self._subset_params = {}
         self._pasa = {}
+        # Los filtros por partes y fechas de la URI, como parámetros de la API.
+        self._filtros_uri = {}
         # Lo que respondió la API al abrir la capa, para guardarlo; y lo guardado,
         # cuando se abre sin sesión (``core/definitions.py``).
         self._respuestas = {}
@@ -276,6 +279,7 @@ class GeosianProvider(QgsVectorDataProvider):
         )
         self._schema = self._pick_schema(definiciones)
         self._fields, self._attr_map = lad.build_fields(self._schema)
+        self._filtros_uri = self._filtros_de_partes()
 
         metadatos = {}
         try:
@@ -301,9 +305,9 @@ class GeosianProvider(QgsVectorDataProvider):
         self._wkb_type = self._resolve_wkb_type(metadatos)
         self._feature_count = int(metadatos.get("feature_count") or 0)
         self._by_zone = self._feature_count > LARGE_LAYER
-        if self._uri.view_id and not self._by_zone:
+        if (self._uri.view_id or self._filtros_uri) and not self._by_zone:
             # El recuento de los metadatos es el de la capa entera; el de la
-            # vista se sabe al descargarla.
+            # vista o el filtro se sabe al descargarla.
             self._feature_count = 0
 
         bbox = metadatos.get("bbox")
@@ -311,6 +315,23 @@ class GeosianProvider(QgsVectorDataProvider):
             self._extent = QgsRectangle(
                 float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
             )
+
+    def _filtros_de_partes(self):
+        """Los filtros por partes y fechas de la URI, comprobados contra el esquema."""
+        tipos = {
+            info.get("name")
+            for info in self._schema.get("additional_information") or []
+            if isinstance(info, dict)
+        }
+        for clave, _ in self._uri.partes:
+            tipo = clave.split("__", 1)[0]
+            if tipo not in tipos:
+                raise GeosianError(
+                    f"La capa no tiene partes «{tipo}» o no tienes permiso para verlos; "
+                    "quita ese filtro de la capa."
+                )
+        zona = bytes(QTimeZone.systemTimeZoneId()).decode() or None
+        return self._uri.server_filters(zona)
 
     def _load_info_definition(self):
         """Una tabla sin geometría con los partes de un tipo."""
@@ -445,12 +466,15 @@ class GeosianProvider(QgsVectorDataProvider):
         return total
 
     def _extra(self):
-        """Parámetros de filtro para la API: los de la vista y los del filtro.
+        """Parámetros de filtro para la API: los de la vista, los de partes y fechas
+        de la URI y los del filtro.
 
         Si los dos tocan el mismo atributo, se manda el de la vista y el del
         filtro lo evalúa QGIS.
         """
         extra = dict(self._filter)
+        for clave, valor in self._filtros_uri.items():
+            extra.setdefault(clave, valor)
         for clave, valor in self._subset_params.items():
             extra.setdefault(clave, valor)
         return extra

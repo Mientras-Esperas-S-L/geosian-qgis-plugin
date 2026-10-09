@@ -900,3 +900,29 @@ def test_quitar_la_conexion_borra_sus_definiciones(capa):
     assert definitions.load(CONEXION, base, uri) is not None
     definitions.forget(CONEXION)
     assert definitions.load(CONEXION, base, uri) is None
+
+
+def test_filtros_de_partes_y_fechas_llegan_a_la_api(servidor):
+    """Como el panel de filtros de la web: elementos con partes que cumplen algo y
+    partes entre dos fechas. Lo resuelve el servidor; el recuento se sabe al bajar."""
+    uri = (
+        f"geosian://{CONEXION}/map/4/layer/11?geometry_type=points"
+        "&parte=parte_poda__labor%3DPoda&date_from=2026-01-01&date_to=2026-03-31&most_recent=1"
+    )
+    capa = QgsVectorLayer(uri, "Arbolado", "geosian")
+    assert capa.isValid(), capa.dataProvider().error()
+    servidor.peticiones.clear()
+    list(capa.getFeatures())
+    [consulta] = [c for r, c in servidor.peticiones if r == "/api/v1/geodata/paginated/"][:1]
+    assert consulta["attr__parte_poda__labor"] == ["Poda"]
+    assert consulta["date_from"] == ["2026-01-01"]
+    assert consulta["date_to"] == ["2026-03-31"]
+    assert consulta["most_recent"] == ["true"]
+    assert consulta["timezone"][0]
+
+
+def test_un_filtro_de_un_parte_que_no_existe_avisa(servidor):
+    uri = f"geosian://{CONEXION}/map/4/layer/11?geometry_type=points&parte=no_existe__x%3D1"
+    capa = QgsVectorLayer(uri, "Arbolado", "geosian")
+    assert not capa.isValid()
+    assert "no_existe" in capa.dataProvider().error()

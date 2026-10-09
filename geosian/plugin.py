@@ -7,6 +7,7 @@ from qgis.PyQt.QtWidgets import QAction
 from .gui import realtime_hub, sesion
 from .gui.browser_dock import GeosianBrowserDock, menu_de_etiquetas
 from .gui.connection_dialog import ConnectionDialog
+from .gui.filtro_partes import menu_de_filtros
 from .gui.media_widget import register_media_widget
 from .provider.metadata import register_provider
 
@@ -86,6 +87,7 @@ class GeosianPlugin:
         capa = self.iface.layerTreeView().currentLayer()
         if capa is not None and capa.type() == QgsMapLayerType.VectorLayer:
             menu_de_etiquetas(menu, capa)
+            menu_de_filtros(menu, capa)
 
     def unload(self):
         realtime_hub.unwatch_project()

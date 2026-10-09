@@ -595,6 +595,63 @@ def _ancestros(widget):
         w = w.parentWidget()
 
 
+def test_filtrar_por_partes_y_fechas_desde_el_menu_de_la_capa(app_gui):
+    """Como el panel de filtros de la web: elementos con partes que cumplen algo y
+    partes entre fechas. Va a la URI, así que se guarda con el proyecto."""
+    from qgis.core import QgsProject
+    from qgis.PyQt.QtCore import QDate
+    from qgis.PyQt.QtWidgets import QMenu
+
+    from geosian.gui.filtro_partes import FiltroPartesDialog, menu_de_filtros
+    from geosian.provider.metadata import register_provider
+
+    register_provider()
+    with FakeGeosian() as fake:
+        try:
+            capa = _capa_de_prueba(fake, "Filtros")
+            menu = QMenu()
+            menu_de_filtros(menu, capa)
+            assert [a.text() for a in menu.actions()] == ["Filtrar por partes y fechas…"]
+
+            dialogo = FiltroPartesDialog(capa)
+            assert [dialogo.tipo.itemText(i) for i in range(dialogo.tipo.count())] == ["Parte de poda"]
+            dialogo.tipo.setCurrentIndex(0)
+            dialogo.campo.setCurrentIndex(dialogo.campo.findData("labor"))
+            dialogo.valor.setText("Poda")
+            dialogo.agregar()
+            dialogo.campo.setCurrentIndex(dialogo.campo.findData("horas"))
+            dialogo.operador.setCurrentIndex(dialogo.operador.findData("gte"))
+            dialogo.valor.setText("2")
+            dialogo.agregar()
+            dialogo.usar_desde.setChecked(True)
+            dialogo.desde.setDate(QDate(2026, 1, 1))
+            dialogo.ultimo.setChecked(True)
+            dialogo.aplicar()
+
+            uri = capa.dataProvider().layer_uri
+            assert uri.partes == [("parte_poda__labor", "Poda"), ("parte_poda__horas__gte", "2")]
+            assert (uri.date_from, uri.date_to, uri.most_recent) == ("2026-01-01", None, True)
+            assert capa.isValid()
+            fake.peticiones.clear()
+            list(capa.getFeatures())
+            [consulta] = [c for r, c in fake.peticiones if r == "/api/v1/geodata/paginated/"][:1]
+            assert consulta["attr__parte_poda__labor"] == ["Poda"]
+            assert consulta["attr__parte_poda__horas__gte"] == ["2"]
+
+            # Y se pueden quitar todos.
+            dialogo = FiltroPartesDialog(capa)
+            assert dialogo.lista.count() == 2
+            dialogo.lista.clear()
+            dialogo.usar_desde.setChecked(False)
+            dialogo.ultimo.setChecked(False)
+            dialogo.aplicar()
+            uri = capa.dataProvider().layer_uri
+            assert uri.partes == [] and uri.date_from is None and not uri.most_recent
+        finally:
+            QgsProject.instance().clear()
+            connections.remove_connection("Filtros")
+
+
 def test_menu_de_la_capa_cambia_la_etiqueta(app_gui):
     from qgis.core import QgsProject
     from qgis.PyQt.QtWidgets import QMenu
