@@ -38,3 +38,25 @@ def test_fondos_propios_del_mapa():
          "url": "https://app.devel.greencitycontrol.com/fondos/AYTO/{z}/{x}/{y}", "zmin": 0, "zmax": 21},
         {"name": "Callejero", "type": "style", "url": "https://ejemplo.org/estilo.json"},
     ]
+
+
+def test_estilo_oscuro_y_de_calles_con_las_teselas_de_la_aplicacion():
+    for variante in ("oscuro", "calles"):
+        estilo = basemaps.geosian_style("https://api.devel.greencitycontrol.com", variante)
+        assert estilo["sources"]["omt"]["tiles"] == [
+            "https://app.devel.greencitycontrol.com/teselas/espana/{z}/{x}/{y}?v=2"
+        ]
+        assert list(estilo["sources"]) == ["omt"]
+    oscuro = basemaps.geosian_style("https://api.devel.greencitycontrol.com", "oscuro")
+    assert oscuro["layers"][0]["type"] == "background"
+
+
+def test_fondos_fijos_del_selector_de_la_web():
+    fijos = basemaps.fixed_basemaps("https://api.devel.greencitycontrol.com")
+    assert [f["name"] for f in fijos] == ["Ortofoto (IGN)", "mapa base oscuro"]
+    foto, oscuro = fijos
+    # La ortofoto por el proxy de la aplicación, como la web, con las calles encima.
+    assert foto["url"] == "https://app.devel.greencitycontrol.com/ortofoto/{z}/{x}/{y}"
+    assert foto["zmax"] == 20
+    assert foto["calles"]["sources"]["omt"]["tiles"][0].startswith("https://app.devel.")
+    assert oscuro["style"]["layers"]

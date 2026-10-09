@@ -174,13 +174,22 @@ def test_anadir_mapa_entero_crea_un_grupo(app_gui):
             # propios del mapa añadidos pero apagados, para cambiar como en la web.
             r = proyecto.layerTreeRoot()
             fondos = {
-                c.name(): (c.type(), r.findLayer(c.id()).itemVisibilityChecked())
+                c.name(): (c.type(), r.findLayer(c.id()).isVisible())
                 for c in proyecto.mapLayers().values() if c.name().startswith("Fondo")
             }
+            # Y los fijos del selector de la web: la ortofoto del IGN con sus calles
+            # encima (un grupo, se encienden juntas) y el mapa base oscuro.
             assert fondos == {
                 "Fondo: mapa base de Geosian": (QgsMapLayerType.VectorTileLayer, True),
                 "Fondo: Ortofoto de ejemplo": (QgsMapLayerType.RasterLayer, False),
+                "Fondo: mapa base oscuro": (QgsMapLayerType.VectorTileLayer, False),
+                "Fondo: Ortofoto (IGN)": (QgsMapLayerType.RasterLayer, False),
+                "Fondo: calles sobre la ortofoto": (QgsMapLayerType.VectorTileLayer, False),
             }
+            grupo_foto = r.findGroup("Fondo: Ortofoto (IGN)")
+            assert [n.name() for n in grupo_foto.children()] == [
+                "Fondo: calles sobre la ortofoto", "Fondo: Ortofoto (IGN)",
+            ]
             # Pintado: la vista arriba y los fondos debajo de todo.
             orden = r.customLayerOrder() if r.hasCustomLayerOrder() else r.layerOrder()
             nombres = [c.name() for c in orden if c.isSpatial()]

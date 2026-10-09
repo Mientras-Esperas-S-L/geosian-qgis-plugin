@@ -411,6 +411,7 @@ class GeosianBrowserDock(QDockWidget):
             if capa is not None:
                 proyecto.addMapLayer(capa, False)
                 raiz.addLayer(capa).setItemVisibilityChecked(False)
+        _añadir_fondos_fijos(raiz, api_url)
         geosian = _fondo_geosian(api_url)
         if geosian is not None:
             proyecto.addMapLayer(geosian, False)
@@ -629,13 +630,43 @@ def _tipos_de_geometria(capa):
     return [t for t in tipos if t in GEOMETRY_TYPES]
 
 
+def _añadir_fondos_fijos(raiz, api_url):
+    """La ortofoto del IGN (con sus calles, en un grupo) y el mapa oscuro, apagados."""
+    proyecto = QgsProject.instance()
+    for spec in basemaps.fixed_basemaps(api_url):
+        nombre = f"Fondo: {spec['name']}"
+        if "style" in spec:
+            capa = _capa_vectorial(spec["style"], nombre)
+            if capa is not None:
+                proyecto.addMapLayer(capa, False)
+                raiz.addLayer(capa).setItemVisibilityChecked(False)
+            continue
+        foto = _capa_de_fondo(
+            {"name": spec["name"], "type": "raster", "url": spec["url"], "zmin": 0,
+             "zmax": spec["zmax"]}
+        )
+        if foto is None:
+            continue
+        grupo = raiz.addGroup(nombre)
+        calles = _capa_vectorial(spec["calles"], "Fondo: calles sobre la ortofoto")
+        if calles is not None:
+            proyecto.addMapLayer(calles, False)
+            grupo.addLayer(calles)
+        proyecto.addMapLayer(foto, False)
+        grupo.addLayer(foto)
+        grupo.setItemVisibilityChecked(False)
+        grupo.setExpanded(False)
+
+
 def _fondo_geosian(api_url):
     """El mapa base de la web: teselas vectoriales propias con su estilo MapLibre."""
-    estilo = basemaps.geosian_style(api_url)
+    return _capa_vectorial(basemaps.geosian_style(api_url), "Fondo: mapa base de Geosian")
+
+
+def _capa_vectorial(estilo, nombre):
+    """Teselas vectoriales de GEOSIAN pintadas con un estilo de MapLibre de la web."""
     url = estilo["sources"]["omt"]["tiles"][0]
-    capa = QgsVectorTileLayer(
-        f"type=xyz&url={quote(url, safe=':/{}?=&')}&zmin=0&zmax=15", "Fondo: mapa base de Geosian"
-    )
+    capa = QgsVectorTileLayer(f"type=xyz&url={quote(url, safe=':/{}?=&')}&zmin=0&zmax=15", nombre)
     if not capa.isValid():
         return None
     conversor = QgsMapBoxGlStyleConverter()

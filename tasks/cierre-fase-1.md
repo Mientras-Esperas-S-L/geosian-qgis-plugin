@@ -54,7 +54,7 @@ plugin y empezar la fase de escritura.
       vuelva a añadir.
 - [x] Filtros de la web que QGIS no tiene: por información adicional (elementos con partes
       que cumplan algo) y globales de fecha, como parámetros de la URI y desde el panel.
-- [ ] Fondos fijos del selector de la web (ortofoto PNOA y los demás que tenga la web),
+- [x] Fondos fijos del selector de la web (ortofoto PNOA y los demás que tenga la web),
       añadidos apagados como los propios del mapa.
 - [ ] Tabla de capas grandes: `no_geometry` en `/geodata/paginated/` (backend, su PR) y que
       el plugin lo use para la tabla sin recuadro.
@@ -186,7 +186,31 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   API directa con los mismos parámetros da 949 y 3; al quitar los filtros vuelve a 11.950
   con sus 84 campos y 5 pestañas. **No comprobado en la web**: la cuenta de auditoría no
   tiene contraseña y las demás piden doble factor.
+- 09/10 · Fondos fijos del selector de la web (`MapProviderSelector.jsx`: mapa base,
+  satélite, ortofoto IGN y mapa base oscuro). Se añaden apagados la **ortofoto del IGN**
+  por el proxy de la aplicación (`<app>/ortofoto/{z}/{x}/{y}`, hasta z20, como la web) con
+  las **calles de GEOSIAN encima**, en un grupo que se enciende entero, y el **mapa base
+  oscuro**. Los estilos se sacaron del propio módulo de la web en una pestaña propia de
+  `localhost:3000` (`createOrtofotoConCallesStyle` sin la capa de la foto, y
+  `createOmtDarkStyle`) y viven en `resources/` como el claro. El **satélite de Google no**:
+  ver hallazgos. Pruebas `test_estilo_oscuro_y_de_calles_con_las_teselas_de_la_aplicacion`,
+  `test_fondos_fijos_del_selector_de_la_web` y la del mapa entero ampliada (fallaban).
+  Comprobado en QGIS contra devel (Melilla): los cinco fondos válidos, solo GEOSIAN a la
+  vista; el oscuro pinta en 0,2 s con calles, rótulos, mar y edificios
+  (`mando/cap/212-oscuro.png`); la ortofoto con calles pinta donde el IGN responde
+  (`mando/cap/212-ortofoto-calles.png`), ver hallazgos.
 
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión)_
+
+- **Satélite de Google en el selector de la web** (`GOOGLE_SATELLITE`, teselas
+  `mt*.google.com/vt/lyrs=s`). No lo he copiado al complemento: las condiciones de Google
+  no permiten usar sus teselas fuera de su API, y meterlo en un complemento que se
+  distribuye lo agrava. La web ya lo hace; decidir si se mantiene allí.
+- **El WMTS del IGN falla a ratos y arrastra la ortofoto de la web y de QGIS.** El 09/10 a
+  medianoche, `www.ign.es/wmts/pnoa-ma` daba 504 a los 10 s en teselas de Melilla a z17,
+  mientras que su TMS (`tms-pnoa-ma.idee.es/1.0.0/pnoa-ma/{z}/{x}/{-y}.jpeg`) daba las mismas
+  al momento. Nuestro proxy `/ortofoto` (nginx de CT101) pide al WMTS, y lo cacheado sale
+  bien. Cambiar el origen del proxy al TMS, o tenerlo de reserva, es cosa del nginx de
+  producción: no lo he tocado.
