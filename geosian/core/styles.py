@@ -55,9 +55,7 @@ def hex_to_rgba(valor, alpha=DEFAULT_ALPHA):
     para los formatos que no entiende: así un color mal escrito se ve igual de
     mal en los dos sitios y se corrige en el LAD, no aquí.
     """
-    texto = str(valor or "").strip()
-    if texto.startswith("#"):
-        texto = texto[1:]
+    texto = str(valor or "").strip().removeprefix("#")
     try:
         if len(texto) == 6:
             return (int(texto[0:2], 16), int(texto[2:4], 16), int(texto[4:6], 16), alpha)
@@ -77,8 +75,8 @@ def color_from_any(valor, alpha=DEFAULT_ALPHA):
     """Color de un ``style_config``: lista ``[r, g, b(, a)]`` o hex."""
     if isinstance(valor, (list, tuple)) and len(valor) >= 3:
         try:
-            r, g, b = (int(round(float(c))) for c in valor[:3])
-            a = int(round(float(valor[3]))) if len(valor) > 3 else alpha
+            r, g, b = (round(float(c)) for c in valor[:3])
+            a = round(float(valor[3])) if len(valor) > 3 else alpha
             return (r, g, b, a)
         except (TypeError, ValueError):
             return None
@@ -129,7 +127,7 @@ def geometry_default(schema, geometry_type):
         opacidad = float(estilo.get("fill-opacity", 0.5))
     except (TypeError, ValueError):
         opacidad = 0.5
-    alfa = int(round(255 * opacidad))
+    alfa = round(255 * opacidad)
     if estilo.get("fill-color"):
         r, g, b, _ = hex_to_rgba(estilo["fill-color"])
         return (r, g, b, alfa)
@@ -364,7 +362,7 @@ def ramp_colors(nombre, n):
         f = t - j
         a, b = puntos[j], puntos[j + 1]
         colores.append(
-            tuple(int(round(a[k] + (b[k] - a[k]) * f)) for k in range(3)) + (DEFAULT_ALPHA,)
+            tuple(round(a[k] + (b[k] - a[k]) * f) for k in range(3)) + (DEFAULT_ALPHA,)
         )
     return colores
 

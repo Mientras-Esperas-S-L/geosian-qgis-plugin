@@ -15,7 +15,7 @@ from .provider import PROVIDER_DESCRIPTION, PROVIDER_KEY
 _registered = False
 
 
-def _crear(uri, providerOptions, flags=QgsDataProvider.ReadFlags()):  # noqa: N803
+def _crear(uri, providerOptions, flags=None):
     """Crea el proveedor con la clase que esté cargada *ahora*.
 
     QGIS no deja quitar un proveedor del registro. Si el registro guardara la
@@ -24,6 +24,8 @@ def _crear(uri, providerOptions, flags=QgsDataProvider.ReadFlags()):  # noqa: N8
     la recarga vale para todo.
     """
     modulo = sys.modules[__name__.rsplit(".", 1)[0] + ".provider"]
+    if flags is None:
+        flags = QgsDataProvider.ReadFlags()
     return modulo.GeosianProvider.createProvider(uri, providerOptions, flags)
 
 

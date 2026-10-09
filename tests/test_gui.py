@@ -175,7 +175,12 @@ def test_anadir_mapa_entero_crea_un_grupo(app_gui):
 def test_la_vista_cuelga_de_su_capa_y_se_pinta_con_su_estilo(app_gui):
     from qgis.core import QgsProject
 
-    from geosian.gui.browser_dock import ROL_DATOS, ROL_TIPO, TIPO_VISTA, GeosianBrowserDock
+    from geosian.gui.browser_dock import (
+        ROL_DATOS,
+        ROL_TIPO,
+        TIPO_VISTA,
+        GeosianBrowserDock,
+    )
     from geosian.provider.metadata import register_provider
 
     register_provider()
@@ -196,7 +201,7 @@ def test_la_vista_cuelga_de_su_capa_y_se_pinta_con_su_estilo(app_gui):
             assert vista.data(0, ROL_TIPO) == TIPO_VISTA
 
             panel.añadir_capa(vista.data(0, ROL_DATOS))
-            capa = list(proyecto.mapLayers().values())[0]
+            capa = next(iter(proyecto.mapLayers().values()))
             assert capa.name() == "Arbolado · Tilos"
             assert capa.featureCount() == 1
             assert capa.renderer().symbol().color().name() == "#ff0000"

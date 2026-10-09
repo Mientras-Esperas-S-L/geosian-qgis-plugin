@@ -51,8 +51,10 @@ ESPAÑA = QgsRectangle(-18.5, 27.4, 4.6, 44.0)
 MERCATOR = QgsCoordinateReferenceSystem("EPSG:3857")
 FONDO_IGN = (
     "Fondo: mapa base del IGN",
-    "type=xyz&url=https://tms-ign-base.idee.es/1.0.0/IGNBaseTodo/{z}/{x}/{-y}.jpeg"
-    "&zmin=0&zmax=17",
+    (
+        "type=xyz&url=https://tms-ign-base.idee.es/1.0.0/IGNBaseTodo/{z}/{x}/{-y}.jpeg"
+        "&zmin=0&zmax=17"
+    ),
 )
 FONDO_OSM = (
     "Fondo: OpenStreetMap",

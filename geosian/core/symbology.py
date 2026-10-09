@@ -10,20 +10,20 @@ crecen con él. Los contornos van a 1 px fijo.
 from qgis.core import (
     Qgis,
     QgsFillSymbol,
-    QgsMapUnitScale,
-    QgsPalLayerSettings,
-    QgsTextBufferSettings,
-    QgsTextFormat,
-    QgsVectorLayerSimpleLabeling,
     QgsGradientColorRamp,
     QgsGraduatedSymbolRenderer,
     QgsHeatmapRenderer,
     QgsLineSymbol,
+    QgsMapUnitScale,
     QgsMarkerSymbol,
+    QgsPalLayerSettings,
     QgsRendererRange,
     QgsRuleBasedRenderer,
     QgsSingleSymbolRenderer,
+    QgsTextBufferSettings,
+    QgsTextFormat,
     QgsUnitTypes,
+    QgsVectorLayerSimpleLabeling,
 )
 from qgis.PyQt.QtGui import QColor
 
