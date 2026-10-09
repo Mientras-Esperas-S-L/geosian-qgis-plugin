@@ -150,7 +150,8 @@ class QgisTransport(Transport):
         if status is None:
             if code != QgsBlockingNetworkRequest.NoError:
                 raise NetworkError(
-                    blocking.errorMessage() or f"No se pudo conectar con {url}"
+                    network_reason(reply.error(), blocking.errorMessage(), timeout)
+                    or f"No se pudo conectar con {url}"
                 )
             raise NetworkError(f"Respuesta vacía de {url}")
 
@@ -224,3 +225,29 @@ def default_transport():
         return QgisTransport()
     except ImportError:
         return UrllibTransport()
+
+
+def network_reason(codigo, mensaje, timeout):
+    """El motivo de un fallo de red en castellano; Qt lo da en inglés.
+
+    Args:
+        codigo: el ``QNetworkReply.NetworkError`` de la respuesta.
+        mensaje: el texto de Qt, que se queda si el código no es de los conocidos.
+    """
+    from qgis.PyQt.QtNetwork import QNetworkReply
+
+    e = QNetworkReply.NetworkError
+    motivos = {
+        e.TimeoutError: f"GCC no ha respondido en {timeout:g} s",
+        # Así termina QGIS una petición que pasa del tiempo de espera.
+        e.OperationCanceledError: f"GCC no ha respondido en {timeout:g} s",
+        e.HostNotFoundError: "no se encuentra el servidor (¿hay conexión a Internet?)",
+        e.ConnectionRefusedError: "el servidor no acepta conexiones",
+        e.RemoteHostClosedError: "la conexión se ha cortado",
+        e.ProxyConnectionClosedError: "la conexión se ha cortado en el proxy",
+        e.ProxyConnectionRefusedError: "el proxy no acepta conexiones",
+        e.ProxyNotFoundError: "no se encuentra el proxy",
+        e.NetworkSessionFailedError: "no hay conexión de red",
+        e.TemporaryNetworkFailureError: "no hay conexión de red",
+    }
+    return motivos.get(codigo, mensaje)

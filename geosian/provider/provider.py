@@ -12,6 +12,7 @@ aceptar cambios que no se van a poder guardar.
 import math
 import re
 import threading
+import time
 
 from qgis.core import (
     QgsCoordinateReferenceSystem,
@@ -26,7 +27,7 @@ from qgis.core import (
     QgsWkbTypes,
     Qgis,
 )
-from qgis.PyQt.QtCore import QCoreApplication, QThread, QTimer, QTimeZone
+from qgis.PyQt.QtCore import QCoreApplication, QObject, Qt, QTimeZone, pyqtSignal
 
 from ..core import compat, connections, definitions, lad, media, views
 from ..core import schema as S
@@ -147,6 +148,8 @@ class GeosianProvider(QgsVectorDataProvider):
         self._zones = []
         self._tabla_cargada = False
         self._tabla_avisada = False
+        # Lo que había antes de recargar: si la recarga falla por red, se repone.
+        self._respaldo = None
         # Elementos que llegaron sin forma (la tabla de una capa grande): si luego
         # hace falta la forma de uno, se vuelve a pedir.
         self._sin_forma = set()
@@ -416,6 +419,10 @@ class GeosianProvider(QgsVectorDataProvider):
     def _load_all(self):
         if not self._red():
             return
+        if self._respaldo is not None:
+            # Un reintento tras un fallo: se baja limpio, sin lo repuesto.
+            self._cache.clear()
+            self._sin_forma.clear()
         try:
             total = self._download_all()
         except GeosianError as exc:
@@ -424,9 +431,11 @@ class GeosianProvider(QgsVectorDataProvider):
             # para no repetir la misma petición fallida en cada repintado.
             if not isinstance(exc, NetworkError):
                 self._loaded = True
+            self._reponer()
             return
 
         self._loaded = True
+        self._respaldo = None
         self._feature_count = total
         # La extensión de los metadatos es la de la capa entera; con una vista
         # se queda grande, así que se calcula con lo que el filtro devolvió.
@@ -466,6 +475,15 @@ class GeosianProvider(QgsVectorDataProvider):
                 )
                 break
         return total
+
+    def _reponer(self):
+        """Tras una recarga fallida, la capa vuelve a enseñar lo que tenía."""
+        if self._respaldo is None:
+            return
+        cache, sin_forma = self._respaldo
+        for fid, registro in cache.items():
+            self._cache.setdefault(fid, registro)
+        self._sin_forma |= {f for f in sin_forma if self._cache.get(f) is cache.get(f)}
 
     def _extra(self):
         """Parámetros de filtro para la API: los de la vista, los de partes y fechas
@@ -752,6 +770,8 @@ class GeosianProvider(QgsVectorDataProvider):
                 self._guardada = guardada
                 self._fallo(exc, "Recuperar la capa")
         with self._lock:
+            if self._cache:
+                self._respaldo = (dict(self._cache), set(self._sin_forma))
             self._cache.clear()
             self._sin_forma.clear()
             self._zones = []
@@ -977,6 +997,7 @@ class GeosianProvider(QgsVectorDataProvider):
                 pagina += 1
         except GeosianError as exc:
             self._fallo(exc, "No se pudo traer la zona")
+            self._reponer()
             return
 
         self._zones.append(QgsRectangle(*area))
@@ -1129,10 +1150,15 @@ class GeosianProvider(QgsVectorDataProvider):
         """
         if isinstance(exc, NetworkError):
             connections.mark_offline(self._uri.connection)
-            self.log_warning(
-                f"{que}: sin conexión con GCC. Se reintenta dentro de "
-                f"{connections.PAUSA_SIN_RED} s. ({exc})"
+            texto = (
+                f"Sin conexión con GCC («{self._uri.connection}»): se enseña lo último "
+                f"que llegó y se reintenta dentro de {connections.PAUSA_SIN_RED} s."
             )
+            self.log_warning(f"{que}: {texto} ({exc})")
+            ahora = time.monotonic()
+            if ahora - _avisado_sin_red.get(self._uri.connection, -AVISO_SIN_RED) >= AVISO_SIN_RED:
+                _avisado_sin_red[self._uri.connection] = ahora
+                _a_la_vista(texto)
             return
         if isinstance(exc, AuthError):
             connections.mark_expired(self._uri.connection)
@@ -1159,18 +1185,42 @@ _GEOMETRY_TYPE_TO_LAD = {
 }
 
 
-def _a_la_vista(texto):
-    """Un aviso en la barra de QGIS, si hay ventana y se está en su hilo.
+# Cada cuánto, como mucho, se avisa en la barra de que una conexión no tiene red.
+AVISO_SIN_RED = 300
+_avisado_sin_red = {}
 
-    Se pone al volver al bucle de la ventana, no aquí: esto corre dentro de la carga
-    de la tabla, con la caché bloqueada, y no es sitio para crear widgets.
+
+class _Avisos(QObject):
+    """Lleva los avisos a la barra de QGIS desde cualquier hilo.
+
+    Se encolan siempre, también desde el de la ventana: quien avisa está dentro de
+    la carga de la tabla o del pintado, con la caché bloqueada, y no es sitio para
+    crear widgets.
     """
-    from qgis.utils import iface
 
+    aviso = pyqtSignal(str)
+
+    def mostrar(self, texto):
+        from qgis.utils import iface
+
+        if iface is not None:
+            iface.messageBar().pushWarning("Geosian", texto)
+
+
+_avisos = {"objeto": None}
+
+
+def _a_la_vista(texto):
+    """Un aviso en la barra de QGIS. ``False`` si no hay aplicación."""
     app = QCoreApplication.instance()
-    if iface is None or app is None or QThread.currentThread() != app.thread():
+    if app is None:
         return False
-    QTimer.singleShot(0, lambda: iface.messageBar().pushWarning("Geosian", texto))
+    if _avisos["objeto"] is None:
+        avisos = _Avisos()
+        avisos.moveToThread(app.thread())
+        avisos.aviso.connect(avisos.mostrar, Qt.ConnectionType.QueuedConnection)
+        _avisos["objeto"] = avisos
+    _avisos["objeto"].aviso.emit(texto)
     return True
 
 

@@ -19,3 +19,24 @@ def test_geometria_desde_geojson(app, monkeypatch, forzar_antigua):
     )
     assert poligono.wkbType() == compat.QgsWkbTypes.MultiPolygon
     assert compat.geometry_from_geojson({"type": "Point"}) is None
+
+
+@pytest.mark.parametrize(
+    "error, texto",
+    [
+        ("TimeoutError", "no ha respondido en 30 s"),
+        ("OperationCanceledError", "no ha respondido en 30 s"),
+        ("HostNotFoundError", "no se encuentra el servidor"),
+        ("ConnectionRefusedError", "no acepta conexiones"),
+        ("ProxyConnectionClosedError", "se ha cortado"),
+    ],
+)
+def test_los_fallos_de_red_se_explican_en_castellano(app, error, texto):
+    """Qt da «Operation timed out» o «Host … not found»: al usuario, en castellano."""
+    from qgis.PyQt.QtNetwork import QNetworkReply
+
+    from geosian.core.http import network_reason
+
+    codigo = getattr(QNetworkReply.NetworkError, error)
+    motivo = network_reason(codigo, "Operation timed out", 30)
+    assert texto in motivo.lower()

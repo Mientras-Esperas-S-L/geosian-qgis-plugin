@@ -74,8 +74,8 @@ def offer_reconnect(iface, pedir):
             continue
         aviso = barra.createMessage(
             "Geosian",
-            f"La sesión de «{nombre}» ha caducado: sus capas están sin datos hasta "
-            "volver a entrar.",
+            f"La sesión de «{nombre}» ha caducado: sus capas no traen datos nuevos "
+            "hasta volver a entrar.",
         )
         aviso.setProperty(_PROPIEDAD, nombre)
         boton = QPushButton("Volver a entrar")

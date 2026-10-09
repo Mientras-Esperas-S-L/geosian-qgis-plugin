@@ -65,7 +65,7 @@ plugin y empezar la fase de escritura.
       subir la mínima y anotarlo.
 - [x] Mapas grandes: Nueva York (1 M de puntos) y el Gran Parque de Mijas en local: abrir,
       mover, tabla y ficha sin bloquear QGIS más de 2 s; medir memoria. Anotar cifras.
-- [ ] Errores en devel: red cortada a mitad (detener el acceso a la API), servidor lento,
+- [x] Errores en devel: red cortada a mitad (detener el acceso a la API), servidor lento,
       token revocado; ninguno cuelga QGIS y los mensajes se entienden.
 
 ### Entrega
@@ -238,6 +238,20 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   Ojo al medir: la QGIS de pruebas se cayó tres veces por un fallo **de mis órdenes**, no
   del complemento (un `QgsVectorLayerCache` sin referencia en Python que se recogía con la
   tabla en uso).
+- 10/10 · Errores contra devel, con un proxy CONNECT propio (`scratchpad/proxy_fallos.py`,
+  modos normal, cortar y lento N s por bloque) puesto como proxy de Qt en la QGIS de pruebas
+  y quitado al acabar. **Red cortada**: dos fallos. Una recarga (tiempo real, «Recargar»)
+  vaciaba la capa antes de saber si podía traer lo nuevo: se quedaba en 0; ahora conserva
+  lo que tenía y reintenta pasada la pausa (11.950 a la vista en 0,08 s; al volver la red,
+  11.950 en 2,7 s). Y el aviso solo iba al registro: ahora sale en la barra «Sin conexión
+  con GCC…», como mucho cada 5 min por conexión y desde cualquier hilo (encolado al de la
+  ventana). Abrir una capa sin red: no válida al momento con el motivo. **Servidor lento**
+  (2 s por bloque): abrir una capa 12,3 s; **sin respuesta**: 30,1 s y luego «GCC no ha
+  respondido en 30 s» (antes «Operation timed out», en inglés; ahora en castellano los
+  fallos de red habituales). **Token revocado**: la capa sigue con lo último, se marca
+  caducada y sale «Volver a entrar» (el texto decía «sin datos», ya no es verdad). Pruebas
+  `test_recargar_sin_red_conserva_lo_que_habia`, `test_sin_red_se_avisa_en_la_barra_una_vez`
+  y `test_los_fallos_de_red_se_explican_en_castellano` (fallaban); suite 211 en QGIS 4 y 3.34.
 
 ## Hallazgos para decidir
 
@@ -257,3 +271,9 @@ _(lo que no es del plugin o pide una decisión)_
   se queda colgado en el entorno de pruebas local, también solo (Redis responde bien); y
   ocho pruebas de calendario de tareas y la de reglas IoT fallan igual con el código de
   `main`, corridas a las 00:48 (aún día 9 en UTC): parecen depender de la fecha.
+- **Esperas que bloquean la ventana.** Abrir una capa pide su definición en el hilo de la
+  ventana (QGIS lo exige: los campos se dan al crear la capa). Con el servidor lento son
+  segundos (12 s medidos) y con el servidor mudo, el tiempo de espera entero: 30 s. Se
+  puede bajar a 10-15 s para la definición (respuestas pequeñas) y dejar 30 s para los
+  datos, que van en los hilos de pintado. No lo he cambiado: es un compromiso entre
+  servidores lentos de verdad y QGIS congelado.

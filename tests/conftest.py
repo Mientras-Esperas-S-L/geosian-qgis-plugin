@@ -51,3 +51,6 @@ def estado_aparte(tmp_path, monkeypatch):
 
     monkeypatch.setattr(definitions, "DIRECTORIO", str(tmp_path / "definiciones"))
     connections._sin_red.clear()
+    from geosian.provider import provider
+
+    provider._avisado_sin_red.clear()

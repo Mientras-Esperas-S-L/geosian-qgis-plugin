@@ -485,6 +485,7 @@ def test_la_tabla_recortada_se_avisa_en_la_barra(capa_grande, monkeypatch):
         def messageBar(self):
             return self.barra
 
+    QCoreApplication.processEvents()  # lo que dejó encolado otra prueba
     iface = Iface()
     monkeypatch.setattr(qgis.utils, "iface", iface)
     monkeypatch.setattr(modulo, "TABLE_CAP", 2)
@@ -1000,3 +1001,72 @@ def test_un_filtro_de_un_parte_que_no_existe_avisa(servidor):
     capa = QgsVectorLayer(uri, "Arbolado", "geosian")
     assert not capa.isValid()
     assert "no_existe" in capa.dataProvider().error()
+
+
+class _BarraFalsa:
+    def __init__(self):
+        self.avisos = []
+
+    def pushWarning(self, titulo, texto):
+        self.avisos.append(texto)
+
+
+class _IfaceFalso:
+    def __init__(self):
+        self.barra = _BarraFalsa()
+
+    def messageBar(self):
+        return self.barra
+
+
+def test_recargar_sin_red_conserva_lo_que_habia(capa, monkeypatch):
+    """El tiempo real o «Recargar» con la red caída: la capa no se queda vacía."""
+    from geosian.core.errors import NetworkError
+
+    assert len(list(capa.getFeatures())) == 3
+    proveedor = capa.dataProvider()
+    original = proveedor._client.geodata_paginated
+
+    def sin_red(*args, **kwargs):
+        raise NetworkError("Host desconocido")
+
+    monkeypatch.setattr(proveedor._client, "geodata_paginated", sin_red)
+    try:
+        proveedor.reloadData()
+        assert len(list(capa.getFeatures())) == 3
+        assert connections.is_offline(CONEXION)
+
+        # Vuelta la red y pasada la pausa, se recarga de verdad.
+        monkeypatch.setattr(proveedor._client, "geodata_paginated", original)
+        connections._sin_red.clear()
+        assert len(list(capa.getFeatures())) == 3
+        assert proveedor._loaded
+    finally:
+        connections._sin_red.clear()
+
+
+def test_sin_red_se_avisa_en_la_barra_una_vez(capa, monkeypatch):
+    import qgis.utils
+    from qgis.PyQt.QtCore import QCoreApplication
+
+    from geosian.core.errors import NetworkError
+
+    QCoreApplication.processEvents()  # lo que dejó encolado otra prueba
+    iface = _IfaceFalso()
+    monkeypatch.setattr(qgis.utils, "iface", iface)
+    proveedor = capa.dataProvider()
+
+    def sin_red(*args, **kwargs):
+        raise NetworkError("Host desconocido")
+
+    monkeypatch.setattr(proveedor._client, "geodata_paginated", sin_red)
+    try:
+        proveedor.reloadData()
+        list(capa.getFeatures())
+        proveedor.reloadData()
+        list(capa.getFeatures())
+        QCoreApplication.processEvents()
+        [aviso] = iface.barra.avisos
+        assert "sin conexión" in aviso.lower()
+    finally:
+        connections._sin_red.clear()
