@@ -101,3 +101,15 @@ def _texto(valor):
 def is_element_view(vista):
     """Las vistas de información adicional muestran registros, no elementos."""
     return (vista or {}).get("context_type", "elements") in ("", None, "elements")
+
+
+def is_overlay(style_config):
+    """True si la vista se pinta ENCIMA de su capa en vez de sustituirla.
+
+    Como en la web (``useMvtLayers.js``): las vistas de color
+    (``visualization`` «default» o sin ella) re-pintan la misma geometría y
+    ocultan la capa base; las de icono, calor, hexágonos, contornos o H3 son
+    superposiciones y la base sigue visible debajo.
+    """
+    config = style_config if isinstance(style_config, dict) else {}
+    return (config.get("visualization") or "default") != "default"

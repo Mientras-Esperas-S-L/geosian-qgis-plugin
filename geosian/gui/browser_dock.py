@@ -330,27 +330,43 @@ class GeosianBrowserDock(QDockWidget):
                     poblar(subgrupo, hijos)
                     continue
                 lid = nodo[1]
-                añadidas = self.añadir_capa(
-                    {
-                        "conexion": conexion,
-                        "mapa": mapa,
-                        "capa": por_id[lid],
-                        "vista": activas.get(lid),
-                    },
+                vista = activas.get(lid)
+                añadidas = []
+                if vista is not None and self._vista_superpuesta(cliente, vista):
+                    # Superposición (iconos, calor…): la base sigue debajo.
+                    añadidas += self.añadir_capa(
+                        {"conexion": conexion, "mapa": mapa, "capa": por_id[lid]},
+                        grupo=destino,
+                        avisar=False,
+                    )
+                capas_vista = self.añadir_capa(
+                    {"conexion": conexion, "mapa": mapa, "capa": por_id[lid], "vista": vista},
                     grupo=destino,
                     avisar=False,
                 )
+                if vista is not None:
+                    de_vistas.extend(capas_vista)
+                    primera = raiz.findLayer(añadidas[0].id()) if añadidas else None
+                    for capa in capas_vista if primera is not None else []:
+                        # En el panel, la vista justo encima de su capa base.
+                        nodo_capa = raiz.findLayer(capa.id())
+                        destino.insertChildNode(destino.children().index(primera), nodo_capa.clone())
+                        destino.removeChildNode(nodo_capa)
+                añadidas += capas_vista
                 if lid in ocultas:
                     for capa in añadidas:
                         nodo_capa = raiz.findLayer(capa.id())
                         if nodo_capa is not None:
                             nodo_capa.setItemVisibilityChecked(False)
 
+        de_vistas = []
         poblar(grupo, maptree.layer_tree(ajustes, list(por_id)))
 
         capas_qgis = [n.layer() for n in grupo.findLayers() if n.layer() is not None]
         extension = _extension_de(capas_qgis)
         self._añadir_fondo(extension)
+        if de_vistas:
+            _vistas_encima(raiz, de_vistas)
         self._encuadrar(extension)
         if vacio:
             # Con «usar el CRS de la primera capa», QGIS pone el de la capa
@@ -360,6 +376,14 @@ class GeosianBrowserDock(QDockWidget):
         self.iface.messageBar().pushInfo(
             "Geosian", f"{len(capas_qgis)} capa(s) añadidas al proyecto."
         )
+
+    def _vista_superpuesta(self, cliente, vista):
+        """Si la vista se pinta encima de su capa (icono, calor…) o la sustituye."""
+        try:
+            completa = cliente.layer_view(vista["id"])
+        except GeosianError:
+            return False
+        return views.is_overlay(completa.get("style_config"))
 
     def _añadir_fondo(self, extension):
         """Un mapa base si el proyecto no tiene ninguno: el del IGN en España."""
@@ -557,3 +581,19 @@ def _extension_de(capas):
         total.combineExtentWith(extension)
     return total
 
+
+
+def _vistas_encima(raiz, capas_vista):
+    """Las capas de vista se pintan encima de todas las capas base, como en la web.
+
+    La web pinta las capas base en un solo lote al fondo y añade las vistas por
+    encima (``maps.jsx``: «las vistas … quedan siempre encima»), así que una
+    vista de una capa baja del panel se ve sobre capas más altas. El panel de
+    capas de QGIS no cambia: solo el orden de pintado del proyecto.
+    """
+    ids = {c.id() for c in capas_vista}
+    actuales = raiz.customLayerOrder() if raiz.hasCustomLayerOrder() else raiz.layerOrder()
+    vistas = [c for c in actuales if c.id() in ids]
+    resto = [c for c in actuales if c.id() not in ids]
+    raiz.setCustomLayerOrder(vistas + resto)
+    raiz.setHasCustomLayerOrder(True)

@@ -171,8 +171,10 @@ def test_anadir_mapa_entero_crea_un_grupo(app_gui):
             assert nodo.layer().labeling().settings().fieldName == "especie"
             fondos = [c for c in proyecto.mapLayers().values() if c.name().startswith("Fondo")]
             assert [c.name() for c in fondos] == ["Fondo: mapa base del IGN"]
-            # Se pinta en el orden del panel, sin reordenar por tipo de geometría.
-            assert not proyecto.layerTreeRoot().hasCustomLayerOrder()
+            # Pintado: la vista arriba y el fondo debajo de todo.
+            r = proyecto.layerTreeRoot()
+            orden = r.customLayerOrder() if r.hasCustomLayerOrder() else r.layerOrder()
+            assert [c.name() for c in orden] == ["Arbolado · Tilos", "Fondo: mapa base del IGN"]
         finally:
             proyecto.clear()
             connections.remove_connection("Integracion3")
@@ -241,3 +243,35 @@ def test_un_403_no_pide_volver_a_entrar(app_gui):
             assert "permisos" in errores[0][2]
         finally:
             connections.remove_connection("Integracion5")
+
+
+def test_vista_de_iconos_activa_deja_la_base_debajo_y_se_pinta_encima(app_gui, monkeypatch):
+    """Como en la web: las vistas de icono se superponen y van sobre las capas base."""
+    from qgis.core import QgsProject
+
+    from geosian.gui.browser_dock import ROL_DATOS, GeosianBrowserDock
+
+    proyecto = QgsProject.instance()
+    proyecto.clear()
+    with FakeGeosian() as fake:
+        connections.save_connection("Integracion6", fake.url, "a@b.c")
+        connections.set_session("Integracion6", "tok-de-prueba", "jwt")
+        try:
+            cliente = connections.client_for("Integracion6")
+            monkeypatch.setattr(
+                cliente, "map_settings", lambda _mid: {"settings": {"active_view_ids": [8]}}
+            )
+            panel = GeosianBrowserDock(IfaceFalso())
+            raiz = panel.arbol.topLevelItem(0)
+            panel._al_desplegar(raiz)
+            panel.añadir_mapa(raiz.child(0).child(0).data(0, ROL_DATOS))
+
+            grupo = proyecto.layerTreeRoot().children()[0]
+            # En el panel: la vista y, debajo, su capa base.
+            assert [n.name() for n in grupo.findLayers()] == ["Arbolado · Iconos", "Arbolado"]
+            # En el pintado: la vista encima de todo lo demás.
+            orden = proyecto.layerTreeRoot().customLayerOrder()
+            assert orden[0].name() == "Arbolado · Iconos"
+        finally:
+            proyecto.clear()
+            connections.remove_connection("Integracion6")

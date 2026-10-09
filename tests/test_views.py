@@ -57,3 +57,10 @@ def test_vista_vacia_no_filtra():
 def test_vistas_de_informacion_adicional_no_son_de_elementos():
     assert views.is_element_view({"context_type": "elements"})
     assert not views.is_element_view({"context_type": "additional_info"})
+
+
+def test_superposicion_o_sustitucion_como_la_web():
+    assert not views.is_overlay({})
+    assert not views.is_overlay({"visualization": "default", "mode": "categorized"})
+    assert views.is_overlay({"visualization": "icon"})
+    assert views.is_overlay({"visualization": "heatmap"})

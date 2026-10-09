@@ -52,7 +52,7 @@ de datos por detrás de la API.
 ## Casillas de lectura
 
 - [ ] Melilla local: comparar una a una las 8 capas y sus vistas activables, a varios zooms.
-      (capas base hechas el 09/10; faltan las vistas 69, 12 y 11)
+      (capas base hechas el 09/10; vista 12 hecha; faltan 11 y 69)
 - [ ] Vistas de información adicional (`context_type = additional_info`): hoy no se abren.
 - [ ] Iconos de vista por categoría si el editor los admite; tamaños y halo comparados.
 - [ ] Visualizaciones sin equivalente (hexágonos, contornos, H3): decidir aproximación.
@@ -82,6 +82,12 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   Truco útil: `deck.pickMultipleObjects` NO sirve para saber qué se ve encima; leer el píxel
   con `gl.readPixels` tras `deck.redraw()`.
 
+- 09/10 · Vista 12 «Árboles Especie» (icono, categorizada) en Melilla local: el plugin
+  ocultaba la capa base, y la web la deja debajo porque las vistas de icono, calor y
+  agregaciones son superposiciones. Ahora el mapa entero añade base y vista, y pinta las
+  vistas encima de todas las capas base, como la web. Prueba
+  `test_vista_de_iconos_activa_deja_la_base_debajo_y_se_pinta_encima`.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión del usuario)_
@@ -89,6 +95,12 @@ _(lo que no es del plugin o pide una decisión del usuario)_
 - La cuenta de QGIS solo ve las vistas públicas o propias: de las 8 vistas de Melilla local
   ve 3 (69, 12, 11). Las privadas de otros usuarios no las ve, igual que en la web. Si se
   quieren comparar todas, hay que hacerlas públicas o crearlas con esa cuenta.
+- **Las vistas se pintan encima de TODAS las capas base** en la web (`maps.jsx` pone el
+  lote al fondo y añade las vistas después; lo dice un comentario, es a propósito). Una
+  vista de una capa baja del panel tapa capas más altas. Choca con el «orden estricto del
+  panel». QGIS lo imita de momento. ¿Se queda así o las vistas van en el sitio de su capa?
+- Iconos de vista: mismo tamaño (metros, mínimo 8 px), pero en la web se ven más
+  difuminados; no parece de datos. Sin tocar.
 - El usuario usa a la vez la pestaña de `localhost:3000`: para comparar sin estorbarle,
   abrir una pestaña propia. Activar vistas en la web cambia los ajustes de `tester2`.
 

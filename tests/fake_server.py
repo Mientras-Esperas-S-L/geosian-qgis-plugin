@@ -135,6 +135,16 @@ ELEMENTOS = [
 ]
 
 
+# Vista 8: iconos por especie. Es una superposición: la base sigue debajo.
+VISTA_ICONOS = {
+    "id": 8,
+    "layer": 11,
+    "name": "Iconos",
+    "context_type": "elements",
+    "filter_config": {"query_groups": [], "global_operator": "and"},
+    "style_config": {"mode": "single", "visualization": "icon", "color": {"value": [0, 0, 255, 230]}},
+}
+
 # Vista 7 de la capa 11: solo los tilos, pintados de rojo.
 VISTA_TILOS = {
     "id": 7,
@@ -228,7 +238,8 @@ class Handler(BaseHTTPRequestHandler):
 
         elif ruta == "/api/v1/layer-views/for-map/":
             listado = {k: VISTA_TILOS[k] for k in ("id", "layer", "name", "context_type")}
-            self._json([{"layer_id": 11, "layer_name": "Arbolado", "views": [listado]}])
+            iconos = {k: VISTA_ICONOS[k] for k in ("id", "layer", "name", "context_type")}
+            self._json([{"layer_id": 11, "layer_name": "Arbolado", "views": [listado, iconos]}])
 
         elif ruta == "/api/v1/user-map-settings/by-map/4/":
             # El usuario tiene la capa en una carpeta, apagada y con la vista
@@ -246,6 +257,9 @@ class Handler(BaseHTTPRequestHandler):
                     "map_structure": None,
                 }
             )
+
+        elif ruta == "/api/v1/layer-views/8/":
+            self._json(VISTA_ICONOS)
 
         elif ruta == "/api/v1/layer-views/7/":
             self._json(VISTA_TILOS)
