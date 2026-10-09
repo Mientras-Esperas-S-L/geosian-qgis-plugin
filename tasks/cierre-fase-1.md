@@ -74,7 +74,7 @@ plugin y empezar la fase de escritura.
       de pruebas ni cachés.
 - [x] CI del repo del plugin: GitHub Actions con ruff y pytest dentro del contenedor de QGIS
       (4 y 3.34), en verde en la rama.
-- [ ] README de usuario en castellano: instalar, conectar (con doble factor), abrir un mapa,
+- [x] README de usuario en castellano: instalar, conectar (con doble factor), abrir un mapa,
       vistas, partes, fotos, filtros, etiquetas, fondos, tiempo real y qué no hace aún.
 - [ ] Repaso final contra la web en Melilla (local y devel): capas, vistas, ficha, partes,
       fotos, filtros, etiquetas, fondo y estructura, con capturas lado a lado en el scratchpad.
@@ -270,6 +270,14 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   propósito; `make lint` ya no se traga los errores. Antes de subirlo, la suite en los dos
   contenedores en local: 211 pasan y 3 saltadas (el paquete) en cada uno. **En verde en la
   rama**: ejecución 38006199614 (b96cfad), los tres trabajos.
+- 10/10 · README de usuario reescrito: instalar desde el zip, conectar (doble factor,
+  credencial cifrada fuera del proyecto, sesión única), abrir mapa, capa y vista, estilo y
+  etiquetas, fondos, capas grandes (tabla de 5.000), ficha con fotos y partes, filtros de QGIS
+  y por partes y fechas, tiempo real, sesión caducada, sin red y sin permiso, y lo que no hace
+  aún; el desarrollo y las reglas de la fase de escritura, al final. Cotejado con el código:
+  los nombres de menús y acciones son los que tiene el complemento. Quité lo que no he visto
+  funcionar (que una foto nueva llegue sola). **No comprobado**: que alguien de fuera lo siga
+  paso a paso.
 
 ## Hallazgos para decidir
 
