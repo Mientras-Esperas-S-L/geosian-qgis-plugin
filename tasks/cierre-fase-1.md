@@ -72,7 +72,7 @@ plugin y empezar la fase de escritura.
 - [x] `make package`: el zip instala en un perfil limpio de QGIS 4 y de 3.34, con icono,
       licencia, `metadata.txt` completo (versión, changelog, tracker, homepage) y sin ficheros
       de pruebas ni cachés.
-- [ ] CI del repo del plugin: GitHub Actions con ruff y pytest dentro del contenedor de QGIS
+- [x] CI del repo del plugin: GitHub Actions con ruff y pytest dentro del contenedor de QGIS
       (4 y 3.34), en verde en la rama.
 - [ ] README de usuario en castellano: instalar, conectar (con doble factor), abrir un mapa,
       vistas, partes, fotos, filtros, etiquetas, fondos, tiempo real y qué no hace aún.
@@ -262,6 +262,14 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   `xvfb-run` se queda colgado dentro de podman): en los dos, complemento activo, panel creado
   y menú «Geosian». En el contenedor no hay `make`/`git`/`zip`: la prueba del paquete se
   salta ahí (211 pasan y 3 saltadas; 214 en QGIS 4).
+- 10/10 · CI del plugin (`.github/workflows/pruebas.yml`): ruff y pytest en `qgis/qgis:3.34` y
+  `qgis/qgis:4.2` (4.2.3), en cualquier rama y en los PR. Ruff no tenía configuración en el
+  repo y aplicaba las reglas por omisión de cada versión: ahora `pyproject.toml` y versión
+  fija (0.16.10) en la CI. Se arreglaron los 43 avisos que había (26 automáticos, revisados
+  uno a uno, y 5 a mano) y se ignoran `BLE001` y `S110`, que en un complemento son a
+  propósito; `make lint` ya no se traga los errores. Antes de subirlo, la suite en los dos
+  contenedores en local: 211 pasan y 3 saltadas (el paquete) en cada uno. **En verde en la
+  rama**: ejecución 38006199614 (b96cfad), los tres trabajos.
 
 ## Hallazgos para decidir
 
