@@ -67,7 +67,7 @@ vez de solo anotarlos.
 - [x] Información adicional (partes) de un elemento, en solo lectura.
 - [x] Fotos y adjuntos de un elemento, en solo lectura (enlaces firmados de `/media/`).
 - [x] Filtros de la web (panel «Filtros») aplicables a una capa de QGIS.
-- [ ] Etiquetas: las que la web permite encender, no solo las de por defecto.
+- [x] Etiquetas: las que la web permite encender, no solo las de por defecto.
 - [ ] Mapa base: equivalente al GEOSIAN vectorial (estilo MapLibre) o, al menos, el que
       tenga elegido el mapa (`basemaps[]`).
 - [ ] Estructura publicada del mapa (`map_structure`, modo básico) con grupos anidados.
@@ -148,6 +148,13 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   siempre QGIS. Melilla, Mobiliario urbano, «tipo = papelera»: 247 en la web y 247 en
   QGIS, con el mismo `attr__tipo=papelera`. El límite de una petición se aplica ya
   después del filtro. Pruebas `test_filtro_*` y `test_el_limite_*`.
+
+- 09/10 · Etiquetas. Menú contextual de la capa, «Etiqueta (como en la web)»: una por capa
+  entre los atributos que declaran `label` en el esquema, o ninguna, con la marcada la
+  que esté puesta. Melilla: Arbolado ofrece Porte arbóreo, Marcado como, Especie y Riesgo
+  aparente, y Mobiliario urbano, Tipo de elemento; igual que el selector de la web, y en
+  los dos sin ninguna encendida de inicio. Pruebas `test_etiquetas_que_se_pueden_*` y
+  `test_menu_de_la_capa_cambia_la_etiqueta`.
 
 ## Hallazgos para decidir
 

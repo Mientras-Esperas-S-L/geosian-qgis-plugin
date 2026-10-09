@@ -1,9 +1,10 @@
 """Punto de entrada del complemento."""
 
-from qgis.PyQt.QtWidgets import QAction
+from qgis.core import QgsMapLayerType
 from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtWidgets import QAction
 
-from .gui.browser_dock import GeosianBrowserDock
+from .gui.browser_dock import GeosianBrowserDock, menu_de_etiquetas
 from .gui.connection_dialog import ConnectionDialog
 from .gui.media_widget import register_media_widget
 from .provider.metadata import register_provider
@@ -44,6 +45,11 @@ class GeosianPlugin:
         )
         self._añadir_accion("Nueva conexión...", self._nueva_conexion)
 
+        # El selector de etiquetas de la web, en el menú contextual de la capa.
+        vista = self.iface.layerTreeView()
+        if vista is not None and hasattr(vista, "contextMenuAboutToShow"):
+            vista.contextMenuAboutToShow.connect(self._menu_de_capa)
+
     def _añadir_accion(self, texto, callback, checkable=False):
         accion = QAction(texto, self.iface.mainWindow())
         accion.setCheckable(checkable)
@@ -63,7 +69,18 @@ class GeosianPlugin:
             self.dock.refrescar()
             self.dock.show()
 
+    def _menu_de_capa(self, menu):
+        capa = self.iface.layerTreeView().currentLayer()
+        if capa is not None and capa.type() == QgsMapLayerType.VectorLayer:
+            menu_de_etiquetas(menu, capa)
+
     def unload(self):
+        vista = self.iface.layerTreeView()
+        if vista is not None and hasattr(vista, "contextMenuAboutToShow"):
+            try:
+                vista.contextMenuAboutToShow.disconnect(self._menu_de_capa)
+            except TypeError:
+                pass
         for accion in self.acciones:
             self.iface.removePluginMenu(MENU, accion)
         self.acciones = []

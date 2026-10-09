@@ -474,6 +474,19 @@ def _rule_expression(campo, operador, valor):
 LABEL_MAX_SCALE = 17000
 
 
+def label_choices(schema):
+    """Atributos que la web deja poner de etiqueta: ``(nombre, título)``.
+
+    ``LabelSelector.jsx`` ofrece los que declaran ``label`` en el esquema, a
+    ``true`` o a ``false``: el valor solo dice si se enciende solo.
+    """
+    return [
+        (str(attr["name"]), S.field_title(attr))
+        for attr in S.flatten_attributes(schema or {})
+        if "label" in attr and attr.get("name")
+    ]
+
+
 def label_attribute(schema):
     """Atributo que la web etiqueta por defecto, o ``None``.
 

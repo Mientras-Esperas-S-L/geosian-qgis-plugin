@@ -536,3 +536,38 @@ def test_el_panel_de_fotos_sobrevive_sin_referencias_en_python(app_gui):
         finally:
             QgsProject.instance().clear()
             connections.remove_connection("Fotos3")
+
+
+def test_menu_de_la_capa_cambia_la_etiqueta(app_gui):
+    from qgis.core import QgsProject
+    from qgis.PyQt.QtWidgets import QMenu
+
+    from geosian.gui.browser_dock import menu_de_etiquetas
+    from geosian.provider.metadata import register_provider
+
+    register_provider()
+    with FakeGeosian() as fake:
+        try:
+            capa = _capa_de_prueba(fake, "Etiquetas")
+            menu = QMenu()
+            menu_de_etiquetas(menu, capa)
+            [sub] = [a.menu() for a in menu.actions() if a.menu() is not None]
+            opciones = {a.text(): a for a in sub.actions()}
+            assert "Sin etiqueta" in opciones and "Especie" in opciones
+            # La que está encendida sale marcada.
+            assert opciones["Especie"].isChecked()
+
+            opciones["Sin etiqueta"].trigger()
+            assert not capa.labelsEnabled()
+
+            opciones["Especie"].trigger()
+            assert capa.labelsEnabled()
+            assert capa.labeling().settings().fieldName == "especie"
+
+            # Una capa que no es de Geosian no lleva el menú.
+            otro = QMenu()
+            menu_de_etiquetas(otro, None)
+            assert otro.actions() == []
+        finally:
+            QgsProject.instance().clear()
+            connections.remove_connection("Etiquetas")

@@ -118,3 +118,23 @@ def test_etiqueta_por_defecto_como_la_web():
     }
     assert styles.label_attribute(esquema) == "riesgo"
     assert styles.label_attribute({"attributes": [{"name": "a", "label": True}]}) is None
+
+
+def test_etiquetas_que_se_pueden_encender_como_la_web():
+    # LabelSelector.jsx ofrece los atributos que declaran «label», esté a true o
+    # a false, también dentro de secciones; los demás no.
+    esquema = {
+        "attributes": [
+            {"name": "codigo", "title": "Código", "type": "string", "label": False},
+            {"name": "altura", "title": "Altura", "type": "number"},
+            {
+                "name": "s1",
+                "type": "section",
+                "title": "Detalle",
+                "contents": [{"name": "especie", "title": "Especie", "type": "select", "label": True}],
+            },
+        ]
+    }
+
+    assert styles.label_choices(esquema) == [("codigo", "Código"), ("especie", "Especie")]
+    assert styles.label_choices({}) == []

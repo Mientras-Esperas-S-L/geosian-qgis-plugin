@@ -595,6 +595,47 @@ def _tipos_de_geometria(capa):
     return [t for t in tipos if t in GEOMETRY_TYPES]
 
 
+def menu_de_etiquetas(menu, capa):
+    """Submenú «Etiqueta» de una capa de Geosian, como el selector de la web.
+
+    Una etiqueta por capa, a elegir entre los atributos que la web ofrece, o
+    ninguna. Se engancha al menú contextual del panel de capas de QGIS.
+    """
+    proveedor = capa.dataProvider() if capa is not None and capa.isValid() else None
+    if proveedor is None or proveedor.name() != "geosian":
+        return
+    opciones = styles.label_choices(getattr(proveedor, "schema", None))
+    if not opciones:
+        return
+    resolver = symbology.field_resolver(proveedor.fields(), proveedor.attr_map)
+    actual = (
+        capa.labeling().settings().fieldName
+        if capa.labelsEnabled() and capa.labeling() is not None
+        else None
+    )
+    sub = menu.addMenu("Etiqueta (como en la web)")
+    sin = sub.addAction("Sin etiqueta")
+    sin.setCheckable(True)
+    sin.setChecked(actual is None)
+    sin.triggered.connect(lambda: _poner_etiqueta(capa, None))
+    for nombre, titulo in opciones:
+        campo = resolver(nombre)
+        if not campo:
+            continue
+        accion = sub.addAction(titulo)
+        accion.setCheckable(True)
+        accion.setChecked(campo == actual)
+        accion.triggered.connect(lambda _=False, c=campo: _poner_etiqueta(capa, c))
+
+
+def _poner_etiqueta(capa, campo):
+    if campo is None:
+        capa.setLabelsEnabled(False)
+    else:
+        symbology.apply_labels(capa, campo, capa.dataProvider().layer_uri.geometry_type)
+    capa.triggerRepaint()
+
+
 def _grupo_de_partes(grupo):
     """El grupo plegado «Información adicional» al final del mapa (o del proyecto)."""
     raiz = QgsProject.instance().layerTreeRoot()
