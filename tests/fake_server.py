@@ -53,6 +53,17 @@ ESQUEMA_ARBOLADO = {
             ],
         },
     ],
+    # Como en los LAD reales: color por especie, gris para lo demás.
+    "styles": {
+        "colors": [
+            {
+                "attribute": "especie",
+                "priority": 1,
+                "default": "#808080",
+                "allowed_values": {"Tilia platyphyllos": "#00ff00"},
+            }
+        ]
+    },
 }
 
 MAPAS = [{"id": 4, "name": "Ciudad de Ejemplo: arbolado y zonas verdes"}]
@@ -119,6 +130,35 @@ ELEMENTOS = [
 ]
 
 
+# Vista 7 de la capa 11: solo los tilos. El servidor real aplica el filter_config
+# de la vista cuando se le pasa view_ids.
+VISTAS = {"7": lambda e: e["properties"].get("especie") == "Tilia platyphyllos"}
+
+
+def _pagina_de_elementos(consulta, lasso=None):
+    """Lo que devolvería /geodata/paginated/ con esos parámetros."""
+    elementos = ELEMENTOS
+    ids = consulta.get("ids", [""])[0]
+    if ids:
+        pedidos = {int(i) for i in ids.split(",") if i}
+        elementos = [e for e in elementos if e["properties"]["id"] in pedidos]
+    vista = consulta.get("view_ids", [""])[0]
+    if vista in VISTAS:
+        elementos = [e for e in elementos if VISTAS[vista](e)]
+    if lasso:
+        xs = [p[0] for p in lasso["coordinates"][0]]
+        ys = [p[1] for p in lasso["coordinates"][0]]
+        elementos = [
+            e
+            for e in elementos
+            if e["geometry"]
+            and min(xs) <= e["geometry"]["coordinates"][0] <= max(xs)
+            and min(ys) <= e["geometry"]["coordinates"][1] <= max(ys)
+        ]
+    pagina = int(consulta.get("page", ["1"])[0])
+    return {"type": "FeatureCollection", "features": elementos if pagina == 1 else []}
+
+
 class Handler(BaseHTTPRequestHandler):
     peticiones = []
 
@@ -172,9 +212,7 @@ class Handler(BaseHTTPRequestHandler):
             )
 
         elif ruta == "/api/v1/geodata/paginated/":
-            pagina = int(consulta.get("page", ["1"])[0])
-            elementos = ELEMENTOS if pagina == 1 else []
-            self._json({"type": "FeatureCollection", "features": elementos})
+            self._json(_pagina_de_elementos(consulta))
 
         elif ruta == "/api/v1/geodata/":
             ids = consulta.get("ids", [""])[0]
@@ -202,6 +240,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", partes.path + "/")
             self.send_header("Content-Length", "0")
             self.end_headers()
+            return
+
+        if partes.path == "/api/v1/geodata/paginated/":
+            consulta = parse_qs(partes.query)
+            Handler.peticiones.append((partes.path, consulta))
+            if self.headers.get("Authorization") != "Token tok-de-prueba":
+                self._json({"detail": "Credenciales no válidas"}, 401)
+                return
+            self._json(_pagina_de_elementos(consulta, datos.get("lasso_geometry")))
             return
 
         if partes.path == "/users/login/" and datos.get("email") == "doble@ejemplo.com":

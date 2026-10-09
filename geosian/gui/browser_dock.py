@@ -23,7 +23,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
-from ..core import connections, lad
+from ..core import connections, lad, symbology
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri
@@ -90,6 +90,9 @@ class GeosianBrowserDock(QDockWidget):
     def refrescar(self):
         self.arbol.clear()
         for nombre in connections.list_connections():
+            cliente = connections.client_for(nombre)
+            if cliente is not None:
+                cliente.forget_layers()
             item = QTreeWidgetItem([nombre])
             item.setData(0, ROL_TIPO, TIPO_CONEXION)
             item.setData(0, ROL_DATOS, nombre)
@@ -185,6 +188,11 @@ class GeosianBrowserDock(QDockWidget):
                 "Añadir al proyecto",
                 lambda: self.añadir_capa(item.data(0, ROL_DATOS)),
             )
+        elif tipo == TIPO_MAPA:
+            menu.addAction(
+                "Añadir el mapa entero",
+                lambda: self.añadir_mapa(item.data(0, ROL_DATOS)),
+            )
         elif tipo == TIPO_CONEXION:
             nombre = item.data(0, ROL_DATOS)
             menu.addAction("Volver a entrar", lambda: self._pedir_reconexion(nombre))
@@ -213,7 +221,37 @@ class GeosianBrowserDock(QDockWidget):
             connections.remove_connection(nombre)
             self.refrescar()
 
-    def añadir_capa(self, datos):
+    def añadir_mapa(self, datos):
+        """Mete todas las capas del mapa en un grupo con su nombre."""
+        conexion = datos["conexion"]
+        mapa = datos["mapa"]
+        cliente = connections.client_for(conexion)
+        if cliente is None:
+            return
+        try:
+            capas = cliente.layers(mapa["id"])
+        except AuthError:
+            self._pedir_reconexion(conexion)
+            return
+        except GeosianError as exc:
+            self._error(f"No se pudieron cargar las capas: {exc}")
+            return
+
+        cliente.prefetch_layer_attributes([c["id"] for c in capas if "id" in c])
+
+        raiz = QgsProject.instance().layerTreeRoot()
+        grupo = raiz.insertGroup(0, mapa.get("name") or f"Mapa {mapa['id']}")
+        for capa in capas:
+            self.añadir_capa(
+                {"conexion": conexion, "mapa": mapa, "capa": capa},
+                grupo=grupo,
+                avisar=False,
+            )
+        self.iface.messageBar().pushInfo(
+            "Geosian", f"{len(grupo.findLayers())} capa(s) añadidas al proyecto."
+        )
+
+    def añadir_capa(self, datos, grupo=None, avisar=True):
         """Mete la capa en el proyecto, una por tipo de geometría."""
         conexion = datos["conexion"]
         capa = datos["capa"]
@@ -239,14 +277,50 @@ class GeosianBrowserDock(QDockWidget):
                 continue
 
             self._aplicar_esquema(vectorial)
-            QgsProject.instance().addMapLayer(vectorial)
+            self._aplicar_estilo(vectorial)
+            self._limitar_escala(vectorial)
+            if grupo is None:
+                QgsProject.instance().addMapLayer(vectorial)
+            else:
+                QgsProject.instance().addMapLayer(vectorial, False)
+                grupo.addLayer(vectorial)
             añadidas += 1
 
-        if añadidas:
+        if añadidas and avisar:
             self.iface.messageBar().pushInfo(
                 "Geosian",
                 f"{añadidas} capa(s) añadidas al proyecto.",
             )
+
+    def _aplicar_estilo(self, capa):
+        """Pinta la capa como la pinta Geosian, con el estilo de su esquema."""
+        proveedor = capa.dataProvider()
+        try:
+            resolver = symbology.field_resolver(proveedor.fields(), proveedor.attr_map)
+            renderizador, avisos = symbology.base_renderer(
+                proveedor.schema, proveedor.layer_uri.geometry_type, resolver
+            )
+            capa.setRenderer(renderizador)
+            for aviso in avisos:
+                proveedor.log_warning(f"{capa.name()}: {aviso}")
+        except Exception as exc:
+            # Sin estilo se ve con el de QGIS; no es motivo para no abrirla.
+            proveedor.log_warning(f"{capa.name()}: no se pudo aplicar el estilo: {exc}")
+
+    def _limitar_escala(self, capa):
+        """Una capa grande solo se pinta de cerca, donde se pide por zonas."""
+        proveedor = capa.dataProvider()
+        escala = getattr(proveedor, "suggested_min_scale", lambda: 0)()
+        if not escala:
+            return
+        capa.setScaleBasedVisibility(True)
+        capa.setMinimumScale(escala)
+        self.iface.messageBar().pushInfo(
+            "Geosian",
+            f"«{capa.name()}» tiene {proveedor.featureCount():,} elementos. ".replace(",", ".")
+            + f"Se pinta a partir de 1:{escala:,}".replace(",", ".")
+            + " y solo se descarga la zona que se ve.",
+        )
 
     def _aplicar_esquema(self, capa):
         """Configura formulario y widgets a partir del esquema de la capa."""

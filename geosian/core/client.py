@@ -6,17 +6,25 @@ inyecta, así que se puede usar y probar por separado.
 """
 
 import json
+import time
 from urllib.parse import urlencode
 
 from .errors import (
     ApiError,
     AuthError,
     ConflictError,
+    GeosianError,
     NotFoundError,
 )
-from .http import DEFAULT_TIMEOUT, default_transport
+from .http import DEFAULT_TIMEOUT, Response, default_transport
 
 API_PREFIX = "/api/v1"
+
+# Cuánto se reutiliza el listado de capas de un mapa. Abrir un mapa entero son
+# decenas de capas seguidas y cada una pregunta por sus metadatos: sin esto, el
+# listado completo se pedía una vez por capa. Es corto a propósito para que un
+# "Refrescar" del panel vea lo nuevo.
+LAYERS_TTL = 30
 
 
 class GeosianClient:
@@ -35,6 +43,8 @@ class GeosianClient:
         self.jwt = None
         self.timeout = timeout
         self.user = None
+        self._capas = {}
+        self._lads = {}
 
     # ------------------------------------------------------------------
     # Fontanería
@@ -164,12 +174,22 @@ class GeosianClient:
         capa. El servidor los omite si trabaja solo con GeoJSON
         (``GEODATA_TILE_MODE``).
         """
-        return _as_list(
+        guardado = self._capas.get(map_id)
+        if guardado and time.monotonic() - guardado[0] < LAYERS_TTL:
+            return guardado[1]
+        capas = _as_list(
             self._get(
                 f"{API_PREFIX}/maps/{map_id}/layers/",
                 {"include_tile_metadata": "true"},
             )
         )
+        self._capas[map_id] = (time.monotonic(), capas)
+        return capas
+
+    def forget_layers(self):
+        """Olvida los listados de capas guardados (el panel al refrescar)."""
+        self._capas.clear()
+        self._lads.clear()
 
     def layer_metadata(self, layer_id, map_id):
         """Metadatos de tiling de una capa: recuento, extensión y geometrías.
@@ -190,9 +210,40 @@ class GeosianClient:
         La API ya resuelve aquí los ``allowed_values`` dinámicos, así que lo que
         llega son listas de valores listas para usar.
         """
-        return _as_list(
+        guardado = self._lads.get(layer_id)
+        if guardado and time.monotonic() - guardado[0] < LAYERS_TTL:
+            return guardado[1]
+        definiciones = _as_list(
             self._get(f"{API_PREFIX}/layer-attributes/", {"layer_id": layer_id})
         )
+        self._lads[layer_id] = (time.monotonic(), definiciones)
+        return definiciones
+
+    def prefetch_layer_attributes(self, layer_ids):
+        """Pide a la vez los LAD de varias capas y los deja guardados.
+
+        La API los da capa a capa, porque comprueba los permisos de cada una.
+        Al abrir un mapa entero de cincuenta capas, pedirlos de uno en uno era
+        la mayor parte de la espera. Lo que falle se vuelve a pedir después,
+        suelto, al abrir la capa.
+        """
+        ahora = time.monotonic()
+        faltan = [
+            i for i in layer_ids
+            if not (i in self._lads and ahora - self._lads[i][0] < LAYERS_TTL)
+        ]
+        if not faltan:
+            return
+        urls = [self._url(f"{API_PREFIX}/layer-attributes/", {"layer_id": i}) for i in faltan]
+        respuestas = self.transport.get_many(urls, self._headers(), timeout=self.timeout)
+        for capa, url, respuesta in zip(faltan, urls, respuestas):
+            if not isinstance(respuesta, Response):
+                continue
+            try:
+                datos = self._check(respuesta, url).json()
+            except (GeosianError, ValueError):
+                continue
+            self._lads[capa] = (time.monotonic(), _as_list(datos))
 
     def layer_views(self, layer_id):
         """Vistas guardadas de una capa."""
@@ -240,11 +291,18 @@ class GeosianClient:
         return self._get(f"{API_PREFIX}/geodata/", params)
 
     def geodata_paginated(self, layer_id, page=1, page_size=5000, data_type=None,
-                          extra=None):
+                          extra=None, area=None, ids=None, view_id=None):
         """Igual que :meth:`geodata` pero por páginas.
 
         La API rechaza el endpoint sin paginar por encima de 100.000 elementos,
         así que las capas grandes entran por aquí.
+
+        Args:
+            area: ``(oeste, sur, este, norte)`` en grados. Solo vuelve lo que
+                cae dentro. Va como ``lasso_geometry`` en un POST, que es como
+                lo acepta la API.
+            ids: identificadores concretos.
+            view_id: vista de la capa; el servidor aplica su filtro.
         """
         params = {
             "layer_id": layer_id,
@@ -252,8 +310,21 @@ class GeosianClient:
             "page": page,
             "page_size": page_size,
         }
+        if ids:
+            params["ids"] = ",".join(str(i) for i in ids)
+        if view_id:
+            params["view_ids"] = view_id
         params.update(extra or {})
-        return self._get(f"{API_PREFIX}/geodata/paginated/", params)
+        ruta = f"{API_PREFIX}/geodata/paginated/"
+        if area:
+            oeste, sur, este, norte = area
+            anillo = [[oeste, sur], [este, sur], [este, norte], [oeste, norte], [oeste, sur]]
+            return self._post(
+                ruta,
+                {"lasso_geometry": {"type": "Polygon", "coordinates": [anillo]}},
+                params,
+            )
+        return self._get(ruta, params)
 
     def chart_stats(self, layer_id, attributes=None):
         """Distribución de valores de atributos, calculada en el servidor.

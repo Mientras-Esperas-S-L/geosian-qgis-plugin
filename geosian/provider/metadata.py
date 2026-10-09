@@ -6,20 +6,30 @@ complemento las mostrará como no válidas, así que el mensaje de error tiene q
 decirlo con claridad.
 """
 
-from qgis.core import QgsProviderMetadata, QgsProviderRegistry
+import sys
 
-from .provider import PROVIDER_DESCRIPTION, PROVIDER_KEY, GeosianProvider
+from qgis.core import QgsDataProvider, QgsProviderMetadata, QgsProviderRegistry
+
+from .provider import PROVIDER_DESCRIPTION, PROVIDER_KEY
 
 _registered = False
 
 
+def _crear(uri, providerOptions, flags=QgsDataProvider.ReadFlags()):  # noqa: N803
+    """Crea el proveedor con la clase que esté cargada *ahora*.
+
+    QGIS no deja quitar un proveedor del registro. Si el registro guardara la
+    clase directamente, recargar o actualizar el complemento seguiría creando
+    capas con el código viejo hasta reiniciar QGIS. Buscándola en cada llamada,
+    la recarga vale para todo.
+    """
+    modulo = sys.modules[__name__.rsplit(".", 1)[0] + ".provider"]
+    return modulo.GeosianProvider.createProvider(uri, providerOptions, flags)
+
+
 class GeosianProviderMetadata(QgsProviderMetadata):
     def __init__(self):
-        super().__init__(
-            PROVIDER_KEY,
-            PROVIDER_DESCRIPTION,
-            GeosianProvider.createProvider,
-        )
+        super().__init__(PROVIDER_KEY, PROVIDER_DESCRIPTION, _crear)
 
 
 def register_provider():

@@ -10,6 +10,8 @@ aceptar cambios que no se van a poder guardar.
 """
 
 import json
+import math
+import threading
 
 from qgis.core import (
     QgsCoordinateReferenceSystem,
@@ -37,6 +39,23 @@ LOG_TAG = "Geosian"
 # Tamaño de página al descargar. La API rechaza el endpoint sin paginar por
 # encima de 100.000 elementos, así que las capas grandes entran por páginas.
 PAGE_SIZE = 5000
+
+# Por encima de este número de elementos la capa no se descarga entera: se pide
+# solo la zona que QGIS va a pintar. Una capa de un millón de árboles bloquearía
+# QGIS minutos y se comería la memoria.
+LARGE_LAYER = 50000
+
+# Tope por zona en las capas grandes. Si la zona trae más, se pinta lo que llegó
+# y no se da por cubierta, para volver a pedirla al acercarse.
+ZONE_CAP = 50000
+
+# Cuánto se agranda la zona pedida por cada lado. Al desplazar el mapa un poco,
+# lo nuevo ya está en la caché y no hay que volver a la red.
+ZONE_MARGIN = 0.25
+
+# Elementos que se quieren a la vista como mucho en una capa grande. De aquí sale
+# la escala a partir de la cual la capa deja de pintarse.
+VISIBLE_TARGET = 20000
 
 GEOMETRY_TYPES = {
     "points": QgsWkbTypes.Point,
@@ -95,6 +114,10 @@ class GeosianProvider(QgsVectorDataProvider):
         self._cache = {}
         self._loaded = False
         self._layer_name = ""
+        # La caché se toca desde los hilos de render y desde la interfaz.
+        self._lock = threading.RLock()
+        self._by_zone = False
+        self._zones = []
 
         try:
             self._uri = parse_uri(uri)
@@ -150,6 +173,11 @@ class GeosianProvider(QgsVectorDataProvider):
         self._layer_name = metadatos.get("name") or self._schema.get("title") or ""
         self._wkb_type = self._resolve_wkb_type(metadatos)
         self._feature_count = int(metadatos.get("feature_count") or 0)
+        self._by_zone = self._feature_count > LARGE_LAYER
+        if self._uri.view_id and not self._by_zone:
+            # El recuento de los metadatos es el de la capa entera; el de la
+            # vista se sabe al descargarla.
+            self._feature_count = 0
 
         bbox = metadatos.get("bbox")
         if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
@@ -204,9 +232,13 @@ class GeosianProvider(QgsVectorDataProvider):
 
     def _ensure_loaded(self):
         """Descarga los elementos la primera vez que hacen falta."""
-        if self._loaded:
+        if self._loaded or self._by_zone:
             return
+        with self._lock:
+            if not self._loaded:
+                self._load_all()
 
+    def _load_all(self):
         try:
             total = self._download_all()
         except GeosianError as exc:
@@ -234,6 +266,7 @@ class GeosianProvider(QgsVectorDataProvider):
                 page=pagina,
                 page_size=PAGE_SIZE,
                 data_type=self._uri.geometry_type,
+                view_id=self._uri.view_id,
             )
             elementos = _features_from(datos)
             for elemento in elementos:
@@ -367,8 +400,10 @@ class GeosianProvider(QgsVectorDataProvider):
 
     def reloadData(self):
         """Vacía la caché. Es el gancho del WebSocket y del botón de recargar."""
-        self._cache.clear()
-        self._loaded = False
+        with self._lock:
+            self._cache.clear()
+            self._zones = []
+            self._loaded = False
 
     def invalidate_feature(self, fid):
         """Olvida un elemento suelto, para refrescar solo lo que cambió."""
@@ -397,7 +432,9 @@ class GeosianProvider(QgsVectorDataProvider):
 
         self._ensure_loaded()
         distintos = set()
-        for registro in self._cache.values():
+        with self._lock:
+            registros = list(self._cache.values())
+        for registro in registros:
             if index < len(registro.attributes):
                 valor = registro.attributes[index]
                 if valor is not None:
@@ -415,7 +452,9 @@ class GeosianProvider(QgsVectorDataProvider):
     def _extreme(self, index, minimo):
         self._ensure_loaded()
         mejor = None
-        for registro in self._cache.values():
+        with self._lock:
+            registros = list(self._cache.values())
+        for registro in registros:
             if index >= len(registro.attributes):
                 continue
             valor = registro.attributes[index]
@@ -441,6 +480,10 @@ class GeosianProvider(QgsVectorDataProvider):
 
     def resolve_request(self, request):
         """Identificadores que satisfacen una petición de QGIS."""
+        with self._lock:
+            return self._resolve_request(request)
+
+    def _resolve_request(self, request):
         fid = request.filterFid()
         if fid is not None and fid >= 0:
             self._ensure_ids([fid])
@@ -455,6 +498,11 @@ class GeosianProvider(QgsVectorDataProvider):
         self._ensure_loaded()
 
         recuadro = request.filterRect()
+        if self._by_zone and recuadro is not None and not recuadro.isNull():
+            self._ensure_zone(recuadro)
+        # Una capa grande sin recuadro (la tabla de atributos, por ejemplo)
+        # recibe lo que ya está en la caché, no la capa entera.
+
         if recuadro is not None and not recuadro.isNull():
             seleccion = [
                 fid
@@ -480,15 +528,89 @@ class GeosianProvider(QgsVectorDataProvider):
             # usuario no lo puede ver.
             return
         try:
-            datos = self._client.geodata(
+            datos = self._client.geodata_paginated(
                 self._uri.layer_id,
+                page_size=max(len(faltan), 1),
                 data_type=self._uri.geometry_type,
                 ids=faltan,
+                view_id=self._uri.view_id,
             )
             for elemento in _features_from(datos):
                 self._store(elemento)
         except GeosianError as exc:
             self.log_warning(f"No se pudieron pedir elementos sueltos: {exc}")
+
+    def _ensure_zone(self, recuadro):
+        """Trae lo que cae en un recuadro, si no se trajo ya."""
+        for zona in self._zones:
+            if zona.contains(recuadro):
+                return
+
+        ampliado = QgsRectangle(recuadro)
+        ampliado.grow(max(recuadro.width(), recuadro.height()) * ZONE_MARGIN)
+        area = (
+            max(ampliado.xMinimum(), -180.0),
+            max(ampliado.yMinimum(), -90.0),
+            min(ampliado.xMaximum(), 180.0),
+            min(ampliado.yMaximum(), 90.0),
+        )
+
+        pagina = 1
+        total = 0
+        try:
+            while True:
+                datos = self._client.geodata_paginated(
+                    self._uri.layer_id,
+                    page=pagina,
+                    page_size=PAGE_SIZE,
+                    data_type=self._uri.geometry_type,
+                    area=area,
+                    view_id=self._uri.view_id,
+                )
+                elementos = _features_from(datos)
+                for elemento in elementos:
+                    self._store(elemento)
+                total += len(elementos)
+                if len(elementos) < PAGE_SIZE:
+                    break
+                if total >= ZONE_CAP:
+                    self.log_warning(
+                        f"La zona trae más de {ZONE_CAP} elementos; se pinta una "
+                        "parte. Acerca el mapa para verlos todos."
+                    )
+                    return
+                pagina += 1
+        except GeosianError as exc:
+            self.log_warning(f"No se pudo traer la zona: {exc}")
+            return
+
+        self._zones.append(QgsRectangle(*area))
+
+    def suggested_min_scale(self):
+        """Escala más alejada a la que conviene pintar una capa grande.
+
+        Sale de la densidad media de la capa: a esa escala, en una pantalla
+        normal caben unos ``VISIBLE_TARGET`` elementos. ``0`` si la capa es
+        pequeña y se puede ver entera.
+        """
+        if not self._by_zone or self._extent.isNull() or self._extent.isEmpty():
+            return 0
+        latitud = math.radians(self._extent.center().y())
+        ancho = self._extent.width() * 111320 * max(math.cos(latitud), 0.01)
+        alto = self._extent.height() * 110540
+        densidad = self._feature_count / max(ancho * alto, 1.0)
+        # Una pantalla de unos 40 x 25 cm: a escala 1:E ve 0,1·E² m².
+        escala = math.sqrt(VISIBLE_TARGET / (0.1 * densidad))
+        # Redondeo hacia abajo a 1, 2 o 5 por potencia de diez.
+        potencia = 10 ** math.floor(math.log10(escala))
+        for paso in (5, 2, 1):
+            if escala >= paso * potencia:
+                return int(paso * potencia)
+        return int(potencia)
+
+    @property
+    def by_zone(self):
+        return self._by_zone
 
     def get_cached(self, fid):
         return self._cache.get(int(fid))
@@ -496,6 +618,11 @@ class GeosianProvider(QgsVectorDataProvider):
     @property
     def schema(self):
         return self._schema
+
+    @property
+    def attr_map(self):
+        """Nombre de campo de QGIS → atributo del esquema."""
+        return self._attr_map
 
     @property
     def layer_uri(self):

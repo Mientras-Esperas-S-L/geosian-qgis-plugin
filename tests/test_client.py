@@ -149,6 +149,33 @@ def test_layer_metadata_sale_del_listado_del_mapa():
     assert "include_tile_metadata=true" in transporte.llamadas[0]["url"]
 
 
+def test_listado_de_capas_se_reutiliza_al_abrir_varias():
+    transporte = TransporteFalso(
+        {"/maps/4/layers/": respuesta([{"id": 10}, {"id": 11}])}
+    )
+    cliente = GeosianClient("https://x", transporte, token="t")
+    cliente.layer_metadata(10, 4)
+    cliente.layer_metadata(11, 4)
+    assert len(transporte.llamadas) == 1
+
+    cliente.forget_layers()
+    cliente.layers(4)
+    assert len(transporte.llamadas) == 2
+
+
+def test_los_lad_se_piden_juntos_y_se_reutilizan():
+    transporte = TransporteFalso(
+        {"/layer-attributes/": respuesta([{"id": 1, "schema": {"title": "X"}}])}
+    )
+    cliente = GeosianClient("https://x", transporte, token="t")
+    cliente.prefetch_layer_attributes([10, 11])
+    assert len(transporte.llamadas) == 2
+
+    assert cliente.layer_attributes(10)[0]["schema"]["title"] == "X"
+    cliente.prefetch_layer_attributes([10, 11])
+    assert len(transporte.llamadas) == 2  # ya estaban
+
+
 def test_url_del_websocket():
     cliente = GeosianClient("https://api.ejemplo.com", TransporteFalso())
     assert cliente.websocket_url() == "wss://api.ejemplo.com/ws/layer-data/"

@@ -339,3 +339,119 @@ def test_login_con_doble_factor_por_la_red_de_qgis(app):
         cliente.verify_2fa(resultado["mfa_token"], "123456")
         assert cliente.token == "tok-de-prueba"
         assert cliente.jwt == "jwt-de-prueba"
+
+
+# ----------------------------------------------------------------------
+# Capas grandes: por zona
+# ----------------------------------------------------------------------
+
+
+@pytest.fixture
+def capa_grande(servidor, monkeypatch):
+    """La misma capa, tratada como si pasara del umbral de capa grande."""
+    from geosian.provider import provider as modulo
+
+    monkeypatch.setattr(modulo, "LARGE_LAYER", 2)
+    uri = f"geosian://{CONEXION}/map/4/layer/11?geometry_type=points"
+    vectorial = QgsVectorLayer(uri, "Arbolado", "geosian")
+    assert vectorial.isValid(), vectorial.dataProvider().error()
+    return vectorial
+
+
+def _pedidas_por_zona(servidor):
+    return [
+        consulta
+        for ruta, consulta in servidor.peticiones
+        if ruta == "/api/v1/geodata/paginated/" and "ids" not in consulta
+    ]
+
+
+def test_capa_grande_pide_solo_la_zona(capa_grande, servidor):
+    proveedor = capa_grande.dataProvider()
+    assert proveedor.by_zone
+    assert capa_grande.featureCount() == 3  # de los metadatos, sin descargar
+
+    recuadro = QgsRectangle(-3.715, 40.405, -3.705, 40.415)
+    elementos = list(capa_grande.getFeatures(QgsFeatureRequest().setFilterRect(recuadro)))
+    assert [f.id() for f in elementos] == [1002]
+    assert len(_pedidas_por_zona(servidor)) == 1
+
+    # Dentro de lo ya traído no se vuelve a la red.
+    dentro = QgsRectangle(-3.712, 40.408, -3.708, 40.412)
+    list(capa_grande.getFeatures(QgsFeatureRequest().setFilterRect(dentro)))
+    assert len(_pedidas_por_zona(servidor)) == 1
+
+
+def test_capa_grande_sin_recuadro_no_se_descarga_entera(capa_grande, servidor):
+    assert list(capa_grande.getFeatures()) == []
+    assert _pedidas_por_zona(servidor) == []
+
+
+def test_capa_grande_sugiere_escala(capa_grande):
+    escala = capa_grande.dataProvider().suggested_min_scale()
+    assert escala > 0
+    assert str(escala)[0] in "125" and set(str(escala)[1:]) <= {"0"}
+
+
+# ----------------------------------------------------------------------
+# Vistas de GCC
+# ----------------------------------------------------------------------
+
+
+def test_vista_filtra_en_el_servidor(servidor):
+    uri = f"geosian://{CONEXION}/map/4/layer/11?geometry_type=points&view=7"
+    vectorial = QgsVectorLayer(uri, "Tilos", "geosian")
+    assert vectorial.isValid(), vectorial.dataProvider().error()
+
+    assert [f["codigo"] for f in vectorial.getFeatures()] == ["A-002"]
+    assert vectorial.featureCount() == 1
+    consultas = [c for r, c in servidor.peticiones if r == "/api/v1/geodata/paginated/"]
+    assert all(c.get("view_ids") == ["7"] for c in consultas)
+
+
+# ----------------------------------------------------------------------
+# Simbología
+# ----------------------------------------------------------------------
+
+
+def test_el_estilo_del_esquema_pinta_cada_especie(capa):
+    from qgis.core import QgsRenderContext
+
+    from geosian.core import symbology
+
+    proveedor = capa.dataProvider()
+    resolver = symbology.field_resolver(proveedor.fields(), proveedor.attr_map)
+    renderizador, avisos = symbology.base_renderer(proveedor.schema, "points", resolver)
+    assert avisos == []
+    capa.setRenderer(renderizador)
+
+    contexto = QgsRenderContext()
+    contexto.expressionContext().appendScopes(
+        __import__("qgis.core", fromlist=["QgsExpressionContextUtils"])
+        .QgsExpressionContextUtils.globalProjectLayerScopes(capa)
+    )
+    renderizador.startRender(contexto, capa.fields())
+    try:
+        colores = {}
+        for elemento in capa.getFeatures():
+            contexto.expressionContext().setFeature(elemento)
+            simbolos = renderizador.symbolsForFeature(elemento, contexto)
+            colores[elemento["especie"]] = simbolos[0].color().name()
+    finally:
+        renderizador.stopRender(contexto)
+
+    assert colores["Tilia platyphyllos"] == "#00ff00"
+    assert colores["Platanus x hispanica"] == "#808080"
+
+
+def test_varios_get_a_la_vez_por_la_red_de_qgis(app):
+    from geosian.core.http import QgisTransport, Response
+
+    with FakeGeosian() as fake:
+        urls = [f"{fake.url}/api/v1/maps/", f"{fake.url}/api/v1/no-existe/"]
+        respuestas = QgisTransport().get_many(
+            urls, {"Authorization": "Token tok-de-prueba"}
+        )
+    assert all(isinstance(r, Response) for r in respuestas)
+    assert [r.status for r in respuestas] == [200, 404]
+    assert respuestas[0].json()[0]["id"] == 4

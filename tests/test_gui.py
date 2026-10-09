@@ -132,3 +132,30 @@ def test_anadir_capa_la_mete_en_el_proyecto(app_gui):
         finally:
             QgsProject.instance().removeAllMapLayers()
             connections.remove_connection("Integracion2")
+
+
+def test_anadir_mapa_entero_crea_un_grupo(app_gui):
+    from qgis.core import QgsProject
+
+    from geosian.gui.browser_dock import ROL_DATOS, GeosianBrowserDock
+    from geosian.provider.metadata import register_provider
+
+    register_provider()
+    proyecto = QgsProject.instance()
+    proyecto.clear()
+
+    with FakeGeosian() as fake:
+        connections.save_connection("Integracion3", fake.url, "a@b.c")
+        connections.set_session("Integracion3", "tok-de-prueba", "jwt")
+        try:
+            panel = GeosianBrowserDock(IfaceFalso())
+            raiz = panel.arbol.topLevelItem(0)
+            panel._al_desplegar(raiz)
+            panel.añadir_mapa(raiz.child(0).data(0, ROL_DATOS))
+
+            grupo = proyecto.layerTreeRoot().children()[0]
+            assert grupo.name() == "Ciudad de Ejemplo: arbolado y zonas verdes"
+            assert [c.name() for c in grupo.findLayers()] == ["Arbolado"]
+        finally:
+            proyecto.clear()
+            connections.remove_connection("Integracion3")
