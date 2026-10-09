@@ -35,7 +35,9 @@ class GeosianPlugin:
         # Igual con el panel de fotos de la ficha, que es un tipo de campo.
         register_media_widget()
         # Tiempo real para toda capa de Geosian del proyecto, también al reabrirlo.
-        realtime_hub.watch_project(self.iface)
+        realtime_hub.watch_project(
+            self.iface, lambda nombre: self.dock._pedir_reconexion(nombre)
+        )
         # Un proyecto reabierto con la sesión caducada: ofrecer volver a entrar.
         self.iface.projectRead.connect(self._tras_abrir_proyecto)
         # Y si caduca a mitad de trabajo, lo mismo.

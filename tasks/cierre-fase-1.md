@@ -49,7 +49,7 @@ plugin y empezar la fase de escritura.
 - [x] Sesión caducada al abrir un proyecto: que no salga el diálogo de QGIS «capas no
       disponibles» con las de Geosian (gestor de capas no disponibles propio que deja pasar
       las demás al de QGIS) y que «Volver a entrar» las recupere.
-- [ ] Tiempo real sin JWT: avisar una vez y ofrecer volver a entrar, no solo el registro.
+- [x] Tiempo real sin JWT: avisar una vez y ofrecer volver a entrar, no solo el registro.
 - [ ] `layer_schema_changed`: recargar campos y formulario de la capa en vez de pedir que se
       vuelva a añadir.
 - [ ] Filtros de la web que QGIS no tiene: por información adicional (elementos con partes
@@ -146,6 +146,18 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   11.950 + 1.469 + 213 elementos en 0,9 s, partes del 28735, el aviso desaparece y el mapa
   se pinta con su estilo (`mando/cap/199-recuperado-pintado.png`). **No comprobado**: el
   diálogo de entrada de verdad, porque pide doble factor.
+- 09/10 · Tiempo real sin JWT. Antes solo quedaba en el registro. Ahora un aviso por
+  conexión (no se repite mientras se ve) con «Volver a entrar»; al entrar se abre un canal
+  nuevo y se suscribe a los mapas de las capas que ya estaban (`realtime_hub.reconnect`,
+  desde `_pedir_reconexion`). Si el servidor rechaza el JWT (`auth_failed`) se suelta el
+  canal y sale el mismo aviso. Con la sesión caducada no se avisa aparte: ya lo hace el de
+  la sesión. Pruebas `test_sin_jwt_se_avisa_una_vez_y_al_entrar_se_activa_el_tiempo_real`,
+  `test_jwt_rechazado_ofrece_volver_a_entrar_y_suelta_el_canal` y
+  `test_con_la_sesion_caducada_no_se_avisa_aparte_del_tiempo_real` (las tres fallaban).
+  Comprobado en QGIS contra devel: Melilla con sesión sin JWT da un aviso; el botón (con
+  el diálogo sustituido por uno que pone el JWT) suscribe al mapa 3 por
+  `wss://api.devel…` y quita el aviso. Un JWT falso: devel lo rechaza y el aviso sale en
+  0,26 s. **No comprobado**: el diálogo de entrada de verdad (doble factor).
 
 ## Hallazgos para decidir
 

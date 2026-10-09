@@ -756,6 +756,112 @@ def test_al_reabrir_un_proyecto_se_suscribe_a_sus_mapas(app_gui, tmp_path):
             canal.cerrar()
 
 
+class _IfaceConBarra:
+    """Un iface con la barra de mensajes de verdad, para ver los avisos y sus botones."""
+
+    def __init__(self):
+        from qgis.gui import QgsMessageBar
+
+        self.barra = QgsMessageBar()
+
+    def messageBar(self):
+        return self.barra
+
+
+def test_sin_jwt_se_avisa_una_vez_y_al_entrar_se_activa_el_tiempo_real(app_gui):
+    """Una sesión sin JWT no tiene tiempo real. Antes solo quedaba en el registro."""
+    import time
+
+    from qgis.core import QgsProject, QgsVectorLayer
+    from qgis.PyQt.QtCore import QCoreApplication
+    from qgis.PyQt.QtWidgets import QPushButton
+
+    from geosian.gui import realtime_hub
+    from geosian.provider.metadata import register_provider
+    from tests.fake_ws import FakeWebSocket
+
+    register_provider()
+    canal = FakeWebSocket()
+    iface = _IfaceConBarra()
+    pedidas = []
+    proyecto = QgsProject.instance()
+    uri = "geosian://SinJwt/map/4/layer/11?geometry_type=points"
+    with FakeGeosian() as fake:
+        try:
+            connections.save_connection("SinJwt", fake.url, "a@b.c")
+            connections.set_session("SinJwt", "tok-de-prueba", None)
+            connections.set_ws_url("SinJwt", canal.url)
+            realtime_hub.watch_project(iface, pedidas.append)
+            proyecto.addMapLayer(QgsVectorLayer(uri, "Uno", "geosian"))
+            proyecto.addMapLayer(QgsVectorLayer(uri, "Otro", "geosian"))
+            [aviso] = iface.barra.items()
+            assert "tiempo real" in aviso.text().lower()
+            [boton] = aviso.findChildren(QPushButton)
+            boton.click()
+            assert pedidas == ["SinJwt"]
+
+            # Al volver a entrar con JWT, se suscribe a los mapas que ya estaban.
+            connections.set_session("SinJwt", "tok-de-prueba", "jwt")
+            realtime_hub.reconnect("SinJwt")
+            assert canal.conectado.wait(3)
+            limite = time.monotonic() + 3
+            while time.monotonic() < limite and 4 not in realtime_hub._hubs["SinJwt"]._canal._mapas:
+                QCoreApplication.processEvents()
+                time.sleep(0.02)
+            assert 4 in realtime_hub._hubs["SinJwt"]._canal._mapas
+            assert iface.barra.items() == []
+        finally:
+            realtime_hub.unwatch_project()
+            realtime_hub.stop_all()
+            proyecto.clear()
+            connections.remove_connection("SinJwt")
+            canal.cerrar()
+
+
+def test_jwt_rechazado_ofrece_volver_a_entrar_y_suelta_el_canal(app_gui):
+    from qgis.PyQt.QtWidgets import QPushButton
+
+    from geosian.gui import realtime_hub
+
+    iface = _IfaceConBarra()
+    pedidas = []
+    try:
+        realtime_hub.watch_project(iface, pedidas.append)
+        connections.save_connection("Rechazo", "http://127.0.0.1:9", "a@b.c")
+        connections.set_session("Rechazo", "tok", "jwt-caducado")
+        hub = realtime_hub.subscribe("Rechazo", 4, iface)
+        hub._procesar({"type": "auth_failed"})
+        hub._procesar({"type": "auth_failed"})
+        [aviso] = iface.barra.items()
+        aviso.findChildren(QPushButton)[0].click()
+        assert pedidas == ["Rechazo"]
+        # El canal del JWT rechazado se suelta: al volver a entrar se abre otro.
+        assert "Rechazo" not in realtime_hub._hubs
+    finally:
+        realtime_hub.unwatch_project()
+        realtime_hub.stop_all()
+        connections.remove_connection("Rechazo")
+
+
+def test_con_la_sesion_caducada_no_se_avisa_aparte_del_tiempo_real(app_gui):
+    """El aviso de la sesión ya ofrece volver a entrar; uno más sobra."""
+    from geosian.gui import realtime_hub
+
+    iface = _IfaceConBarra()
+    try:
+        realtime_hub.watch_project(iface, lambda nombre: None)
+        connections.save_connection("YaCaducada", "http://127.0.0.1:9", "a@b.c")
+        connections.set_session("YaCaducada", "tok", None)
+        connections.mark_expired("YaCaducada")
+        assert realtime_hub.subscribe("YaCaducada", 4, iface) is None
+        assert iface.barra.items() == []
+    finally:
+        realtime_hub.unwatch_project()
+        realtime_hub.stop_all()
+        connections.clear_expired()
+        connections.remove_connection("YaCaducada")
+
+
 def test_sesion_caducada_al_reabrir_y_recuperar_las_capas(app_gui):
     """Con la sesión caducada la capa no se puede abrir; el error lo dice claro y, al
     volver a entrar, las capas del proyecto se recuperan sin rehacerlo."""

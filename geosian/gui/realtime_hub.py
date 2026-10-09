@@ -8,6 +8,7 @@ segundo: una importación manda muchos seguidos y basta con recargar una vez.
 
 from qgis.core import Qgis, QgsMessageLog, QgsProject
 from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal
+from qgis.PyQt.QtWidgets import QPushButton
 
 from ..core import connections, realtime
 
@@ -22,26 +23,82 @@ def subscribe(conexion, map_id, iface=None):
     hub = _hubs.get(conexion)
     if hub is None:
         cliente = connections.client_for(conexion)
-        if cliente is None or not getattr(cliente, "jwt", None):
+        if cliente is None:
+            return None
+        if not getattr(cliente, "jwt", None):
             # Sin JWT (una sesión antigua) no hay tiempo real: hay que volver a entrar.
-            QgsMessageLog.logMessage(
-                f"«{conexion}»: sin tiempo real; vuelve a entrar para activarlo.", LOG_TAG, Qgis.Info
-            )
+            _ofrecer_entrar(conexion, iface)
             return None
         hub = _hubs[conexion] = RealtimeHub(conexion, cliente, iface)
     hub.subscribe(int(map_id))
     return hub
 
 
-_vigilando = {"iface": None, "activo": False}
+def reconnect(conexion):
+    """Tras volver a entrar: canal nuevo con el JWT nuevo y los mapas de sus capas."""
+    hub = _hubs.pop(conexion, None)
+    if hub is not None:
+        hub.stop()
+    _quitar_aviso(conexion, _vigilando["iface"])
+    for capa in QgsProject.instance().mapLayers().values():
+        if capa.providerType() != "geosian" or not capa.isValid():
+            continue
+        uri = getattr(capa.dataProvider(), "layer_uri", None)
+        if uri is not None and uri.connection == conexion:
+            subscribe(conexion, uri.map_id, _vigilando["iface"])
 
 
-def watch_project(iface=None):
+_vigilando = {"iface": None, "activo": False, "pedir": None}
+_PROPIEDAD = "geosian_tiempo_real"
+
+
+def _ofrecer_entrar(conexion, iface):
+    """Un aviso con «Volver a entrar», uno por conexión mientras se vea.
+
+    Con la sesión caducada no: ese aviso ya lo da ``gui/sesion.py`` y al volver a
+    entrar se reconecta igual.
+    """
+    texto = (
+        f"«{conexion}» no tiene tiempo real: los cambios hechos en GCC no llegarán "
+        "solos hasta volver a entrar."
+    )
+    QgsMessageLog.logMessage(texto, LOG_TAG, Qgis.Info)
+    iface = iface or _vigilando["iface"]
+    if iface is None or conexion in connections.expired():
+        return
+    barra = iface.messageBar()
+    if conexion in {w.property(_PROPIEDAD) for w in barra.items() if w is not None}:
+        return
+    aviso = barra.createMessage("Geosian", texto)
+    aviso.setProperty(_PROPIEDAD, conexion)
+    pedir = _vigilando["pedir"]
+    if pedir is not None:
+        boton = QPushButton("Volver a entrar")
+        boton.clicked.connect(lambda _=False, n=conexion: pedir(n))
+        aviso.layout().addWidget(boton)
+    barra.pushWidget(aviso, Qgis.Warning)
+
+
+def _quitar_aviso(conexion, iface):
+    if iface is None:
+        return
+    barra = iface.messageBar()
+    for aviso in list(barra.items()):
+        if aviso is not None and aviso.property(_PROPIEDAD) == conexion:
+            barra.popWidget(aviso)
+
+
+def watch_project(iface=None, pedir=None):
     """Se suscribe a los mapas de toda capa de Geosian que entre en el proyecto.
 
     Da igual cómo entre: desde el panel o al abrir un proyecto guardado.
+
+    Args:
+        pedir: lo que abre el diálogo para volver a entrar; recibe el nombre de
+            la conexión. Sin él, el aviso de «sin tiempo real» no lleva botón.
     """
     _vigilando["iface"] = iface
+    _vigilando["pedir"] = pedir
     if not _vigilando["activo"]:
         QgsProject.instance().layersAdded.connect(_al_añadir_capas)
         _vigilando["activo"] = True
@@ -107,7 +164,12 @@ class RealtimeHub(QObject):
                 "Los campos de una capa han cambiado en GCC. Vuelve a añadirla para verlos."
             )
         elif tipo == "auth_failed":
-            self._avisar(f"El tiempo real de «{self._conexion}» necesita volver a entrar.")
+            # El JWT ya no vale: se suelta el canal (reintentaría con el mismo) y
+            # se ofrece volver a entrar, que abre uno nuevo.
+            if _hubs.get(self._conexion) is self:
+                del _hubs[self._conexion]
+            self.stop()
+            _ofrecer_entrar(self._conexion, self._iface)
 
     def _recargar(self):
         capas, self._pendientes = self._pendientes, set()
