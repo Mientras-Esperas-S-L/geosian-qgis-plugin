@@ -57,6 +57,8 @@ ZONE_MARGIN = 0.25
 # la escala a partir de la cual la capa deja de pintarse.
 VISIBLE_TARGET = 20000
 
+MUNDO = QgsRectangle(-180.0, -90.0, 180.0, 90.0)
+
 GEOMETRY_TYPES = {
     "points": QgsWkbTypes.Point,
     "multi_points": QgsWkbTypes.MultiPoint,
@@ -555,13 +557,24 @@ class GeosianProvider(QgsVectorDataProvider):
             if zona.contains(recuadro):
                 return
 
+        # QGIS pasa el recuadro en el sistema de la capa, que es EPSG:4326.
+        # Cuando no puede transformar la vista (un lienzo de tamaño cero, por
+        # ejemplo) llega en las unidades del proyecto, metros, y mandarlo al
+        # servidor era pedirle un polígono sin sentido que tardaba minutos.
+        if not MUNDO.intersects(recuadro) or recuadro.width() > 360 or recuadro.height() > 180:
+            self.log_warning(
+                f"Recuadro fuera de los grados válidos ({recuadro.toString(0)}); no se pide."
+            )
+            return
+
         ampliado = QgsRectangle(recuadro)
         ampliado.grow(max(recuadro.width(), recuadro.height()) * ZONE_MARGIN)
+        ampliado = ampliado.intersect(MUNDO)
         area = (
-            max(ampliado.xMinimum(), -180.0),
-            max(ampliado.yMinimum(), -90.0),
-            min(ampliado.xMaximum(), 180.0),
-            min(ampliado.yMaximum(), 90.0),
+            ampliado.xMinimum(),
+            ampliado.yMinimum(),
+            ampliado.xMaximum(),
+            ampliado.yMaximum(),
         )
 
         pagina = 1

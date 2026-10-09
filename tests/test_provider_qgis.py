@@ -467,3 +467,10 @@ def test_la_extension_de_una_vista_es_la_de_lo_filtrado(servidor):
     # Solo el 1002, en (-3.71, 40.41); la capa entera llega a -3.72.
     assert round(extension.xMinimum(), 2) == -3.71
     assert round(extension.xMaximum(), 2) == -3.71
+
+
+def test_capa_grande_no_pide_un_recuadro_en_metros(capa_grande, servidor):
+    # Lo que llega cuando QGIS no puede transformar la vista: metros de 3857.
+    en_metros = QgsRectangle(-8236028.0, 4976711.0, -8235000.0, 4977000.0)
+    assert list(capa_grande.getFeatures(QgsFeatureRequest().setFilterRect(en_metros))) == []
+    assert _pedidas_por_zona(servidor) == []

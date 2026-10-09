@@ -1,14 +1,16 @@
 """Renderizadores de QGIS a partir de la simbología de Geosian.
 
 ``styles`` decide qué color lleva cada caso; aquí se monta el renderizador que
-lo pinta. Los tamaños imitan a las teselas del frontal: puntos de 12 px con
-borde de 1 px, líneas de 2 px y contornos de 1 px, todo en píxeles para que se
-vea igual a cualquier escala.
+lo pinta. Los tamaños imitan a las teselas del frontal, que los dan en metros
+con topes en píxeles: los puntos tienen 6 m de radio, entre 3 y 6 px, y las
+líneas 1 m de grosor, entre 1 y 3 px. Así de lejos no tapan el mapa y de cerca
+crecen con él. Los contornos van a 1 px fijo.
 """
 
 from qgis.core import (
     Qgis,
     QgsFillSymbol,
+    QgsMapUnitScale,
     QgsPalLayerSettings,
     QgsTextBufferSettings,
     QgsTextFormat,
@@ -28,9 +30,24 @@ from qgis.PyQt.QtGui import QColor
 from . import schema as S
 from . import styles
 
-POINT_SIZE_PX = 12
-LINE_WIDTH_PX = 2
+# Diámetro del punto en metros y sus topes en milímetros (3 y 6 px de radio
+# a 96 ppp). Grosor de línea igual.
+POINT_SIZE_M = 12
+POINT_MIN_MM = 1.6
+POINT_MAX_MM = 3.2
+LINE_WIDTH_M = 1
+LINE_MIN_MM = 0.26
+LINE_MAX_MM = 0.8
 OUTLINE_WIDTH_PX = 1
+
+
+def _topes(minimo, maximo):
+    escala = QgsMapUnitScale()
+    escala.minSizeMMEnabled = True
+    escala.minSizeMM = minimo
+    escala.maxSizeMMEnabled = True
+    escala.maxSizeMM = maximo
+    return escala
 
 
 def _rgba(color):
@@ -41,26 +58,28 @@ def make_symbol(familia, color):
     """Símbolo de QGIS para un color de relleno de Geosian."""
     borde = styles.stroke_of(color)
     if familia == "point":
-        return QgsMarkerSymbol.createSimple(
+        simbolo = QgsMarkerSymbol.createSimple(
             {
                 "name": "circle",
                 "color": _rgba(color),
                 "outline_color": _rgba(borde),
-                "size": str(POINT_SIZE_PX),
-                "size_unit": "Pixel",
                 "outline_width": str(OUTLINE_WIDTH_PX),
                 "outline_width_unit": "Pixel",
             }
         )
+        capa = simbolo.symbolLayer(0)
+        capa.setSize(POINT_SIZE_M)
+        capa.setSizeUnit(QgsUnitTypes.RenderMetersInMapUnits)
+        capa.setSizeMapUnitScale(_topes(POINT_MIN_MM, POINT_MAX_MM))
+        return simbolo
     if familia == "line":
         # En las teselas del frontal la línea va con el color oscurecido.
-        return QgsLineSymbol.createSimple(
-            {
-                "line_color": _rgba(borde),
-                "line_width": str(LINE_WIDTH_PX),
-                "line_width_unit": "Pixel",
-            }
-        )
+        simbolo = QgsLineSymbol.createSimple({"line_color": _rgba(borde)})
+        capa = simbolo.symbolLayer(0)
+        capa.setWidth(LINE_WIDTH_M)
+        capa.setWidthUnit(QgsUnitTypes.RenderMetersInMapUnits)
+        capa.setWidthMapUnitScale(_topes(LINE_MIN_MM, LINE_MAX_MM))
+        return simbolo
     return QgsFillSymbol.createSimple(
         {
             "color": _rgba(color),
