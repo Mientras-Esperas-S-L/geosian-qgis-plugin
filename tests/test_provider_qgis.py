@@ -497,3 +497,18 @@ def test_el_punto_crece_con_la_escala_entre_sus_topes(app):
     assert symbology.POINT_MIN_PX < tamaño(6000) < symbology.POINT_MAX_PX
     # La leyenda usa el tamaño fijo, que es el máximo en píxeles.
     assert capa.size() == symbology.POINT_MAX_PX
+
+
+def test_regla_sobre_un_campo_que_no_existe_deja_el_color_por_defecto(capa):
+    from qgis.core import QgsSingleSymbolRenderer
+
+    from geosian.core import symbology
+
+    proveedor = capa.dataProvider()
+    esquema = {"styles": {"colors": [
+        {"attribute": "green_areas.status", "allowed_values": {"1": "#FF0000"}}
+    ]}}
+    resolver = symbology.field_resolver(proveedor.fields(), proveedor.attr_map)
+    renderizador, avisos = symbology.base_renderer(esquema, "points", resolver)
+    assert isinstance(renderizador, QgsSingleSymbolRenderer)
+    assert len(avisos) == 1

@@ -167,14 +167,19 @@ def _rules_renderer(familia, estilo, resolver):
         )
         raiz.appendChild(hijo)
 
+    for atributo in sorted(sin_campo):
+        avisos.append(f"La regla de color sobre «{atributo}» no se aplica: la capa no tiene ese campo.")
+
+    # Si ninguna regla se pudo aplicar, todo cae en el color por defecto, como
+    # en la web cuando no encuentra el valor: un símbolo único, sin «Otros».
+    if not raiz.children():
+        return QgsSingleSymbolRenderer(make_symbol(familia, estilo["default"])), avisos
+
     resto = QgsRuleBasedRenderer.Rule(
         make_symbol(familia, estilo["default"]), label=estilo["default_label"] or "Otros"
     )
     resto.setIsElse(True)
     raiz.appendChild(resto)
-
-    for atributo in sorted(sin_campo):
-        avisos.append(f"La regla de color sobre «{atributo}» no se aplica: la capa no tiene ese campo.")
     return QgsRuleBasedRenderer(raiz), avisos
 
 
