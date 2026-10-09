@@ -50,7 +50,7 @@ plugin y empezar la fase de escritura.
       disponibles» con las de Geosian (gestor de capas no disponibles propio que deja pasar
       las demás al de QGIS) y que «Volver a entrar» las recupere.
 - [x] Tiempo real sin JWT: avisar una vez y ofrecer volver a entrar, no solo el registro.
-- [ ] `layer_schema_changed`: recargar campos y formulario de la capa en vez de pedir que se
+- [x] `layer_schema_changed`: recargar campos y formulario de la capa en vez de pedir que se
       vuelva a añadir.
 - [ ] Filtros de la web que QGIS no tiene: por información adicional (elementos con partes
       que cumplan algo) y globales de fecha, como parámetros de la URI y desde el panel.
@@ -158,6 +158,17 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   el diálogo sustituido por uno que pone el JWT) suscribe al mapa 3 por
   `wss://api.devel…` y quita el aviso. Un JWT falso: devel lo rechaza y el aviso sale en
   0,26 s. **No comprobado**: el diálogo de entrada de verdad (doble factor).
+- 09/10 · `layer_schema_changed`. Antes: aviso de «vuelve a añadirla». Ahora las capas y
+  tablas de partes de esa capa vuelven a pedir el esquema (`reload_definition`, que olvida
+  el que el cliente guardaba 30 s), recargan sus campos y rehacen la ficha con sus pestañas
+  de partes y de fotos (`gui/formulario.py`, que ahora comparten el panel y el tiempo
+  real). El estilo no se toca: puede estar retocado a mano. Prueba
+  `test_si_cambia_el_esquema_en_gcc_la_capa_coge_los_campos_nuevos` (fallaba). Comprobado
+  contra el backend local con su ASGI en el 8011 (`qgis-local-ws`, parado al acabar): un
+  campo `prueba_qgis` añadido al LAD de Zonas verdes desde el shell de Django sale en la
+  capa (13 campos) y en la ficha sin quitarla; al quitarlo, desaparece (12). Contra devel
+  **no**: habría que cambiar un esquema de un cliente. **Queda fuera**: un tipo de parte
+  nuevo no crea su tabla; hay que volver a añadir la capa.
 
 ## Hallazgos para decidir
 

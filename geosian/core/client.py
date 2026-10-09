@@ -225,6 +225,10 @@ class GeosianClient:
         self._lads[layer_id] = (time.monotonic(), definiciones)
         return definiciones
 
+    def forget_layer_attributes(self, layer_id):
+        """Olvida el esquema guardado de una capa: ha cambiado en GCC."""
+        self._lads.pop(layer_id, None)
+
     def prefetch_layer_attributes(self, layer_ids):
         """Pide a la vez los LAD de varias capas y los deja guardados.
 

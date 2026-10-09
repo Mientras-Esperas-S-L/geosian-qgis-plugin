@@ -732,6 +732,15 @@ class GeosianProvider(QgsVectorDataProvider):
             self._partes_de = {}
             self._pasa = {}
 
+    def reload_definition(self):
+        """Vuelve a pedir campos y esquema: han cambiado en GCC.
+
+        Si falla, la capa se queda con la definición que tenía.
+        """
+        self._client.forget_layer_attributes(self._uri.layer_id)
+        self._load_definition()
+        self.reloadData()
+
     def invalidate_feature(self, fid):
         """Olvida un elemento suelto, para refrescar solo lo que cambió."""
         self._cache.pop(int(fid), None)

@@ -721,6 +721,75 @@ def test_un_cambio_en_gcc_recarga_la_capa_en_qgis(app_gui):
             canal.cerrar()
 
 
+def test_si_cambia_el_esquema_en_gcc_la_capa_coge_los_campos_nuevos(app_gui, monkeypatch):
+    """``layer_schema_changed``: antes había que quitar la capa y volver a añadirla."""
+    import copy
+    import time
+
+    from qgis.core import QgsProject
+    from qgis.PyQt.QtCore import QCoreApplication
+
+    from geosian.gui import media_widget, realtime_hub
+    from geosian.provider.metadata import register_provider
+    from tests import fake_server
+    from tests.fake_ws import FakeWebSocket
+
+    def esperar(condicion, segundos=4):
+        limite = time.monotonic() + segundos
+        while time.monotonic() < limite:
+            QCoreApplication.processEvents()
+            if condicion():
+                return True
+            time.sleep(0.02)
+        return False
+
+    def nombres(contenedor):
+        for hijo in contenedor.children():
+            if hasattr(hijo, "children"):
+                yield from nombres(hijo)
+            else:
+                yield hijo.name()
+
+    register_provider()
+    media_widget.register_media_widget()
+    iface = _IfaceConBarra()
+    canal = FakeWebSocket()
+    esquema = copy.deepcopy(fake_server.ESQUEMA_ARBOLADO)
+    monkeypatch.setattr(fake_server, "ESQUEMA_ARBOLADO", esquema)
+    with FakeGeosian() as fake:
+        try:
+            realtime_hub.watch_project(iface)
+            connections.save_connection("Esquema", fake.url, "a@b.c")
+            connections.set_ws_url("Esquema", canal.url)
+            capa = _capa_de_prueba(fake, "Esquema")
+            [tabla] = [c for c in QgsProject.instance().mapLayers().values() if not c.isSpatial()]
+            assert canal.conectado.wait(3)
+            assert esperar(lambda: {"type": "subscribe_map", "map_id": 4} in canal.recibidos)
+            assert capa.fields().indexOf("estado") < 0
+
+            esquema["attributes"].append({"name": "estado", "type": "string", "title": "Estado"})
+            esquema["additional_information"][0]["attributes"].append(
+                {"name": "incidencia", "type": "text", "title": "Incidencia"}
+            )
+            canal.enviar({"type": "layer_schema_changed", "map_id": 4, "layer_id": 11,
+                          "geometry_type": "Point"})
+            assert esperar(lambda: capa.fields().indexOf("estado") >= 0)
+            assert esperar(lambda: tabla.fields().indexOf("incidencia") >= 0)
+            # La ficha también: el campo nuevo sale y siguen sus pestañas de partes y fotos.
+            en_ficha = {n for p in capa.editFormConfig().tabs() for n in nombres(p)}
+            assert "estado" in en_ficha
+            pestañas = [p.name() for p in capa.editFormConfig().tabs()]
+            assert "Información adicional" in pestañas and "Fotos y archivos" in pestañas
+            assert "incidencia" in {n for p in tabla.editFormConfig().tabs() for n in nombres(p)}
+            assert not any("vuelve a añadirla" in w.text().lower() for w in iface.barra.items())
+        finally:
+            realtime_hub.unwatch_project()
+            realtime_hub.stop_all()
+            QgsProject.instance().clear()
+            connections.remove_connection("Esquema")
+            canal.cerrar()
+
+
 def test_al_reabrir_un_proyecto_se_suscribe_a_sus_mapas(app_gui, tmp_path):
     from qgis.core import QgsProject, QgsVectorLayer
 

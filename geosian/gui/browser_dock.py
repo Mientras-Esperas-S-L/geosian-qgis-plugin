@@ -50,7 +50,7 @@ from ..core import (
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri
-from . import media_widget, realtime_hub, sesion
+from . import formulario, realtime_hub, sesion
 from .connection_dialog import ConnectionDialog
 
 ROL_TIPO = Qt.ItemDataRole.UserRole
@@ -602,15 +602,8 @@ class GeosianBrowserDock(QDockWidget):
 
     def _aplicar_esquema(self, capa):
         """Configura formulario y widgets a partir del esquema de la capa."""
-        proveedor = capa.dataProvider()
-        esquema = getattr(proveedor, "schema", None)
-        if not esquema:
-            return
         try:
-            lad.apply_editor_config(capa, esquema)
-            lad.apply_form(capa, esquema)
-            if media_widget.is_available():
-                lad.add_media_tab(capa, esquema, media_widget.WIDGET_TYPE)
+            formulario.aplicar_esquema(capa)
         except Exception as exc:
             # Un formulario mal construido no debe impedir ver los datos.
             self.iface.messageBar().pushWarning(

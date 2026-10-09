@@ -11,6 +11,8 @@ from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import QPushButton
 
 from ..core import connections, realtime
+from ..core.errors import GeosianError
+from . import formulario
 
 LOG_TAG = "Geosian"
 AGRUPAR_MS = 500
@@ -159,10 +161,8 @@ class RealtimeHub(QObject):
         if tipo == "layer_data_changed" and mensaje.get("layer_id") is not None:
             self._pendientes.add(int(mensaje["layer_id"]))
             self._temporizador.start(AGRUPAR_MS)
-        elif tipo == "layer_schema_changed":
-            self._avisar(
-                "Los campos de una capa han cambiado en GCC. Vuelve a añadirla para verlos."
-            )
+        elif tipo == "layer_schema_changed" and mensaje.get("layer_id") is not None:
+            self._recargar_esquema(int(mensaje["layer_id"]))
         elif tipo == "auth_failed":
             # El JWT ya no vale: se suelta el canal (reintentaría con el mismo) y
             # se ofrece volver a entrar, que abre uno nuevo.
@@ -181,6 +181,24 @@ class RealtimeHub(QObject):
                 continue
             # Vacía la caché del proveedor y avisa a la tabla de atributos.
             capa.reload()
+            capa.triggerRepaint()
+
+    def _recargar_esquema(self, layer_id):
+        """Campos y ficha nuevos en las capas y tablas de partes de esa capa."""
+        for capa in QgsProject.instance().mapLayers().values():
+            if capa.providerType() != "geosian" or not capa.isValid():
+                continue
+            proveedor = capa.dataProvider()
+            uri = getattr(proveedor, "layer_uri", None)
+            if uri is None or uri.connection != self._conexion or uri.layer_id != layer_id:
+                continue
+            try:
+                proveedor.reload_definition()
+            except GeosianError as exc:
+                self._avisar(f"No se pudieron leer los campos nuevos de «{capa.name()}»: {exc}")
+                continue
+            capa.reload()
+            formulario.rehacer(capa)
             capa.triggerRepaint()
 
     def _avisar(self, texto):
