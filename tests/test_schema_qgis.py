@@ -17,14 +17,15 @@ from qgis.core import (
     QgsField,
     QgsFields,
 )
-from qgis.PyQt.QtCore import QMetaType
+from qgis.PyQt.QtCore import QVariant
 
 from geosian.core import schema as S
 
 
 def _evaluar(condicion, valor, app):
     campos = QgsFields()
-    tipo = QMetaType.Type.QVariantList if isinstance(valor, list) else QMetaType.Type.QString
+    # QVariant, como lad.py: QgsField no acepta QMetaType en QGIS 3.34.
+    tipo = QVariant.List if isinstance(valor, list) else QVariant.String
     campos.append(QgsField("tipo", tipo))
     elemento = QgsFeature(campos)
     elemento["tipo"] = valor

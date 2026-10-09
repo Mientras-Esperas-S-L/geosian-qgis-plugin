@@ -9,7 +9,6 @@ hasta entonces la capa se abre en modo consulta, que es más honesto que
 aceptar cambios que no se van a poder guardar.
 """
 
-import json
 import math
 import re
 import threading
@@ -21,8 +20,6 @@ from qgis.core import (
     QgsFeature,
     QgsFeatureRequest,
     QgsFields,
-    QgsGeometry,
-    QgsJsonUtils,
     QgsMessageLog,
     QgsRectangle,
     QgsVectorDataProvider,
@@ -31,7 +28,7 @@ from qgis.core import (
 )
 from qgis.PyQt.QtCore import QTimeZone
 
-from ..core import connections, definitions, lad, media, views
+from ..core import compat, connections, definitions, lad, media, views
 from ..core import schema as S
 from ..core.client import API_PREFIX
 from ..core.errors import (
@@ -588,9 +585,7 @@ class GeosianProvider(QgsVectorDataProvider):
         geometria = None
         geojson = elemento.get("geometry")
         if geojson:
-            geometria = QgsJsonUtils.geometryFromGeoJson(json.dumps(geojson))
-            if geometria is not None and geometria.isNull():
-                geometria = None
+            geometria = compat.geometry_from_geojson(geojson)
 
         self._cache[fid] = CachedFeature(
             geometria,

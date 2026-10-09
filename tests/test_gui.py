@@ -446,9 +446,10 @@ def test_la_ficha_tiene_una_pestana_de_fotos_y_archivos(app_gui):
 
 
 def test_el_panel_de_fotos_ensena_las_del_elemento(app_gui, monkeypatch, tmp_path):
+    """En la ficha, como la monta QGIS. Pedir el envoltorio al registro desde Python no
+    vale en QGIS 3.34: sip deja inservible el objeto de Python que creó la fábrica."""
     from qgis.core import QgsProject
-    from qgis.gui import QgsGui
-    from qgis.PyQt.QtWidgets import QWidget
+    from qgis.gui import QgsAttributeEditorContext, QgsAttributeForm
 
     from geosian.gui import media_widget
     from geosian.provider.metadata import register_provider
@@ -459,15 +460,12 @@ def test_el_panel_de_fotos_ensena_las_del_elemento(app_gui, monkeypatch, tmp_pat
     with FakeGeosian() as fake:
         try:
             capa = _capa_de_prueba(fake, "Fotos2")
-            padre = QWidget()
-            envoltorio = QgsGui.editorWidgetRegistry().create(
-                media_widget.WIDGET_TYPE, capa, capa.fields().indexOf("id"), {}, None, padre
-            )
             elemento = next(f for f in capa.getFeatures() if f["id"] == 1001)
-            envoltorio.setFeature(elemento)
-            # Solo lectura (el id lo es) no debe impedir mirar las fotos.
-            envoltorio.setEnabled(False)
-            panel = envoltorio.widget()
+            contexto = QgsAttributeEditorContext()
+            contexto.setVectorLayerTools(_herramientas_falsas())
+            ficha = QgsAttributeForm(capa, elemento, contexto)
+            panel = ficha.findChildren(media_widget.MediaPanel)[0]
+            # Solo lectura (la ficha sin editar desactiva el id) no impide mirar las fotos.
             fake.peticiones.clear()
             panel.cargar()
 
@@ -489,7 +487,7 @@ def test_el_panel_de_fotos_ensena_las_del_elemento(app_gui, monkeypatch, tmp_pat
 
             # Sin elemento (uno nuevo), no se pide nada.
             fake.peticiones.clear()
-            envoltorio.setFeature(QgsFeature(capa.fields()))
+            ficha.setFeature(QgsFeature(capa.fields()))
             panel.cargar()
             assert panel.fotos.count() == 0 and fake.peticiones == []
         finally:

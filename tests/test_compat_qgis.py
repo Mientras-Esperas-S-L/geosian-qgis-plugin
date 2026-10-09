@@ -1,0 +1,21 @@
+"""Lo que cambia entre QGIS 3.34 (la mínima) y las nuevas."""
+
+import pytest
+
+pytest.importorskip("qgis.core")
+
+from geosian.core import compat
+
+
+@pytest.mark.parametrize("forzar_antigua", [False, True])
+def test_geometria_desde_geojson(app, monkeypatch, forzar_antigua):
+    """``QgsJsonUtils.geometryFromGeoJson`` llegó en 3.36; en 3.34 se pasa por OGR."""
+    if forzar_antigua:
+        monkeypatch.setattr(compat, "_DESDE_GEOJSON", None)
+    punto = compat.geometry_from_geojson({"type": "Point", "coordinates": [-3.7, 40.4]})
+    assert punto.asWkt(1) == "Point (-3.7 40.4)"
+    poligono = compat.geometry_from_geojson(
+        {"type": "MultiPolygon", "coordinates": [[[[0, 0], [1, 0], [1, 1], [0, 0]]]]}
+    )
+    assert poligono.wkbType() == compat.QgsWkbTypes.MultiPolygon
+    assert compat.geometry_from_geojson({"type": "Point"}) is None

@@ -60,7 +60,7 @@ plugin y empezar la fase de escritura.
       el plugin lo use para la tabla sin recuadro.
 
 ### Compatibilidad, rendimiento y robustez
-- [ ] QGIS 3.34 LTR (la mínima de `metadata.txt`): pasar la suite en un contenedor de QGIS
+- [x] QGIS 3.34 LTR (la mínima de `metadata.txt`): pasar la suite en un contenedor de QGIS
       3.34 (`qgis/qgis` de esa versión, con podman) y corregir lo que falle. Si no se puede,
       subir la mínima y anotarlo.
 - [ ] Mapas grandes: Nueva York (1 M de puntos) y el Gran Parque de Mijas en local: abrir,
@@ -212,6 +212,18 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   4,1 MB y 1,36 s → 3,6 MB y 0,97 s. En QGIS, la tabla de 50.000 árboles de Nueva York,
   13,1 s → 11,3 s, e «ir al elemento» trae la forma en 0,04 s. Contra devel **no**: hasta
   que se fusione el PR, devel lo ignora.
+- 10/10 · QGIS 3.34 LTR. Suite en `docker.io/qgis/qgis:3.34` (3.34.15, Python 3.12, Qt 5) con
+  podman: de 23 pasadas y caída a **202 de 202**. Tres cosas: (1) `QgsJsonUtils.
+  geometryFromGeoJson` no existe hasta 3.36 y tumbaba QGIS al cargar cualquier capa; ahora
+  `core/compat.py` pasa por OGR si falta (prueba `test_compat_qgis.py`, que recorre las dos
+  vías). (2) La prueba del panel de fotos pedía el envoltorio al registro desde Python, y
+  en 3.34 sip deja inservible el objeto que creó la fábrica; en una ficha de verdad
+  (QGIS lo crea desde C++) funciona, así que la prueba monta la ficha. (3) Una prueba creaba
+  `QgsField` con `QMetaType`, que 3.34 no acepta; con `QVariant`, como `lad.py`. La mínima
+  se queda en 3.34. Comprobado en el contenedor 3.34 contra devel (cuenta de auditoría):
+  Arbolado de Melilla válido con 11.950 en 0,56 s, ficha con sus pestañas y las 4 fotos del
+  61706, filtro por partes 949, y los fondos GEOSIAN y oscuro se crean. **No comprobado**:
+  la interfaz de QGIS 3.34 a la vista (panel, menús), solo en modo sin pantalla.
 
 ## Hallazgos para decidir
 
