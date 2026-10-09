@@ -20,6 +20,7 @@ from qgis.core import (
     QgsRendererRange,
     QgsRuleBasedRenderer,
     QgsSingleSymbolRenderer,
+    QgsSvgMarkerSymbolLayer,
     QgsSymbolLayer,
     QgsTextBufferSettings,
     QgsTextFormat,
@@ -101,6 +102,34 @@ def make_symbol(familia, color):
     )
 
 
+# Halo blanco detrás del icono, como en la web: el mismo dibujo, un 18 % mayor.
+HALO_COLOR = (255, 255, 255, 235)
+HALO_SCALE = 1.18
+
+
+def make_icon_symbol(ruta_svg, color, size=24, size_min=16):
+    """Marcador con el icono de una vista, teñido con ``color``.
+
+    El tamaño sigue a la web: ``size`` metros, acotado entre
+    ``max(8, size_min / 2)`` y ``size`` píxeles.
+    """
+    minimo = max(8.0, size_min * 0.5)
+    expresion = _px_desde_metros(size, minimo, size)
+    simbolo = QgsMarkerSymbol()
+    simbolo.deleteSymbolLayer(0)
+    for escala, relleno in ((HALO_SCALE, HALO_COLOR), (1.0, color)):
+        capa = QgsSvgMarkerSymbolLayer(ruta_svg, size * escala)
+        capa.setSizeUnit(QgsUnitTypes.RenderPixels)
+        capa.setFillColor(QColor(*relleno))
+        capa.setStrokeWidth(0)
+        capa.setDataDefinedProperty(
+            QgsSymbolLayer.PropertySize,
+            QgsProperty.fromExpression(f"({expresion}) * {escala}"),
+        )
+        simbolo.appendSymbolLayer(capa)
+    return simbolo
+
+
 def field_resolver(fields, attr_map):
     """Traduce un nombre de atributo del LAD al nombre de campo en la capa.
 
@@ -138,10 +167,11 @@ def base_renderer(schema, geometry_type, resolver):
     return _rules_renderer(familia, estilo, resolver)
 
 
-def _rules_renderer(familia, estilo, resolver):
+def _rules_renderer(familia, estilo, resolver, fabrica=None):
+    fabrica = fabrica or (lambda color: make_symbol(familia, color))
     avisos = []
     if not estilo["rules"]:
-        return QgsSingleSymbolRenderer(make_symbol(familia, estilo["default"])), avisos
+        return QgsSingleSymbolRenderer(fabrica(estilo["default"])), avisos
 
     raiz = QgsRuleBasedRenderer.Rule(None)
     sin_campo = set()
@@ -161,7 +191,7 @@ def _rules_renderer(familia, estilo, resolver):
                 f" OR to_string({S._quote_field(otro)}) NOT IN ({lista}))"
             )
         hijo = QgsRuleBasedRenderer.Rule(
-            make_symbol(familia, regla["color"]),
+            fabrica(regla["color"]),
             filterExp=" AND ".join(partes),
             label=regla["label"],
         )
@@ -173,18 +203,23 @@ def _rules_renderer(familia, estilo, resolver):
     # Si ninguna regla se pudo aplicar, todo cae en el color por defecto, como
     # en la web cuando no encuentra el valor: un símbolo único, sin «Otros».
     if not raiz.children():
-        return QgsSingleSymbolRenderer(make_symbol(familia, estilo["default"])), avisos
+        return QgsSingleSymbolRenderer(fabrica(estilo["default"])), avisos
 
     resto = QgsRuleBasedRenderer.Rule(
-        make_symbol(familia, estilo["default"]), label=estilo["default_label"] or "Otros"
+        fabrica(estilo["default"]), label=estilo["default_label"] or "Otros"
     )
     resto.setIsElse(True)
     raiz.appendChild(resto)
     return QgsRuleBasedRenderer(raiz), avisos
 
 
-def view_renderer(style_config, geometry_type, schema, resolver):
+def view_renderer(style_config, geometry_type, schema, resolver, iconos=None):
     """Renderizador del ``style_config`` de una vista.
+
+    Args:
+        iconos: ``(lib, nombre) -> ruta del SVG o None``, para las vistas con
+            icono. Sin él, o si el icono no se puede conseguir, se pintan
+            círculos.
 
     Returns:
         ``(renderizador, avisos)``.
@@ -198,13 +233,27 @@ def view_renderer(style_config, geometry_type, schema, resolver):
             "se pinta con sus colores."
         )
 
+    def fabrica(color):
+        return make_symbol(familia, color)
+
+    icono = vista.get("icon")
+    if icono and familia == "point":
+        ruta = iconos(icono["lib"], icono["name"]) if iconos else None
+        if ruta:
+            def fabrica(color):  # noqa: F811 (el icono sustituye al círculo)
+                return make_icon_symbol(ruta, color, icono["size"], icono["size_min"])
+        else:
+            avisos.append(
+                f"No se pudo conseguir el icono «{icono['name']}»; se pintan círculos."
+            )
+
     tipo = vista["kind"]
     if tipo == "base":
-        renderizador, mas = _rules_renderer(familia, vista["base_fallback"], resolver)
+        renderizador, mas = _rules_renderer(familia, vista["base_fallback"], resolver, fabrica)
         return renderizador, avisos + mas
 
     if tipo == "single":
-        return QgsSingleSymbolRenderer(make_symbol(familia, vista["color"])), avisos
+        return QgsSingleSymbolRenderer(fabrica(vista["color"])), avisos
 
     if tipo == "categorized":
         campo = resolver(vista["attribute"])
@@ -213,7 +262,7 @@ def view_renderer(style_config, geometry_type, schema, resolver):
                 f"La vista colorea por «{vista['attribute']}», que la capa no tiene; "
                 "se pinta con el color por defecto."
             )
-            return QgsSingleSymbolRenderer(make_symbol(familia, vista["default"])), avisos
+            return QgsSingleSymbolRenderer(fabrica(vista["default"])), avisos
         estilo = {
             "rules": [
                 {"attribute": vista["attribute"], "value": v, "color": c, "label": e, "excluded": []}
@@ -222,7 +271,7 @@ def view_renderer(style_config, geometry_type, schema, resolver):
             "default": vista["default"],
             "default_label": vista["default_label"],
         }
-        renderizador, mas = _rules_renderer(familia, estilo, resolver)
+        renderizador, mas = _rules_renderer(familia, estilo, resolver, fabrica)
         return renderizador, avisos + mas
 
     if tipo == "graduated":
@@ -236,7 +285,7 @@ def view_renderer(style_config, geometry_type, schema, resolver):
                 QgsRendererRange(
                     -1e300 if desde is None else desde,
                     1e300 if hasta is None else hasta,
-                    make_symbol(familia, color),
+                    fabrica(color),
                     etiqueta,
                 )
             )
@@ -251,11 +300,11 @@ def view_renderer(style_config, geometry_type, schema, resolver):
             if anteriores:
                 filtro = f"{expresion} AND NOT ({' OR '.join(anteriores)})"
             raiz.appendChild(
-                QgsRuleBasedRenderer.Rule(make_symbol(familia, color), filterExp=filtro, label=etiqueta)
+                QgsRuleBasedRenderer.Rule(fabrica(color), filterExp=filtro, label=etiqueta)
             )
             anteriores.append(expresion)
         if vista["default"] is not None:
-            resto = QgsRuleBasedRenderer.Rule(make_symbol(familia, vista["default"]), label="Otros")
+            resto = QgsRuleBasedRenderer.Rule(fabrica(vista["default"]), label="Otros")
             resto.setIsElse(True)
             raiz.appendChild(resto)
         return QgsRuleBasedRenderer(raiz), avisos

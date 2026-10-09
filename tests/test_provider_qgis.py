@@ -512,3 +512,47 @@ def test_regla_sobre_un_campo_que_no_existe_deja_el_color_por_defecto(capa):
     renderizador, avisos = symbology.base_renderer(esquema, "points", resolver)
     assert isinstance(renderizador, QgsSingleSymbolRenderer)
     assert len(avisos) == 1
+
+
+def test_vista_con_icono_tiñe_el_icono_por_categoria(capa, tmp_path):
+    from qgis.core import QgsSvgMarkerSymbolLayer
+
+    from geosian.core import symbology
+
+    svg = tmp_path / "fa-FaTree.svg"
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" fill="param(fill) #000000">'
+        '<path d="M0 0h10v10z"/></svg>'
+    )
+    config = {
+        "visualization": "icon",
+        "icon": {"defaultIcon": {"lib": "fa", "name": "FaTree"}, "size": 24, "colored": True},
+        "color": {"mode": "categorized", "attribute": "especie",
+                  "categories": {"Tilia platyphyllos": {"color": [0, 128, 0, 230]}},
+                  "default": {"color": [158, 158, 158, 230]}},
+    }
+    proveedor = capa.dataProvider()
+    resolver = symbology.field_resolver(proveedor.fields(), proveedor.attr_map)
+    renderizador, avisos = symbology.view_renderer(
+        config, "points", proveedor.schema, resolver, iconos=lambda lib, nombre: str(svg)
+    )
+    assert avisos == []
+    reglas = renderizador.rootRule().children()
+    simbolo = reglas[0].symbol()
+    # Halo blanco detrás y el icono teñido del color de la categoría.
+    assert [type(c) for c in simbolo.symbolLayers()] == [QgsSvgMarkerSymbolLayer] * 2
+    assert simbolo.symbolLayer(0).fillColor().name() == "#ffffff"
+    assert simbolo.symbolLayer(1).fillColor().name() == "#008000"
+
+
+def test_vista_con_icono_sin_red_pinta_circulos(capa):
+    from geosian.core import symbology
+
+    config = {"visualization": "icon", "icon": {"defaultIcon": {"lib": "fa", "name": "FaTree"}},
+              "color": {"mode": "categorized", "attribute": "especie", "categories": {}}}
+    proveedor = capa.dataProvider()
+    resolver = symbology.field_resolver(proveedor.fields(), proveedor.attr_map)
+    _, avisos = symbology.view_renderer(
+        config, "points", proveedor.schema, resolver, iconos=lambda lib, nombre: None
+    )
+    assert any("FaTree" in a for a in avisos)

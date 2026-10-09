@@ -31,7 +31,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
-from ..core import connections, lad, maptree, styles, symbology, views
+from ..core import connections, icon_store, lad, maptree, styles, symbology, views
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri
@@ -468,7 +468,11 @@ class GeosianBrowserDock(QDockWidget):
             tipo = proveedor.layer_uri.geometry_type
             if proveedor.view is not None:
                 renderizador, avisos = symbology.view_renderer(
-                    proveedor.view.get("style_config"), tipo, proveedor.schema, resolver
+                    proveedor.view.get("style_config"),
+                    tipo,
+                    proveedor.schema,
+                    resolver,
+                    iconos=icon_store.default_store().path,
                 )
             else:
                 renderizador, avisos = symbology.base_renderer(proveedor.schema, tipo, resolver)

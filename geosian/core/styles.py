@@ -247,6 +247,28 @@ def view_style(style_config, geometry_type, schema=None):
 
     modo = color.get("mode") or config.get("mode") or "single"
 
+    icono = config.get("icon") if isinstance(config.get("icon"), dict) else {}
+    defecto = icono.get("defaultIcon") if isinstance(icono.get("defaultIcon"), dict) else {}
+    if visualizacion == "icon" and defecto.get("lib") and defecto.get("name"):
+        resultado["icon"] = {
+            "lib": str(defecto["lib"]),
+            "name": str(defecto["name"]),
+            "size": _number_or(icono.get("size"), 24),
+            "size_min": _number_or(icono.get("sizeMin"), 16),
+        }
+        # El color del icono (viewVisualizationHelpers.js): fijo si no va
+        # coloreado; el de la vista si es categorizada o graduada; si no, el
+        # del estilo de la capa, no el color único de la vista.
+        if icono.get("colored") is False:
+            resultado.update(
+                kind="single",
+                color=color_from_any(icono.get("fixedColor")) or (33, 150, 243, DEFAULT_ALPHA),
+            )
+            return resultado
+        if modo not in ("categorized", "graduated"):
+            resultado.update(kind="base", base_fallback=base_style(schema, geometry_type))
+            return resultado
+
     if modo == "categorized" and color.get("attribute"):
         categorias = []
         for valor, datos in (color.get("categories") or {}).items():
