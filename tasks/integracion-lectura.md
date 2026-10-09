@@ -243,7 +243,7 @@ _(lo que no es del plugin o pide una decisión del usuario)_
   «1-10 de 10» con 2 partes. El total salía de páginas × 10 porque `FeatureInfo` no pasaba
   `totalItems` a `AdditionalInfo` (no era el `useEffect` de la línea 165, como apunté al
   principio).
-- **API, mejora posible**: el detalle de un elemento manda todas sus fotos en base64 (un
+- **Hecho el 09/10 (backend #291, frontal #203, en devel)**: el detalle de un elemento mandaba todas sus fotos en base64 (un
   árbol con seis fotos de móvil son varios MB por ficha). Con un `?embed_images=false` que
   diera solo id y enlace, QGIS pediría cada foto al verla, y la web podría hacer lo mismo.
 - **El estilo del fondo está copiado** en el complemento: si la web lo cambia, QGIS se queda
