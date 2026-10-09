@@ -300,6 +300,15 @@ class Handler(BaseHTTPRequestHandler):
         if ruta == "/api/v1/maps/":
             self._json(MAPAS)
 
+        elif ruta == "/api/v1/maps/4/":
+            # El detalle: lo que importa aquí son los fondos propios del mapa.
+            self._json({
+                **MAPAS[0],
+                "basemaps": [{"code": "ORTO", "name": "Ortofoto de ejemplo", "kind": "xyz",
+                              "min_zoom": 0, "max_zoom": 19,
+                              "tiles": ["https://teselas.ejemplo.org/orto/{z}/{x}/{y}.jpg"]}],
+            })
+
         elif ruta == "/api/v1/maps/5/layers/":
             self._json({"error": "No tiene permisos para acceder a estas capas."}, 403)
 

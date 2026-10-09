@@ -252,6 +252,10 @@ class GeosianClient:
         """Vistas guardadas de una capa."""
         return _as_list(self._get(f"{API_PREFIX}/layers/{layer_id}/views/"))
 
+    def map_detail(self, map_id):
+        """El detalle de un mapa: centro, zoom y sus fondos propios (``basemaps``)."""
+        return self._get(f"{API_PREFIX}/maps/{int(map_id)}/") or {}
+
     def map_settings(self, map_id):
         """Preferencias del usuario en un mapa: orden, carpetas, vistas activas.
 

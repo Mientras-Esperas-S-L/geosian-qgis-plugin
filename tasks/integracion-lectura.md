@@ -68,7 +68,7 @@ vez de solo anotarlos.
 - [x] Fotos y adjuntos de un elemento, en solo lectura (enlaces firmados de `/media/`).
 - [x] Filtros de la web (panel «Filtros») aplicables a una capa de QGIS.
 - [x] Etiquetas: las que la web permite encender, no solo las de por defecto.
-- [ ] Mapa base: equivalente al GEOSIAN vectorial (estilo MapLibre) o, al menos, el que
+- [x] Mapa base: equivalente al GEOSIAN vectorial (estilo MapLibre) o, al menos, el que
       tenga elegido el mapa (`basemaps[]`).
 - [ ] Estructura publicada del mapa (`map_structure`, modo básico) con grupos anidados.
 - [ ] Tiempo real (WebSocket `/ws/layer-data/`): refrescar lo que cambie en la web.
@@ -156,6 +156,16 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit)_
   los dos sin ninguna encendida de inicio. Pruebas `test_etiquetas_que_se_pueden_*` y
   `test_menu_de_la_capa_cambia_la_etiqueta`.
 
+- 09/10 · Mapa base. El de la web es GEOSIAN: teselas vectoriales propias en
+  `<aplicación>/teselas/espana/{z}/{x}/{y}?v=2`, públicas, con un estilo MapLibre que vive
+  en el código del frontal. QGIS lo monta como capa de teselas vectoriales con ese mismo
+  estilo (convertido por QGIS; solo se pierden los edificios en 3D) y queda igual que la
+  web en Melilla a zoom 15. El estilo se copió de la web importando su módulo desde el
+  servidor de desarrollo y va en `resources/fondo_geosian.json`. Los fondos propios del
+  mapa (`basemaps` del detalle) se añaden apagados; Melilla no tiene ninguno. Si GEOSIAN
+  no se puede montar, queda el del IGN u OSM como antes. Pruebas `test_basemaps.py` y la
+  de añadir mapa.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión del usuario)_
@@ -195,6 +205,11 @@ _(lo que no es del plugin o pide una decisión del usuario)_
 - **API, mejora posible**: el detalle de un elemento manda todas sus fotos en base64 (un
   árbol con seis fotos de móvil son varios MB por ficha). Con un `?embed_images=false` que
   diera solo id y enlace, QGIS pediría cada foto al verla, y la web podría hacer lo mismo.
+- **El estilo del fondo está copiado** en el complemento: si la web lo cambia, QGIS se queda
+  con el viejo hasta volver a copiarlo. Lo limpio sería que CT118 (o el nginx de CT101)
+  sirviera el `style.json` y que lo leyeran la web y QGIS. ¿Lo hacemos?
+- El selector de la web ofrece además ortofoto y otros fondos fijos; QGIS solo añade
+  GEOSIAN y los propios del mapa.
 - Filtros de la web que QGIS no tiene: los de información adicional (elementos con partes
   que cumplan algo) y los globales de fecha. Se podrían añadir como parámetros de la URI.
 - La web manda `attr__status` vacío al filtrar (`/geodata/?…&attr__status&…`); el servidor

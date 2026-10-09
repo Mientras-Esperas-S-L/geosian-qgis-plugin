@@ -10,7 +10,7 @@ import pytest
 pytest.importorskip("qgis.core")
 
 from geosian.core import connections  # noqa: E402
-from qgis.core import QgsFeature  # noqa: E402
+from qgis.core import QgsFeature, QgsMapLayerType  # noqa: E402
 from tests.fake_server import FakeGeosian  # noqa: E402
 
 
@@ -170,12 +170,22 @@ def test_anadir_mapa_entero_crea_un_grupo(app_gui):
             # Etiqueta encendida como en la web y fondo puesto.
             assert nodo.layer().labelsEnabled()
             assert nodo.layer().labeling().settings().fieldName == "especie"
-            fondos = [c for c in proyecto.mapLayers().values() if c.name().startswith("Fondo")]
-            assert [c.name() for c in fondos] == ["Fondo: mapa base del IGN"]
-            # Pintado: la vista arriba y el fondo debajo de todo.
+            # El fondo de la web (GEOSIAN, teselas vectoriales) encendido, y los
+            # propios del mapa añadidos pero apagados, para cambiar como en la web.
             r = proyecto.layerTreeRoot()
+            fondos = {
+                c.name(): (c.type(), r.findLayer(c.id()).itemVisibilityChecked())
+                for c in proyecto.mapLayers().values() if c.name().startswith("Fondo")
+            }
+            assert fondos == {
+                "Fondo: mapa base de Geosian": (QgsMapLayerType.VectorTileLayer, True),
+                "Fondo: Ortofoto de ejemplo": (QgsMapLayerType.RasterLayer, False),
+            }
+            # Pintado: la vista arriba y los fondos debajo de todo.
             orden = r.customLayerOrder() if r.hasCustomLayerOrder() else r.layerOrder()
-            assert [c.name() for c in orden] == ["Arbolado · Tilos", "Fondo: mapa base del IGN"]
+            nombres = [c.name() for c in orden if c.isSpatial()]
+            assert nombres[0] == "Arbolado · Tilos"
+            assert set(nombres[1:]) == set(fondos)
         finally:
             proyecto.clear()
             connections.remove_connection("Integracion3")

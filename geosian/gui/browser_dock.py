@@ -8,6 +8,8 @@ capas al desplegar el mapa. Con conexiones que tienen decenas de mapas, cargarlo
 todo de golpe al abrir QGIS sería una espera que nadie ha pedido.
 """
 
+from urllib.parse import quote
+
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
@@ -15,8 +17,10 @@ from qgis.core import (
     QgsProject,
     QgsRasterLayer,
     QgsRectangle,
+    QgsMapBoxGlStyleConverter,
     QgsRelation,
     QgsVectorLayer,
+    QgsVectorTileLayer,
 )
 from qgis.PyQt.QtCore import Qt, QTimer
 from qgis.PyQt.QtWidgets import (
@@ -32,7 +36,7 @@ from qgis.PyQt.QtWidgets import (
     QWidget,
 )
 
-from ..core import connections, icon_store, lad, maptree, styles, symbology, views
+from ..core import basemaps, connections, icon_store, lad, maptree, styles, symbology, views
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri
@@ -310,6 +314,10 @@ class GeosianBrowserDock(QDockWidget):
             vistas = cliente.map_views(mapa["id"])
         except GeosianError:
             vistas = {}
+        try:
+            fondos_del_mapa = (cliente.map_detail(mapa["id"]) or {}).get("basemaps") or []
+        except GeosianError:
+            fondos_del_mapa = []
 
         por_id = {c["id"]: c for c in capas if "id" in c}
         cliente.prefetch_layer_attributes(list(por_id))
@@ -358,7 +366,7 @@ class GeosianBrowserDock(QDockWidget):
             if n.layer() is not None and n.layer().isSpatial()
         ]
         extension = _extension_de(capas_qgis)
-        self._añadir_fondo(extension)
+        self._añadir_fondo(extension, cliente.base_url, fondos_del_mapa)
         if de_vistas:
             _vistas_encima(raiz, de_vistas)
         self._encuadrar(extension)
@@ -371,10 +379,27 @@ class GeosianBrowserDock(QDockWidget):
             "Geosian", f"{len(capas_qgis)} capa(s) añadidas al proyecto."
         )
 
-    def _añadir_fondo(self, extension):
-        """Un mapa base si el proyecto no tiene ninguno: el del IGN en España."""
+    def _añadir_fondo(self, extension, api_url=None, fondos_del_mapa=()):
+        """Los fondos de la web si el proyecto no tiene ninguno.
+
+        El de la web, GEOSIAN, encendido; los propios del mapa, apagados, para
+        cambiar de fondo como en el selector de la web. Si el GEOSIAN no se puede
+        montar, el del IGN en España o el de OpenStreetMap fuera.
+        """
         proyecto = QgsProject.instance()
-        if any(c.type() == QgsMapLayerType.RasterLayer for c in proyecto.mapLayers().values()):
+        tipos_fondo = (QgsMapLayerType.RasterLayer, QgsMapLayerType.VectorTileLayer)
+        if any(c.type() in tipos_fondo for c in proyecto.mapLayers().values()):
+            return
+        raiz = proyecto.layerTreeRoot()
+        for spec in basemaps.layer_specs(fondos_del_mapa, api_url):
+            capa = _capa_de_fondo(spec)
+            if capa is not None:
+                proyecto.addMapLayer(capa, False)
+                raiz.addLayer(capa).setItemVisibilityChecked(False)
+        geosian = _fondo_geosian(api_url)
+        if geosian is not None:
+            proyecto.addMapLayer(geosian, False)
+            raiz.addLayer(geosian)
             return
         en_españa = not extension.isNull() and ESPAÑA.contains(extension.center())
         nombre, url = FONDO_IGN if en_españa else FONDO_OSM
@@ -593,6 +618,35 @@ def _tipos_de_geometria(capa):
     if isinstance(tipos, dict):
         tipos = list(tipos.keys())
     return [t for t in tipos if t in GEOMETRY_TYPES]
+
+
+def _fondo_geosian(api_url):
+    """El mapa base de la web: teselas vectoriales propias con su estilo MapLibre."""
+    estilo = basemaps.geosian_style(api_url)
+    url = estilo["sources"]["omt"]["tiles"][0]
+    capa = QgsVectorTileLayer(
+        f"type=xyz&url={quote(url, safe=':/{}?=&')}&zmin=0&zmax=15", "Fondo: mapa base de Geosian"
+    )
+    if not capa.isValid():
+        return None
+    conversor = QgsMapBoxGlStyleConverter()
+    if conversor.convert(estilo) != QgsMapBoxGlStyleConverter.Result.Success:
+        return None
+    capa.setRenderer(conversor.renderer())
+    capa.setLabeling(conversor.labeling())
+    return capa
+
+
+def _capa_de_fondo(spec):
+    nombre = f"Fondo: {spec['name']}"
+    if spec["type"] == "style":
+        capa = QgsVectorTileLayer(f"styleUrl={quote(spec['url'], safe=':/?=&')}", nombre)
+    else:
+        url = quote(spec["url"], safe=":/{}?=&")
+        capa = QgsRasterLayer(
+            f"type=xyz&url={url}&zmin={spec['zmin']}&zmax={spec['zmax']}", nombre, "wms"
+        )
+    return capa if capa.isValid() else None
 
 
 def menu_de_etiquetas(menu, capa):
