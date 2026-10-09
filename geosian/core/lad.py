@@ -242,7 +242,7 @@ def apply_form(layer, schema):
 
     principales = _main_attributes(schema)
     if principales:
-        principal = QgsAttributeEditorContainer("Información Principal", None)
+        principal = _pestaña("Información Principal")
         _fill_container(principal, principales, fields)
         form.addTab(principal)
 
@@ -251,12 +251,12 @@ def apply_form(layer, schema):
         if isinstance(a, dict) and a.get("type") not in S.CONTAINER_TYPES
     ]
     if sueltos:
-        general = QgsAttributeEditorContainer("General", None)
+        general = _pestaña("General")
         _fill_container(general, sueltos, fields)
         form.addTab(general)
 
     for contenedor, hijos in S.iter_containers(schema):
-        tab = QgsAttributeEditorContainer(S.field_title(contenedor), None)
+        tab = _pestaña(S.field_title(contenedor))
         expr = _container_visibility(contenedor)
         if expr:
             tab.setVisibilityExpression(QgsOptionalExpression(QgsExpression(expr)))
@@ -296,7 +296,7 @@ def add_relations_tab(layer, partes):
             ``additional_information`` del esquema.
     """
     form = layer.editFormConfig()
-    pestaña = QgsAttributeEditorContainer("Información adicional", None)
+    pestaña = _pestaña("Información adicional")
     for relacion, info in partes:
         # Cada tipo en su grupo, porque en QGIS la visibilidad vive en el
         # contenedor: la web solo ofrece los tipos cuyas dependencias cumple el
@@ -311,7 +311,7 @@ def add_relations_tab(layer, partes):
         hijo.setShowLabel(False)
         grupo.addChildElement(hijo)
         pestaña.addChildElement(grupo)
-    form.addTab(pestaña)
+    _add_tab(form, pestaña)
     layer.setEditFormConfig(form)
 
 
@@ -328,11 +328,11 @@ def add_media_tab(layer, schema, widget_type):
         return False
     layer.setEditorWidgetSetup(idx, QgsEditorWidgetSetup(widget_type, {}))
     form = layer.editFormConfig()
-    pestaña = QgsAttributeEditorContainer("Fotos y archivos", None)
+    pestaña = _pestaña("Fotos y archivos")
     campo = QgsAttributeEditorField("id", idx, pestaña)
     campo.setShowLabel(False)
     pestaña.addChildElement(campo)
-    form.addTab(pestaña)
+    _add_tab(form, pestaña)
     layer.setEditFormConfig(form)
     return True
 
@@ -395,6 +395,43 @@ def _fill_container(contenedor, atributos, fields):
             contenedor.addChildElement(envoltorio)
         else:
             contenedor.addChildElement(campo)
+
+
+def _add_tab(form, pestaña):
+    """``addTab`` sin perder el «sin etiqueta» de lo que ya había.
+
+    En QGIS 4 añadir una pestaña a la copia del formulario clona las demás y los
+    campos vuelven a enseñar su etiqueta: «ID interno» salía junto a las fotos en
+    cuanto se añadía después la pestaña de los partes.
+    """
+    antes = [e.showLabel() for e in _elements(form.tabs())]
+    form.addTab(pestaña)
+    for elemento, mostrar in zip(_elements(form.tabs()), antes):
+        if elemento.showLabel() != mostrar:
+            elemento.setShowLabel(mostrar)
+
+
+def _elements(elementos):
+    """Todos los elementos del formulario, en orden y bajando por los contenedores."""
+    for elemento in elementos:
+        yield elemento
+        if isinstance(elemento, QgsAttributeEditorContainer):
+            yield from _elements(elemento.children())
+
+
+def _pestaña(nombre):
+    """Contenedor de primer nivel, marcado como pestaña.
+
+    En QGIS 4 un contenedor sin padre nace como grupo, no como pestaña, y la
+    ficha salía con todas las secciones apiladas.
+    """
+    contenedor = QgsAttributeEditorContainer(nombre, None)
+    tipos = getattr(Qgis, "AttributeEditorContainerType", None)
+    if tipos is not None and hasattr(contenedor, "setType"):
+        contenedor.setType(tipos.Tab)
+    else:
+        contenedor.setIsGroupBox(False)
+    return contenedor
 
 
 def _as_group_box(contenedor):

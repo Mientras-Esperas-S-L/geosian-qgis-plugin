@@ -552,6 +552,49 @@ def test_el_panel_de_fotos_sobrevive_sin_referencias_en_python(app_gui):
             connections.remove_connection("Fotos3")
 
 
+def test_la_ficha_sale_en_pestanas_y_sin_la_etiqueta_del_id(app_gui):
+    """En QGIS 4 un contenedor sin padre nace como grupo: la ficha salía con todas las
+    secciones apiladas, sin pestañas, y con «ID interno» junto al panel de fotos."""
+    from qgis.core import QgsProject
+    from qgis.gui import QgsAttributeEditorContext, QgsAttributeForm
+    from qgis.PyQt.QtWidgets import QLabel, QTabWidget
+
+    from geosian.gui import media_widget
+    from geosian.provider.metadata import register_provider
+
+    register_provider()
+    media_widget.register_media_widget()
+    with FakeGeosian() as fake:
+        try:
+            capa = _capa_de_prueba(fake, "Pestanas")
+            elemento = next(f for f in capa.getFeatures() if f["id"] == 1001)
+            contexto = QgsAttributeEditorContext()
+            contexto.setVectorLayerTools(_herramientas_falsas())
+            ficha = QgsAttributeForm(capa, elemento, contexto)
+            [pestañas] = [
+                w for w in ficha.findChildren(QTabWidget) if w.parentWidget() is not None
+                and not any(isinstance(a, media_widget.MediaPanel) for a in _ancestros(w))
+            ][:1]
+            nombres = [pestañas.tabText(i) for i in range(pestañas.count())]
+            assert "General" in nombres and "Fotos y archivos" in nombres
+            fotos = pestañas.widget(nombres.index("Fotos y archivos"))
+            etiquetas = [
+                q.text() for q in fotos.findChildren(QLabel)
+                if not q.isHidden() and "ID interno" in q.text()
+            ]
+            assert etiquetas == []
+        finally:
+            QgsProject.instance().clear()
+            connections.remove_connection("Pestanas")
+
+
+def _ancestros(widget):
+    w = widget.parentWidget()
+    while w is not None:
+        yield w
+        w = w.parentWidget()
+
+
 def test_menu_de_la_capa_cambia_la_etiqueta(app_gui):
     from qgis.core import QgsProject
     from qgis.PyQt.QtWidgets import QMenu

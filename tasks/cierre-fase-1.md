@@ -45,7 +45,7 @@ plugin y empezar la fase de escritura.
       la cuenta) y comprobar que un cambio hecho en la web llega a QGIS.
 
 ### Hallazgos pendientes que se pueden cerrar sin decisión
-- [ ] Etiqueta «ID interno» junto al panel de fotos en QGIS 4 aunque se pida ocultarla.
+- [x] Etiqueta «ID interno» junto al panel de fotos en QGIS 4 aunque se pida ocultarla.
 - [ ] Sesión caducada al abrir un proyecto: que no salga el diálogo de QGIS «capas no
       disponibles» con las de Geosian (gestor de capas no disponibles propio que deja pasar
       las demás al de QGIS) y que «Volver a entrar» las recupere.
