@@ -339,7 +339,12 @@ def _graduated_ranges(color):
     for i in range(len(limites) - 1):
         desde, hasta = limites[i], limites[i + 1]
         indice = min(max(i - 1, 0), len(colores) - 1)
-        etiqueta = etiquetas[indice] if indice < len(etiquetas) else _range_label(desde, hasta)
+        # Las etiquetas del editor son de los tramos entre cortes; el de por
+        # debajo del primero no tiene la suya y lleva la automática.
+        if desde is not None and indice < len(etiquetas):
+            etiqueta = etiquetas[indice]
+        else:
+            etiqueta = _range_label(desde, hasta)
         tramos.append((desde, hasta, colores[indice], etiqueta))
     return tramos
 

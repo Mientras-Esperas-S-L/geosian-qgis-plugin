@@ -76,6 +76,14 @@ def test_vista_graduada_con_tramos_abiertos():
     assert [c[:3] for _, _, c, _ in tramos] == [(1, 1, 1), (1, 1, 1), (2, 2, 2)]
 
 
+def test_vista_graduada_no_repite_etiquetas():
+    config = {"color": {"mode": "graduated", "attribute": "s", "breaks": [0, 50, 150],
+                        "colors": [[1, 1, 1], [2, 2, 2], [3, 3, 3]],
+                        "labels": ["< 50", "50 – 150", "≥ 150"]}}
+    etiquetas = [e for _, _, _, e in styles.view_style(config, "polygons")["ranges"]]
+    assert etiquetas == ["< 0", "< 50", "50 – 150", "≥ 150"]
+
+
 def test_vista_sin_color_usa_el_estilo_de_la_capa():
     vista = styles.view_style({"visualization": "default"}, "points", {})
     assert vista["kind"] == "base"
