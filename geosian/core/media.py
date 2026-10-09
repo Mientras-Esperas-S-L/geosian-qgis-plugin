@@ -3,7 +3,9 @@
 La API los da de dos formas, y aquí se igualan:
 
 - El detalle de un elemento (``/geodata/<id>/``) manda las fotos incrustadas en
-  base64 (``data``) y los ficheros solo con ``id`` y ``name``.
+  base64 (``data``) y los ficheros solo con ``id`` y ``name``. Con
+  ``embed_images=false`` manda en su lugar el enlace a cada foto y a su
+  miniatura (``url``, ``thumbnail_url``), que es como lo pide el complemento.
 - El listado de partes (``/additional-information/``) manda las fotos como
   enlace (``url``), sin el contenido.
 
@@ -18,11 +20,12 @@ import binascii
 class MediaItem:
     """Una foto o un fichero."""
 
-    __slots__ = ("created_at", "data", "field_name", "id", "kind", "main", "name", "url")
+    __slots__ = ("created_at", "data", "field_name", "id", "kind", "main", "name", "thumb_url", "url")
 
     def __init__(self, id, kind, name="", url=None, data=None, main=False,
-                 created_at=None, field_name=None):
+                 created_at=None, field_name=None, thumb_url=None):
         self.id = id
+        self.thumb_url = thumb_url
         self.kind = kind
         self.name = name
         self.url = url
@@ -66,6 +69,7 @@ def items_from(registro, image_url=None, file_url=None):
                 name=foto.get("name") or "",
                 url=url,
                 data=datos,
+                thumb_url=foto.get("thumbnail_url"),
                 main=bool(foto.get("main_image")),
                 created_at=foto.get("created_at"),
                 field_name=foto.get("field_name"),

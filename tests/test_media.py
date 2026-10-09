@@ -66,3 +66,21 @@ def test_la_portada_va_primero_y_lo_roto_se_ignora():
 def test_sin_medios():
     assert media.items_from(None) == []
     assert media.items_from({"pictures": None, "files": None}) == []
+
+
+def test_foto_por_enlace_con_miniatura():
+    # El detalle con embed_images=false: enlace a la foto y a su miniatura.
+    detalle = {"pictures": [{"id": 7, "url": "/api/v1/geodata/image/7/",
+                             "thumbnail_url": "/api/v1/geodata/image/7/?size=thumb",
+                             "main_image": True}]}
+
+    [foto] = media.items_from(detalle)
+
+    assert foto.data is None
+    assert foto.url == "/api/v1/geodata/image/7/"
+    assert foto.thumb_url == "/api/v1/geodata/image/7/?size=thumb"
+
+
+def test_sin_miniatura_la_galeria_usa_la_foto():
+    [foto] = media.items_from({"pictures": [{"id": 9, "url": "/a/9/"}]})
+    assert foto.thumb_url is None

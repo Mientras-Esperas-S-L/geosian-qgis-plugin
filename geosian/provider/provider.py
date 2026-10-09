@@ -947,8 +947,13 @@ class GeosianProvider(QgsVectorDataProvider):
             file_url=f"{API_PREFIX}/geodata/file/{{id}}/",
         )
 
-    def media_bytes(self, item):
-        """El contenido de una foto o un fichero: el incrustado o pedido a la API."""
+    def media_bytes(self, item, thumb=False):
+        """El contenido de una foto o un fichero: el incrustado o pedido a la API.
+
+        Con ``thumb``, la miniatura si la hay (para la galería).
+        """
+        if thumb and item.thumb_url:
+            return self._client.download(item.thumb_url)
         if item.data is not None:
             return item.data
         return self._client.download(item.url)

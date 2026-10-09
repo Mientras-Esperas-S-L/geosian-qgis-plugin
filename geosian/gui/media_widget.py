@@ -224,7 +224,7 @@ class MediaPanel(QWidget):
     def _añadir_foto(self, proveedor, item):
         imagen = QPixmap()
         try:
-            imagen.loadFromData(proveedor.media_bytes(item))
+            imagen.loadFromData(proveedor.media_bytes(item, thumb=True))
         except GeosianError as exc:
             QgsMessageLog.logMessage(f"Foto {item.id}: {exc}", LOG_TAG, Qgis.Warning)
         fila = QListWidgetItem("Portada" if item.main else "")
@@ -240,7 +240,17 @@ class MediaPanel(QWidget):
         self.fotos.addItem(fila)
 
     def ver_foto(self, fila):
-        _item, imagen = fila.data(Qt.ItemDataRole.UserRole)
+        item, imagen = fila.data(Qt.ItemDataRole.UserRole)
+        if item.thumb_url:
+            # La galería tiene la miniatura; en grande, la foto entera.
+            entera = QPixmap()
+            try:
+                entera.loadFromData(self._capa.dataProvider().media_bytes(item))
+            except GeosianError as exc:
+                self.estado.setText(f"No se pudo descargar la foto: {exc}")
+                return
+            if not entera.isNull():
+                imagen = entera
         if imagen.isNull():
             return
         visor = QDialog(self)

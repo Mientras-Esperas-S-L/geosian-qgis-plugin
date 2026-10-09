@@ -366,7 +366,13 @@ class GeosianClient:
         Args:
             data_type: el tipo de la URI (``points``, ``polygons``…).
         """
-        return self._get(f"{API_PREFIX}/geodata/{int(element_id)}/", {"geometry_type": data_type})
+        # Con enlaces y no con las fotos en base64: varios megas por ficha que
+        # quizá nadie mire. Un servidor que no conozca el parámetro las manda
+        # enteras y también vale.
+        return self._get(
+            f"{API_PREFIX}/geodata/{int(element_id)}/",
+            {"geometry_type": data_type, "embed_images": "false"},
+        )
 
     def download(self, path):
         """Bytes de una foto o un fichero servidos por la API, con el token."""

@@ -178,6 +178,10 @@ FOTO_PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 )
 FICHERO_PDF = b"%PDF-1.4 informe de prueba"
+# Otra imagen de 1×1, para distinguir la miniatura de la foto entera.
+MINIATURA_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
 
 # El detalle de /geodata/<id>/: fotos en base64 y ficheros con id y nombre.
 DETALLES = {
@@ -386,7 +390,22 @@ class Handler(BaseHTTPRequestHandler):
             if elemento is None or consulta.get("geometry_type") != ["points"]:
                 self._json({"error": "no"}, 404)
             else:
-                self._json({**elemento, "id": fid, **DETALLES.get(fid, {"pictures": [], "files": []})})
+                detalle = DETALLES.get(fid, {"pictures": [], "files": []})
+                if consulta.get("embed_images") == ["false"]:
+                    # Como el backend: enlaces a la API en vez de las fotos.
+                    detalle = {
+                        "pictures": [
+                            {k: v for k, v in f.items() if k != "data"}
+                            | {"url": f"/api/v1/geodata/image/{f['id']}/",
+                               "thumbnail_url": f"/api/v1/geodata/image/{f['id']}/?size=thumb"}
+                            for f in detalle["pictures"]
+                        ],
+                        "files": [f | {"url": f"/api/v1/geodata/file/{f['id']}/"} for f in detalle["files"]],
+                    }
+                self._json({**elemento, "id": fid, **detalle})
+
+        elif re.fullmatch(r"/api/v1/geodata/image/\d+/", ruta):
+            self._bytes(MINIATURA_PNG if consulta.get("size") == ["thumb"] else FOTO_PNG, "image/png")
 
         elif ruta == "/api/v1/geodata/file/31/":
             self._bytes(FICHERO_PDF, "application/pdf")
