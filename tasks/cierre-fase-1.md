@@ -69,7 +69,7 @@ plugin y empezar la fase de escritura.
       token revocado; ninguno cuelga QGIS y los mensajes se entienden.
 
 ### Entrega
-- [ ] `make package`: el zip instala en un perfil limpio de QGIS 4 y de 3.34, con icono,
+- [x] `make package`: el zip instala en un perfil limpio de QGIS 4 y de 3.34, con icono,
       licencia, `metadata.txt` completo (versión, changelog, tracker, homepage) y sin ficheros
       de pruebas ni cachés.
 - [ ] CI del repo del plugin: GitHub Actions con ruff y pytest dentro del contenedor de QGIS
@@ -252,6 +252,16 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   caducada y sale «Volver a entrar» (el texto decía «sin datos», ya no es verdad). Pruebas
   `test_recargar_sin_red_conserva_lo_que_habia`, `test_sin_red_se_avisa_en_la_barra_una_vez`
   y `test_los_fallos_de_red_se_explican_en_castellano` (fallaban); suite 211 en QGIS 4 y 3.34.
+- 10/10 · `make package`. Faltaba la **licencia dentro del zip** (el repositorio de
+  complementos de QGIS la exige); la descripción prometía escritura y el registro de cambios
+  era el del primer día. Ahora el zip lleva solo lo versionado de `geosian/` más `LICENSE`
+  (`git ls-files`, sin cachés ni restos), con `BUILD=` para elegir dónde; metadatos al día y
+  «Por ahora, solo lectura». Prueba `test_paquete.py` (construye el zip y mira contenido y
+  metadatos; fallaba). Comprobado instalando el zip (107 KB, 45 ficheros) en un **perfil
+  limpio de QGIS 4** y en otro de **QGIS 3.34** (contenedor, con Xvfb lanzado a mano:
+  `xvfb-run` se queda colgado dentro de podman): en los dos, complemento activo, panel creado
+  y menú «Geosian». En el contenedor no hay `make`/`git`/`zip`: la prueba del paquete se
+  salta ahí (211 pasan y 3 saltadas; 214 en QGIS 4).
 
 ## Hallazgos para decidir
 

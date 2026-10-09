@@ -5,6 +5,7 @@ QGIS_MAJOR   ?= $(shell python3 -c 'from qgis.core import Qgis; print(Qgis.versi
 QGIS_PROFILE ?= $(HOME)/.local/share/QGIS/QGIS$(QGIS_MAJOR)/profiles/default
 PLUGIN_DIR   := $(QGIS_PROFILE)/python/plugins/$(PLUGIN)
 PYTHON  ?= .venv/bin/python
+BUILD   ?= $(CURDIR)/build
 VERSION := $(shell sed -n 's/^version=//p' $(PLUGIN)/metadata.txt)
 
 export QT_QPA_PLATFORM ?= offscreen
@@ -30,11 +31,16 @@ test:
 lint:
 	$(PYTHON) -m ruff check $(PLUGIN) tests || true
 
-package: clean
-	@mkdir -p build
-	zip -qr build/$(PLUGIN)-$(VERSION).zip $(PLUGIN) \
-		-x '*__pycache__*' '*.pyc' '*.pyo'
-	@echo "build/$(PLUGIN)-$(VERSION).zip"
+# Solo lo versionado de $(PLUGIN)/ (nada de cachés ni restos locales) y la
+# licencia dentro, que el repositorio de complementos de QGIS la exige.
+package:
+	@rm -rf $(BUILD)/$(PLUGIN) $(BUILD)/$(PLUGIN)-$(VERSION).zip
+	@mkdir -p $(BUILD)/$(PLUGIN)
+	git ls-files -z $(PLUGIN) | xargs -0 -I{} cp --parents {} $(BUILD)/
+	cp LICENSE $(BUILD)/$(PLUGIN)/LICENSE
+	cd $(BUILD) && zip -qr $(PLUGIN)-$(VERSION).zip $(PLUGIN)
+	@rm -rf $(BUILD)/$(PLUGIN)
+	@echo "$(BUILD)/$(PLUGIN)-$(VERSION).zip"
 
 install:
 	@mkdir -p $(dir $(PLUGIN_DIR))
