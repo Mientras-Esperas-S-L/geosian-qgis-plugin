@@ -235,6 +235,17 @@ VISTA_HEXAGONOS = {
                      "point": {"opacity": 0.7}},
 }
 
+VISTA_CALOR = {
+    "id": 10,
+    "layer": 11,
+    "name": "Calor",
+    "context_type": "elements",
+    "filter_config": {"query_groups": []},
+    "style_config": {"mode": "single", "visualization": "heatmap",
+                     "heatmap": {"radiusPixels": 30, "intensity": 1, "threshold": 0.05,
+                                 "colorRamp": "inferno"}},
+}
+
 VISTA_TILOS = {
     "id": 7,
     "layer": 11,
@@ -374,6 +385,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(VISTA_ICONOS)
         elif ruta == "/api/v1/layer-views/9/":
             self._json(VISTA_HEXAGONOS)
+        elif ruta == "/api/v1/layer-views/10/":
+            self._json(VISTA_CALOR)
 
         elif ruta == "/api/v1/layer-views/7/":
             self._json(VISTA_TILOS)

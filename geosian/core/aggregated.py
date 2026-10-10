@@ -18,6 +18,9 @@ from .client import API_PREFIX
 
 # Las visualizaciones que la web pinta con las teselas agregadas del servidor.
 HEXAGONOS = ("hexagon", "h3hexagon")
+# El calor de una capa grande: celdas finas del servidor, como la web en móvil
+# (``heatcells``: ``cells=96``), coloreadas como los hexágonos.
+CELDAS_DE_CALOR = 96
 # Hasta qué zoom pide teselas QGIS; de ahí arriba amplía las que tiene.
 ZOOM_MAXIMO = 18
 CAPA_MVT = "agg"
@@ -55,16 +58,19 @@ def tile_layer_uri(base_url, layer_id, params, authcfg, extra=None):
 PROPIEDAD = "geosian/agregada"
 
 
-def describe(conexion, map_id, layer_id, base_url, params, authcfg):
+def describe(conexion, map_id, layer_id, base_url, params, authcfg, extra=None):
     return {
         "conexion": conexion, "map_id": int(map_id), "layer_id": int(layer_id),
         "base_url": base_url, "params": params or {}, "authcfg": authcfg,
+        "extra": extra or {},
     }
 
 
 def uri_for(info, version=None):
     """La URI de una capa agregada; con ``version``, la de esas teselas (``_v``)."""
-    extra = {"_v": version} if version is not None else None
+    extra = dict(info.get("extra") or {})
+    if version is not None:
+        extra["_v"] = version
     return tile_layer_uri(info["base_url"], info["layer_id"], info["params"], info["authcfg"], extra)
 
 

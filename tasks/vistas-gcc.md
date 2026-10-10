@@ -70,7 +70,7 @@ puntos con aviso.
 - [x] `heatmap` en capas pequeñas: el renderizador de calor de QGIS con los parámetros de la
       web (`radiusPixels`, `intensity`, `threshold` como transparencia inicial, rampa de 6,
       `weightAttribute` también de información adicional).
-- [ ] `heatmap` en capas grandes: los centroides de las celdas del servidor
+- [x] `heatmap` en capas grandes: los centroides de las celdas del servidor
       (`agg=hex&geom=centroid&cells=96`, peso `weight` o `count`) como puntos de un calor de
       QGIS; si no se puede con teselas, las celdas como polígonos coloreados por `density`
       (lo que hace la web en móvil). Anotar cuál.
@@ -146,7 +146,21 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   vista local «Tipo de valvula» (válvulas de Melilla, 239, como `tester2`, que es quien la ve):
   radio 30, paradas desde 0,05, rampa inferno (`scratchpad/vistas/calor-qgis.png`). Suite 225
   en QGIS 4 y 222 (+3) en 3.34.
+- 10/10 · `heatmap` en capas grandes. Antes, de lejos no salía nada (la capa grande solo se
+  pinta desde 1:20.000). QGIS no pinta calor sobre teselas vectoriales, así que va lo que la
+  web hace en móvil: las celdas finas del servidor (`agg=hex&cells=96`) coloreadas por número
+  de puntos con la rampa de la vista, su leyenda y su tiempo real. Las capas pequeñas siguen
+  con el calor de QGIS. Prueba `test_el_calor_de_una_capa_grande_va_con_las_celdas_del_servidor`
+  (las dos variantes; la grande fallaba). Comprobado con una vista de prueba creada en local
+  («Prueba QGIS · Calor», id 120, sobre el arbolado de Nueva York, 1.078.380): a 1:93.000 las
+  celdas cubren la ciudad (`scratchpad/vistas/calor-capa-grande-qgis.png`). Dos cosas vistas:
+  el mapa base propio solo cubre España (en Nueva York no hay fondo) y QGIS recorta cada
+  celda al borde de su tesela, así que se ven costuras finas (la web pinta sin recorte).
 
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión)_
+- **Costuras entre teselas en las agregadas**: QGIS recorta cada celda al borde de su
+  tesela y se ven líneas finas donde se juntan; la web las pinta sin recorte. Se quitaría
+  pidiendo las celdas como polígonos sueltos (proveedor propio que decodifique las teselas)
+  en vez de capa de teselas vectoriales. Más trabajo; decidir si compensa.

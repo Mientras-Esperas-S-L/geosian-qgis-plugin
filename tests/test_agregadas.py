@@ -249,3 +249,46 @@ def test_el_calor_usa_radio_intensidad_umbral_y_la_rampa_entera(app):
     seis = styles.ramp_colors("viridis", 6)
     assert {p.color.getRgb()[:3] for p in rampa.stops()} | {rampa.color2().getRgb()[:3]} >= {
         c[:3] for c in seis}
+
+
+def _añadir_vista(fake, nombre, vista):
+    from geosian.gui.browser_dock import ROL_DATOS, GeosianBrowserDock
+    from tests.test_gui import IfaceFalso
+
+    connections.save_connection(nombre, fake.url, "a@b.c")
+    connections.set_session(nombre, "tok-de-prueba", "jwt")
+    panel = GeosianBrowserDock(IfaceFalso())
+    raiz = panel.arbol.topLevelItem(0)
+    panel._al_desplegar(raiz)
+    mapa = raiz.child(0).child(0)
+    panel._al_desplegar(mapa)
+    datos = dict(mapa.child(0).data(0, ROL_DATOS))
+    datos["vista"] = vista
+    return panel.añadir_capa(datos)
+
+
+@pytest.mark.parametrize("grande", [False, True])
+def test_el_calor_de_una_capa_grande_va_con_las_celdas_del_servidor(app, monkeypatch, grande):
+    """Una capa grande solo se pinta de cerca; de lejos, sin esto, el calor no salía. La
+    web pide las celdas agregadas (``cells=96``) y en móvil las pinta coloreadas."""
+    from qgis.core import QgsMapLayerType, QgsProject
+
+    from geosian.provider import provider as modulo
+    from tests.fake_server import FakeGeosian
+
+    if grande:
+        monkeypatch.setattr(modulo, "LARGE_LAYER", 2)
+    with FakeGeosian() as fake:
+        try:
+            [capa] = _añadir_vista(fake, "Calor", {"id": 10, "name": "Calor"})
+            if grande:
+                assert capa.type() == QgsMapLayerType.VectorTileLayer
+                assert "cells%3D96" in capa.source() and "agg%3Dhex" in capa.source()
+                assert len(capa.renderer().styles()) == 6
+            else:
+                # La pequeña, con el calor de QGIS sobre sus puntos.
+                assert capa.type() == QgsMapLayerType.VectorLayer
+                assert capa.renderer().type() == "heatmapRenderer"
+        finally:
+            QgsProject.instance().clear()
+            connections.remove_connection("Calor")
