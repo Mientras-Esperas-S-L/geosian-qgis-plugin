@@ -107,6 +107,10 @@ def value_key(valor):
 
 def geometry_default(schema, geometry_type):
     """Color por geometría (``getGeometryStyleColors``) cuando no hay reglas."""
+    # Una capa sin esquema (``/layer-attributes/`` da una lista vacía) la pinta la web
+    # gris, sea cual sea su geometría: ``getFeatureColor`` corta antes de mirar el tipo.
+    if not schema:
+        return FALLBACK_ANY
     crudo = ((schema or {}).get("styles") or {}).get("geometries")
     geometrias = crudo or {}
     familia = geometry_family(geometry_type)

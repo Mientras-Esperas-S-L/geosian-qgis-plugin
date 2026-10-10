@@ -12,15 +12,23 @@ def test_hex_como_el_frontal():
 
 
 def test_sin_estilos_usa_el_color_de_la_geometria():
-    assert styles.base_style({}, "points")["default"] == styles.FALLBACK_POINT
-    assert styles.base_style({}, "multi_points")["default"] == styles.FALLBACK_MULTIPOINT
-    assert styles.base_style({}, "multi_lines")["default"] == styles.FALLBACK_LINE
+    esquema = {"attributes": [{"name": "nombre", "type": "text"}]}
+    assert styles.base_style(esquema, "points")["default"] == styles.FALLBACK_POINT
+    assert styles.base_style(esquema, "multi_points")["default"] == styles.FALLBACK_MULTIPOINT
+    assert styles.base_style(esquema, "multi_lines")["default"] == styles.FALLBACK_LINE
     # Polígonos sin ningún estilo de geometrías: el violeta opaco de la web
     # (getGeometryStyleColors devuelve POLYGON_COLORS[0], alfa 255).
-    assert styles.base_style({}, "polygons")["default"] == (238, 130, 238, 255)
+    assert styles.base_style(esquema, "polygons")["default"] == (238, 130, 238, 255)
     assert styles.base_style({"styles": {"geometries": None}}, "multi_polygons")["default"] == (238, 130, 238, 255)
     # Con el bloque de geometrías, aunque no diga nada del polígono: opacidad 0,5.
     assert styles.base_style({"styles": {"geometries": {}}}, "polygons")["default"] == (238, 130, 238, 128)
+
+
+def test_una_capa_sin_esquema_sale_gris_como_en_la_web():
+    # getFeatureColor: sin esquema, gris (128, 128, 128, 230) para cualquier geometría.
+    for tipo in ("points", "multi_points", "lines", "polygons", "multi_polygons"):
+        assert styles.base_style({}, tipo)["default"] == (128, 128, 128, 230)
+        assert styles.base_style(None, tipo)["default"] == (128, 128, 128, 230)
 
 
 def test_estilo_de_poligono_del_lad_con_su_opacidad():
