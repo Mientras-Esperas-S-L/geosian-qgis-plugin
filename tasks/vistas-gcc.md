@@ -101,7 +101,7 @@ puntos con aviso.
 ### Decididas el 10/10
 - [x] Celdas como la web: la capa de teselas de hexágonos y H3 pide el mismo zoom que deck.gl
       (un nivel menos que ahora), para que las celdas y sus colores sean los de la web.
-- [ ] Sin costuras entre teselas: las celdas de hexágonos y H3 como polígonos enteros (leer las
+- [x] Sin costuras entre teselas: las celdas de hexágonos y H3 como polígonos enteros (leer las
       teselas y unir cada celda una vez), sin la capa de teselas vectoriales de QGIS.
 - [ ] Calor con el radio corregido: medir el factor que acerca la mancha del núcleo cuártico de
       QGIS a la del gaussiano de deck.gl y aplicarlo al `radiusPixels` de la vista.
@@ -350,6 +350,23 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   Prueba `test_la_opacidad_de_la_vista_como_la_web` ampliada con el modo de carga (fallaban
   los dos casos de hexágonos). Comprobado en la QGIS de pruebas con la vista 90 junto a la web:
   mismos colores (`scratchpad/vistas/lado-90.png`). Suite 264 en QGIS 4 y 261 (+3) en 3.34.
+
+- 10/10 · Sin costuras. El servidor ya manda cada hexágono entero (`clip_geom=false`) en la
+  tesela de su centro (`tile_utils.build_hexagon_agg_mvt_query`); las costuras las ponía la capa
+  de teselas de QGIS al recortar. Ahora `gui/celdas.py`: lee las teselas que se ven, al zoom de
+  la capa de teselas de QGIS (el mismo que deck.gl, medido), con el lector MVT ampliado a
+  polígonos (`mvt.decode_features`, `aggregated.polygons_in_mercator`), y pone las celdas en
+  una capa de polígonos en memoria (campos en la URI, para que sobreviva al proyecto) que se
+  rehace al mover el lienzo (250 ms de espera), al añadirse y con el tiempo real (`_v`);
+  caché de 256 teselas por capa. Hexágonos, H3 y el calor de capas grandes van por aquí; ya no
+  hace falta la credencial de teselas del gestor (`tile_authcfg` queda sin uso). Pruebas:
+  `test_lee_los_poligonos_enteros_aunque_salgan_de_la_tesela`, `test_las_celdas_de_una_tesela_en_metros`
+  y las de agregadas adaptadas (una celda sobresale de su tesela; tiempo real con `_v=7`); el
+  servidor de mentira manda hexágonos enteros. Trampa de QGIS 3.34: retener en Python las reglas
+  del renderizado de una capa que luego se borra lo tumba al recoger la basura (solo en la
+  prueba). Comprobado en la QGIS de pruebas con la vista 90: 1.006 celdas al abrir y 1.563 al
+  acercar, sin costuras (`scratchpad/vistas/costuras-antes-despues.png`). Suite 266 en QGIS 4 y
+  263 (+3) en 3.34. **No comprobado**: H3 y calor grande en la QGIS de pruebas (mismo camino).
 
 ## Hallazgos para decidir
 
