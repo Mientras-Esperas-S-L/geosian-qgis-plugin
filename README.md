@@ -100,8 +100,8 @@ abrieron en este equipo salen vacías, con sus campos y su estilo, hasta que vue
 ## Qué no hace todavía
 
 - **Editar**: ni elementos ni partes (siguiente fase).
-- **Hexágonos, contornos y H3** de las vistas: se pintan con el color de la vista, sin
-  agregar.
+- **H3 de verdad** en capas pequeñas: van los hexágonos del servidor, como la web en las
+  grandes.
 - El **satélite de Google** del selector de la web: sus condiciones no permiten usarlo fuera
   de su API.
 - Un **tipo de parte nuevo** creado en GCC no aparece hasta que vuelves a añadir la capa (los
