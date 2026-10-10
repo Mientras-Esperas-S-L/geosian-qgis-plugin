@@ -96,7 +96,7 @@ def build_info_fields(info_schema):
 
 
 def _append_schema_fields(fields, mapa, usados, schema):
-    for attr in S.flatten_attributes(schema):
+    for attr in S.merged_attributes(schema):
         # Las fotos y los adjuntos no son columnas: tienen su propio panel y
         # llegan en la fase 4. Meterlos como campo solo estorbaría.
         if S.is_attachment(attr):
@@ -155,7 +155,7 @@ def apply_editor_config(layer, schema):
         if idx >= 0:
             form.setReadOnly(idx, True)
 
-    for attr in S.flatten_attributes(schema):
+    for attr in S.merged_attributes(schema):
         if S.is_attachment(attr):
             continue
         nombre = attr.get("name")
