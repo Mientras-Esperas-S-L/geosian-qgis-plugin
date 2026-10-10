@@ -6,13 +6,16 @@ capas de QGIS que la muestran, como hace la web. Los avisos se agrupan medio
 segundo: una importación manda muchos seguidos y basta con recargar una vez.
 """
 
-from qgis.core import Qgis, QgsMessageLog, QgsProject
+import json
+import time
+
+from qgis.core import Qgis, QgsDataProvider, QgsMessageLog, QgsProject
 from qgis.PyQt.QtCore import QObject, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import QPushButton
 
-from ..core import connections, realtime
+from ..core import aggregated, connections, realtime
 from ..core.errors import GeosianError
-from . import formulario
+from . import formulario, leyendas
 
 LOG_TAG = "Geosian"
 AGRUPAR_MS = 500
@@ -42,12 +45,38 @@ def reconnect(conexion):
     if hub is not None:
         hub.stop()
     _quitar_aviso(conexion, _vigilando["iface"])
-    for capa in QgsProject.instance().mapLayers().values():
-        if capa.providerType() != "geosian" or not capa.isValid():
+    for capa, de, map_id, _ in _de_geosian(QgsProject.instance().mapLayers().values()):
+        if de == conexion:
+            subscribe(conexion, map_id, _vigilando["iface"])
+
+
+def _de_geosian(capas):
+    """``(capa, conexión, mapa, capa de GCC)`` de las capas de Geosian del proyecto.
+
+    Las de su proveedor y las agregadas (teselas del servidor), que guardan de dónde
+    vienen en una propiedad de la capa.
+    """
+    for capa in capas:
+        if not capa.isValid():
             continue
-        uri = getattr(capa.dataProvider(), "layer_uri", None)
-        if uri is not None and uri.connection == conexion:
-            subscribe(conexion, uri.map_id, _vigilando["iface"])
+        if capa.providerType() == "geosian":
+            uri = getattr(capa.dataProvider(), "layer_uri", None)
+            if uri is not None:
+                yield capa, uri.connection, uri.map_id, uri.layer_id
+            continue
+        info = _agregada(capa)
+        if info:
+            yield capa, info["conexion"], info["map_id"], info["layer_id"]
+
+
+def _agregada(capa):
+    guardada = capa.customProperty(aggregated.PROPIEDAD)
+    if not guardada:
+        return None
+    try:
+        return json.loads(guardada)
+    except (TypeError, ValueError):
+        return None
 
 
 _vigilando = {"iface": None, "activo": False, "pedir": None}
@@ -116,12 +145,29 @@ def unwatch_project():
 
 
 def _al_añadir_capas(capas):
-    for capa in capas:
-        if capa.providerType() != "geosian" or not capa.isValid():
-            continue
-        uri = getattr(capa.dataProvider(), "layer_uri", None)
-        if uri is not None:
-            subscribe(uri.connection, uri.map_id, _vigilando["iface"])
+    for _, conexion, map_id, _ in _de_geosian(capas):
+        subscribe(conexion, map_id, _vigilando["iface"])
+
+
+def _repedir_teselas(capa, version):
+    """Las teselas de una capa agregada, otra vez: con la versión nueva, como la web.
+
+    Cambia la URI (``_v``) para que ni la caché de QGIS ni la de red sirvan las de
+    antes. Sin versión en el aviso, la hora. El estilo y la leyenda se conservan.
+    """
+    info = _agregada(capa)
+    if not info:
+        return
+    renderizador = capa.renderer().clone() if capa.renderer() else None
+    leyenda = capa.customProperty(leyendas.PROPIEDAD)
+    capa.setDataSource(
+        aggregated.uri_for(info, version if version is not None else int(time.time())),
+        capa.name(), capa.providerType(), QgsDataProvider.ProviderOptions(),
+    )
+    if renderizador is not None:
+        capa.setRenderer(renderizador)
+    if leyenda:
+        leyendas.poner_leyenda_de_densidad(capa, json.loads(leyenda))
 
 
 def stop_all():
@@ -137,7 +183,7 @@ class RealtimeHub(QObject):
         super().__init__()
         self._conexion = conexion
         self._iface = iface
-        self._pendientes = set()
+        self._pendientes = {}
         self._temporizador = QTimer(self)
         self._temporizador.setSingleShot(True)
         self._temporizador.timeout.connect(self._recargar)
@@ -159,7 +205,13 @@ class RealtimeHub(QObject):
     def _procesar(self, mensaje):
         tipo = mensaje.get("type")
         if tipo == "layer_data_changed" and mensaje.get("layer_id") is not None:
-            self._pendientes.add(int(mensaje["layer_id"]))
+            capa = int(mensaje["layer_id"])
+            version = mensaje.get("tile_version")
+            anterior = self._pendientes.get(capa)
+            if version is None:
+                self._pendientes.setdefault(capa, None)
+            elif anterior is None or version > anterior:
+                self._pendientes[capa] = version
             self._temporizador.start(AGRUPAR_MS)
         elif tipo == "layer_schema_changed" and mensaje.get("layer_id") is not None:
             self._recargar_esquema(int(mensaje["layer_id"]))
@@ -172,15 +224,15 @@ class RealtimeHub(QObject):
             _ofrecer_entrar(self._conexion, self._iface)
 
     def _recargar(self):
-        capas, self._pendientes = self._pendientes, set()
-        for capa in QgsProject.instance().mapLayers().values():
-            if capa.providerType() != "geosian":
+        capas, self._pendientes = self._pendientes, {}
+        for capa, conexion, _, layer_id in list(_de_geosian(QgsProject.instance().mapLayers().values())):
+            if conexion != self._conexion or layer_id not in capas:
                 continue
-            uri = getattr(capa.dataProvider(), "layer_uri", None)
-            if uri is None or uri.connection != self._conexion or uri.layer_id not in capas:
-                continue
-            # Vacía la caché del proveedor y avisa a la tabla de atributos.
-            capa.reload()
+            if capa.providerType() == "geosian":
+                # Vacía la caché del proveedor y avisa a la tabla de atributos.
+                capa.reload()
+            else:
+                _repedir_teselas(capa, capas[layer_id])
             capa.triggerRepaint()
 
     def _recargar_esquema(self, layer_id):

@@ -63,7 +63,7 @@ puntos con aviso.
 
 - [x] Leyenda de las agregadas: degradado de la rampa con «Baja densidad» y «Alta
       densidad», como la web (hoy la capa de teselas enseña una sola entrada, «Celdas»).
-- [ ] Tiempo real en las agregadas: un `layer_data_changed` de su capa tiene que repintar
+- [x] Tiempo real en las agregadas: un `layer_data_changed` de su capa tiene que repintar
       las teselas (hoy la capa de teselas no se entera).
 
 ### Calor y contornos
@@ -126,6 +126,16 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   `test_la_leyenda_de_las_agregadas_es_el_degradado_de_la_web` (fallaba; también reabre el
   proyecto). Comprobado en la QGIS de pruebas: un nodo de leyenda bajo la capa, con el
   degradado (`scratchpad/vistas/hexagonos-qgis.png`). Suite 223 en QGIS 4 y 220 (+3) en 3.34.
+- 10/10 · Tiempo real en las agregadas. La capa agregada guarda de dónde viene (conexión,
+  mapa, capa, filtros, `authcfg`) en una propiedad; el concentrador la trata como a las del
+  proveedor: se suscribe a su mapa (antes no: la vista sustituye a los puntos y nadie se
+  suscribía) y, con un `layer_data_changed` de su capa, la vuelve a pedir con la
+  `tile_version` del aviso (`_v`, como la web), conservando estilo y leyenda. Prueba
+  `test_las_agregadas_se_suscriben_y_se_repintan_con_el_tiempo_real` (fallaba). Comprobado
+  contra el backend local con su ASGI (`qgis-local-ws`, parado al acabar): suscrita al mapa
+  19, un `notify_layer_data_changed` de la capa 120 desde el shell de Django (sin tocar datos;
+  `tile_version` local de 0 a 1) llega y la fuente pasa a `_v=1`, con sus 6 estilos y su
+  leyenda. Suite 224 en QGIS 4 y 221 (+3) en 3.34.
 
 ## Hallazgos para decidir
 

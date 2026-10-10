@@ -50,6 +50,24 @@ def tile_layer_uri(base_url, layer_id, params, authcfg, extra=None):
     return uri
 
 
+# Lo que una capa agregada guarda de sí misma (en una propiedad de la capa) para que
+# el tiempo real la encuentre y la vuelva a pedir.
+PROPIEDAD = "geosian/agregada"
+
+
+def describe(conexion, map_id, layer_id, base_url, params, authcfg):
+    return {
+        "conexion": conexion, "map_id": int(map_id), "layer_id": int(layer_id),
+        "base_url": base_url, "params": params or {}, "authcfg": authcfg,
+    }
+
+
+def uri_for(info, version=None):
+    """La URI de una capa agregada; con ``version``, la de esas teselas (``_v``)."""
+    extra = {"_v": version} if version is not None else None
+    return tile_layer_uri(info["base_url"], info["layer_id"], info["params"], info["authcfg"], extra)
+
+
 def count_bucket(count, color_max):
     """El color (0 a 5) de una celda con ``count`` puntos."""
     color_max = max(float(color_max or 100), 1.0)

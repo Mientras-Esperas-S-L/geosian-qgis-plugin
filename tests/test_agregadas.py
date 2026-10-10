@@ -163,3 +163,62 @@ def test_la_leyenda_de_las_agregadas_es_el_degradado_de_la_web(app, tmp_path):
     finally:
         leyendas.dejar_de_vigilar()
         proyecto.clear()
+
+
+def test_las_agregadas_se_suscriben_y_se_repintan_con_el_tiempo_real(app):
+    """Un cambio en la capa trae ``tile_version``: las teselas se piden con ella, como
+    la web (``_v``), y la caché no sirve las viejas. La vista sustituye a sus puntos, así
+    que la capa agregada tiene que suscribirse sola al mapa."""
+    import time
+
+    from qgis.core import QgsProject
+    from qgis.PyQt.QtCore import QCoreApplication
+
+    from geosian.gui import realtime_hub
+    from geosian.gui.browser_dock import ROL_DATOS, GeosianBrowserDock
+    from tests.fake_server import FakeGeosian
+    from tests.fake_ws import FakeWebSocket
+    from tests.test_gui import IfaceFalso
+
+    def esperar(condicion, segundos=4):
+        limite = time.monotonic() + segundos
+        while time.monotonic() < limite:
+            QCoreApplication.processEvents()
+            if condicion():
+                return True
+            time.sleep(0.02)
+        return False
+
+    canal = FakeWebSocket()
+    with FakeGeosian() as fake:
+        try:
+            realtime_hub.watch_project()
+            connections.save_connection("HexVivo", fake.url, "a@b.c")
+            connections.set_session("HexVivo", "tok-de-prueba", "jwt")
+            connections.set_ws_url("HexVivo", canal.url)
+            panel = GeosianBrowserDock(IfaceFalso())
+            raiz = panel.arbol.topLevelItem(0)
+            panel._al_desplegar(raiz)
+            mapa = raiz.child(0).child(0)
+            panel._al_desplegar(mapa)
+            datos = dict(mapa.child(0).data(0, ROL_DATOS))
+            datos["vista"] = {"id": 9, "name": "Densidad"}
+            [capa] = panel.añadir_capa(datos)
+            assert canal.conectado.wait(3)
+            assert esperar(lambda: {"type": "subscribe_map", "map_id": 4} in canal.recibidos)
+
+            canal.enviar({"type": "layer_data_changed", "map_id": 4, "layer_id": 11,
+                          "change_type": "update", "tile_version": 7})
+            assert esperar(lambda: "_v%3D7" in capa.source())
+            assert len(capa.renderer().styles()) == 6  # el estilo se queda
+            # Un aviso de otra capa no la toca.
+            canal.enviar({"type": "layer_data_changed", "map_id": 4, "layer_id": 99,
+                          "change_type": "update", "tile_version": 8})
+            esperar(lambda: False, 1)
+            assert "_v%3D7" in capa.source()
+        finally:
+            realtime_hub.unwatch_project()
+            realtime_hub.stop_all()
+            QgsProject.instance().clear()
+            connections.remove_connection("HexVivo")
+            canal.cerrar()

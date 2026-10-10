@@ -8,6 +8,7 @@ capas al desplegar el mapa. Con conexiones que tienen decenas de mapas, cargarlo
 todo de golpe al abrir QGIS sería una espera que nadie ha pedido.
 """
 
+import json
 from urllib.parse import quote
 
 from qgis.core import (
@@ -586,12 +587,14 @@ class GeosianBrowserDock(QDockWidget):
                 "se pintan los puntos.",
             )
             return None
-        uri = aggregated.tile_layer_uri(
-            proveedor._client.base_url, proveedor.layer_uri.layer_id, proveedor._extra(), authcfg
+        info = aggregated.describe(
+            conexion, proveedor.layer_uri.map_id, proveedor.layer_uri.layer_id,
+            proveedor._client.base_url, proveedor._extra(), authcfg,
         )
-        capa = QgsVectorTileLayer(uri, vectorial.name())
+        capa = QgsVectorTileLayer(aggregated.uri_for(info), vectorial.name())
         if not capa.isValid():
             return None
+        capa.setCustomProperty(aggregated.PROPIEDAD, json.dumps(info))
         capa.setRenderer(symbology.hexagon_renderer(estilo))
         capa.setOpacity(estilo["opacity"])
         leyendas.poner_leyenda_de_densidad(capa, styles.ramp_colors(estilo["ramp"], 6))
