@@ -103,7 +103,7 @@ puntos con aviso.
       (un nivel menos que ahora), para que las celdas y sus colores sean los de la web.
 - [x] Sin costuras entre teselas: las celdas de hexágonos y H3 como polígonos enteros (leer las
       teselas y unir cada celda una vez), sin la capa de teselas vectoriales de QGIS.
-- [ ] Calor con el radio corregido: medir el factor que acerca la mancha del núcleo cuártico de
+- [x] Calor con el radio corregido: medir el factor que acerca la mancha del núcleo cuártico de
       QGIS a la del gaussiano de deck.gl y aplicarlo al `radiusPixels` de la vista.
 - [ ] Backend: `subscribe_map` del websocket comprueba que el usuario puede ver el mapa, con su
       prueba y su PR, sin fusionar.
@@ -368,6 +368,17 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   acercar, sin costuras (`scratchpad/vistas/costuras-antes-despues.png`). Suite 266 en QGIS 4 y
   263 (+3) en 3.34. **No comprobado**: H3 y calor grande en la QGIS de pruebas (mismo camino).
 
+- 10/10 · Calor con el radio corregido. El núcleo de deck.gl (`weights-fs`): gaussiana
+  `exp(−u²/0,05555)` con `u` = distancia/radio, es decir σ = radio/6, cortada en el radio. El de
+  QGIS, cuártico `(1 − u²)²` hasta su radio. Igualando la anchura a media altura (gaussiana
+  σ·√(2·ln 2) = 0,196·r; cuártico √(1 − 1/√2) = 0,541·R), R = 0,363·r (`RADIO_CUARTICO`). La
+  prueba del calor ahora exige 14,5 px para un radio de 40 (fallaba con 40). Comprobado en la
+  QGIS de pruebas junto a la web con las vistas 127 y 128: mismas manchas, mismos puntos
+  calientes y el borde negro de `inferno` (`scratchpad/vistas/lado-12{7,8}.png`). Suite 266 en
+  QGIS 4 y 263 (+3) en 3.34. **Queda**: la web, por teselas, calcula el calor con los centroides
+  de las celdas (`cells=96`) y QGIS, en capas pequeñas, con los puntos; de lejos la web es algo
+  más grumosa.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión)_
@@ -379,7 +390,7 @@ _(lo que no es del plugin o pide una decisión)_
   mete en el grupo de cualquier mapa a cualquier usuario autenticado, sin mirar si puede verlo.
   Recibe los avisos de cambios (capa, elemento y usuario que cambió), no los datos. No es del
   complemento ni de las vistas; decidir si va en su propio PR.
-- **Núcleo del calor**: QGIS suaviza con un núcleo cuártico que llega entero al radio; deck.gl,
+- ~~**Núcleo del calor**~~ (decidido el 10/10: radio corregido, hecho): QGIS suaviza con un núcleo cuártico que llega entero al radio; deck.gl,
   con uno gaussiano. Con el mismo `radiusPixels`, las manchas de QGIS salen más anchas y más
   calientes (`scratchpad/vistas/lado-127.png`). QGIS no deja elegir el núcleo de su
   renderizador de calor; se podría acercar con un radio menor (un factor medido) o pintar el
