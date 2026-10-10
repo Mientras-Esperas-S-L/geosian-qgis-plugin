@@ -222,3 +222,30 @@ def test_las_agregadas_se_suscriben_y_se_repintan_con_el_tiempo_real(app):
             QgsProject.instance().clear()
             connections.remove_connection("HexVivo")
             canal.cerrar()
+
+
+def test_el_calor_usa_radio_intensidad_umbral_y_la_rampa_entera(app):
+    """Como el ``HeatmapLayer`` de la web: debajo del umbral no se pinta; la intensidad
+    satura antes; los seis colores de la rampa, no solo los extremos."""
+    from geosian.core import styles, symbology
+
+    config = {"visualization": "heatmap", "heatmap": {
+        "radiusPixels": 40, "intensity": 2, "threshold": 0.1, "colorRamp": "viridis",
+        "weightAttribute": "altura"}}
+    resolver = {"altura": "altura"}.get
+    calor, _avisos = symbology.view_renderer(config, "points", {}, resolver)
+    assert calor.type() == "heatmapRenderer"
+    assert calor.radius() == 40
+    # La leyenda, con los textos de la web (QGIS 3.34 no deja cambiarlos).
+    if hasattr(calor, "legendSettings"):
+        assert calor.legendSettings().minimumLabel() == "Baja densidad"
+        assert calor.legendSettings().maximumLabel() == "Alta densidad"
+    assert "altura" in calor.weightExpression()
+    rampa = calor.colorRamp()
+    assert rampa.color1().alpha() == 0                       # nada de color en el cero
+    posiciones = [round(p.offset, 3) for p in rampa.stops()]
+    assert posiciones[0] == 0.1                              # el umbral
+    assert max(posiciones) == 0.5                            # intensidad 2: satura en la mitad
+    seis = styles.ramp_colors("viridis", 6)
+    assert {p.color.getRgb()[:3] for p in rampa.stops()} | {rampa.color2().getRgb()[:3]} >= {
+        c[:3] for c in seis}

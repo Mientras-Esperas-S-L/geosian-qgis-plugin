@@ -9,8 +9,10 @@ crecen con él. Los contornos van a 1 px fijo.
 
 from qgis.core import (
     Qgis,
+    QgsColorRampLegendNodeSettings,
     QgsFillSymbol,
     QgsGradientColorRamp,
+    QgsGradientStop,
     QgsGraduatedSymbolRenderer,
     QgsHeatmapRenderer,
     QgsLineSymbol,
@@ -327,9 +329,12 @@ def view_renderer(style_config, geometry_type, schema, resolver, iconos=None):
         calor = QgsHeatmapRenderer()
         calor.setRadius(vista["radius"])
         calor.setRadiusUnit(QgsUnitTypes.RenderPixels)
-        colores = styles.ramp_colors(vista["ramp"], 2)
-        rampa = QgsGradientColorRamp(QColor(*colores[0][:3], 0), QColor(*colores[-1][:3]))
-        calor.setColorRamp(rampa)
+        calor.setColorRamp(heatmap_ramp(vista))
+        if hasattr(calor, "setLegendSettings"):  # no en QGIS 3.34: «Mínimo» y «Máximo»
+            leyenda = QgsColorRampLegendNodeSettings()
+            leyenda.setMinimumLabel("Baja densidad")
+            leyenda.setMaximumLabel("Alta densidad")
+            calor.setLegendSettings(leyenda)
         if vista["weight"]:
             campo = resolver(vista["weight"])
             if campo:
@@ -337,6 +342,26 @@ def view_renderer(style_config, geometry_type, schema, resolver, iconos=None):
         return calor, avisos
 
     return QgsSingleSymbolRenderer(make_symbol(familia, styles.FALLBACK_ANY)), avisos
+
+
+def heatmap_ramp(vista):
+    """La rampa del calor como la pinta el ``HeatmapLayer`` de la web.
+
+    Por debajo de ``threshold`` (fracción del máximo) no se pinta; los seis colores de
+    la rampa se reparten desde el umbral; ``intensity`` multiplica los pesos, así que
+    el color más caliente llega antes, en ``1/intensity``.
+    """
+    colores = [QColor(*c[:3]) for c in styles.ramp_colors(vista["ramp"], 6)]
+    umbral = vista.get("threshold", 0.05)
+    tope = min(1.0, 1.0 / vista.get("intensity", 1))
+    umbral = min(umbral, tope * 0.99)
+    transparente = QColor(colores[0])
+    transparente.setAlpha(0)
+    paradas = [QgsGradientStop(umbral, colores[0])]
+    for i, color in enumerate(colores[1:], start=1):
+        paradas.append(QgsGradientStop(umbral + (tope - umbral) * i / 5, color))
+    final = paradas.pop() if tope >= 1.0 else None
+    return QgsGradientColorRamp(transparente, final.color if final else colores[-1], False, paradas)
 
 
 def hexagon_renderer(vista):

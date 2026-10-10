@@ -67,7 +67,7 @@ puntos con aviso.
       las teselas (hoy la capa de teselas no se entera).
 
 ### Calor y contornos
-- [ ] `heatmap` en capas pequeñas: el renderizador de calor de QGIS con los parámetros de la
+- [x] `heatmap` en capas pequeñas: el renderizador de calor de QGIS con los parámetros de la
       web (`radiusPixels`, `intensity`, `threshold` como transparencia inicial, rampa de 6,
       `weightAttribute` también de información adicional).
 - [ ] `heatmap` en capas grandes: los centroides de las celdas del servidor
@@ -136,6 +136,16 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   19, un `notify_layer_data_changed` de la capa 120 desde el shell de Django (sin tocar datos;
   `tile_version` local de 0 a 1) llega y la fuente pasa a `_v=1`, con sus 6 estilos y su
   leyenda. Suite 224 en QGIS 4 y 221 (+3) en 3.34.
+- 10/10 · `heatmap` en capas pequeñas: el renderizador de calor de QGIS con `radiusPixels`, y
+  una rampa como la del `HeatmapLayer` de la web: transparente hasta `threshold`, los seis
+  colores de la rampa desde ahí y saturando en `1/intensity`; leyenda «Baja densidad» /
+  «Alta densidad» (en QGIS 3.34 no se puede cambiar: «Mínimo» / «Máximo»). Peso por
+  `weightAttribute` de la capa; el de información adicional va con su casilla. `aggregation:
+  MEAN` no tiene equivalente en el calor de QGIS (suma). Prueba
+  `test_el_calor_usa_radio_intensidad_umbral_y_la_rampa_entera` (fallaba). Comprobado con la
+  vista local «Tipo de valvula» (válvulas de Melilla, 239, como `tester2`, que es quien la ve):
+  radio 30, paradas desde 0,05, rampa inferno (`scratchpad/vistas/calor-qgis.png`). Suite 225
+  en QGIS 4 y 222 (+3) en 3.34.
 
 ## Hallazgos para decidir
 

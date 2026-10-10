@@ -238,6 +238,9 @@ def view_style(style_config, geometry_type, schema=None):
             radius=_number_or(calor.get("radiusPixels"), 30),
             weight=calor.get("weightAttribute") or None,
             ramp=calor.get("colorRamp") or "inferno",
+            intensity=max(_number_or(calor.get("intensity"), 1), 0.01),
+            threshold=min(max(_number_or(calor.get("threshold"), 0.05), 0.0), 0.99),
+            opacity=view_opacity(config),
         )
         return resultado
     if visualizacion in ("hexagon", "h3hexagon") and geometry_family(geometry_type) == "point":
