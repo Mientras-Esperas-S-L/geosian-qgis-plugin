@@ -280,6 +280,26 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   graduadas con `getViewFeatureStyle`, no con la función rápida, y si a un tramo le falta el
   color la web pinta el icono blanco; QGIS lo pinta del color por omisión.
 
+- 10/10 · Repaso, primera parte (la casilla sigue abierta). Cómo: la web local se captura con
+  un Chromium propio sin ventana (Playwright, `scratchpad/web/captura_web.mjs`), con la sesión
+  de la cuenta de pruebas `qgis.pruebas` sembrada en `localStorage` (no se toca la de
+  `tester2`; sus ajustes quedaron copiados en `scratchpad/ajustes-tester2-antes.json` por si
+  acaso) y la vista activada en sus ajustes de mapa (`scratchpad/web/activar.sh`). Se vuelca el
+  color que da la propia capa de deck.gl a cada elemento y se compara con el que pinta QGIS.
+  Hecho con las vistas de prueba sobre `refer` del arbolado de Cáceres: 122 por tramos y 123
+  con rampa, iguales árbol a árbol (49.557 de 49.557). **Fallo de la web**: una vista por
+  reglas pintaba todo con el color de `else`, porque `getViewStyleAttributes` no pedía los
+  campos de las reglas y los elementos llegaban sin ellos. Arreglado en la rama
+  `fix/vista-reglas-pide-sus-campos`, PR greencity-frontend#204 sin fusionar, con su prueba
+  (fallaba); con el arreglo (servido en el puerto 3020, que la API local admite por CORS), la
+  vista 124 coincide con QGIS en 49.557 de 49.557 (`scratchpad/vistas/lado-12{2,3,4}.png`,
+  `lado-124-antes.png`). **Hallazgo, sin tocar**: la web lee los nombres reservados (`id`,
+  `object_id`…) del alias `attr__<nombre>` si los datos lo traen, aunque el esquema no declare
+  ese atributo (el arbolado trae un `id` antiguo en sus datos); QGIS solo crea el campo si el
+  esquema lo declara. Por eso las vistas de prueba pasaron de `id` a `refer`. Falta: única y
+  categorizada, iconos (por teselas y en GeoJSON), calor pequeño y grande, hexágonos, H3,
+  contornos y por campo de parte, cada una lado a lado.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión)_
