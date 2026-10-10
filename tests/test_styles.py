@@ -15,8 +15,12 @@ def test_sin_estilos_usa_el_color_de_la_geometria():
     assert styles.base_style({}, "points")["default"] == styles.FALLBACK_POINT
     assert styles.base_style({}, "multi_points")["default"] == styles.FALLBACK_MULTIPOINT
     assert styles.base_style({}, "multi_lines")["default"] == styles.FALLBACK_LINE
-    # Polígonos: violeta con la opacidad de relleno por defecto (0,5).
-    assert styles.base_style({}, "polygons")["default"] == (238, 130, 238, 128)
+    # Polígonos sin ningún estilo de geometrías: el violeta opaco de la web
+    # (getGeometryStyleColors devuelve POLYGON_COLORS[0], alfa 255).
+    assert styles.base_style({}, "polygons")["default"] == (238, 130, 238, 255)
+    assert styles.base_style({"styles": {"geometries": None}}, "multi_polygons")["default"] == (238, 130, 238, 255)
+    # Con el bloque de geometrías, aunque no diga nada del polígono: opacidad 0,5.
+    assert styles.base_style({"styles": {"geometries": {}}}, "polygons")["default"] == (238, 130, 238, 128)
 
 
 def test_estilo_de_poligono_del_lad_con_su_opacidad():

@@ -107,7 +107,8 @@ def value_key(valor):
 
 def geometry_default(schema, geometry_type):
     """Color por geometría (``getGeometryStyleColors``) cuando no hay reglas."""
-    geometrias = ((schema or {}).get("styles") or {}).get("geometries") or {}
+    crudo = ((schema or {}).get("styles") or {}).get("geometries")
+    geometrias = crudo or {}
     familia = geometry_family(geometry_type)
 
     if familia == "point":
@@ -124,6 +125,10 @@ def geometry_default(schema, geometry_type):
             return hex_to_rgba(estilo["color"])
         return FALLBACK_LINE
 
+    # Sin bloque de geometrías (falsy en JavaScript: ausente o null; {} no lo es), la web
+    # pinta el violeta opaco (POLYGON_COLORS[0]); con él, la opacidad por defecto es 0,5.
+    if crudo is None or crudo is False or crudo == "" or crudo == 0:
+        return FALLBACK_POLYGON + (255,)
     estilo = geometrias.get("polyStyle") or {}
     try:
         opacidad = float(estilo.get("fill-opacity", 0.5))
