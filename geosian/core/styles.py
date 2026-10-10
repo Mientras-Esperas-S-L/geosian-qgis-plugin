@@ -216,10 +216,13 @@ def view_style(style_config, geometry_type, schema=None):
         - ``single``: ``color``.
         - ``categorized``: ``attribute``, ``categories`` (lista de
           ``(valor, color, etiqueta)``), ``default``, ``default_label``.
-        - ``graduated``: ``attribute`` y ``ranges`` (lista de
-          ``(desde, hasta, color, etiqueta)``; ``None`` es abierto).
+        - ``graduated``: ``attribute``, ``ranges`` (lista de
+          ``(desde, hasta, color, etiqueta)``, con ``desde`` dentro y ``hasta``
+          fuera; ``None`` es abierto), ``ramp`` (``(colores, mínimo, máximo)``
+          si la vista pide una rampa continua y no colores, o ``None``),
+          ``default`` y ``default_label``: el color de lo que no es número.
         - ``rule_based``: ``rules`` (lista de ``(etiqueta, expresión, color)``)
-          y ``default``.
+          y ``default``, el color de lo que no casa con ninguna.
         - ``heatmap``: ``radius`` (px), ``weight`` (atributo o ``None``) y
           ``ramp`` (nombre).
 
@@ -323,10 +326,16 @@ def view_style(style_config, geometry_type, schema=None):
         return resultado
 
     if modo == "graduated" and color.get("attribute"):
+        defecto = color.get("default") if isinstance(color.get("default"), dict) else {}
+        por_omision = color_from_any(defecto.get("color")) or FALLBACK_VIEW
+        tramos, rampa = _graduated_ranges(color, por_omision)
         resultado.update(
             kind="graduated",
             attribute=str(color["attribute"]),
-            ranges=_graduated_ranges(color),
+            ranges=tramos,
+            ramp=rampa,
+            default=por_omision,
+            default_label=str(defecto.get("label") or "Otros"),
         )
         return resultado
 
@@ -335,12 +344,15 @@ def view_style(style_config, geometry_type, schema=None):
         for i, regla in enumerate(color.get("rules") or []):
             if not isinstance(regla, dict):
                 continue
-            expresion = filter_group_expression(regla.get("filter") or {})
-            c = color_from_any((regla.get("style") or {}).get("color"))
-            if expresion is None or c is None:
+            # Sin filtro no casa nunca; con un filtro sin condiciones, casa siempre.
+            if not regla.get("filter"):
                 continue
+            expresion = filter_group_expression(regla["filter"])
+            # Sin color, el gris de la web (no se salta: tapa a las siguientes).
+            c = color_from_any((regla.get("style") or {}).get("color")) or FALLBACK_VIEW
             reglas.append((str(regla.get("name") or f"Regla {i + 1}"), expresion, c))
-        otra = color_from_any((color.get("else") or {}).get("color"))
+        # Lo que no casa con ninguna, del color de «else» o del gris de la web.
+        otra = color_from_any((color.get("else") or {}).get("color")) or FALLBACK_VIEW
         resultado.update(kind="rule_based", rules=reglas, default=otra)
         return resultado
 
@@ -360,43 +372,50 @@ def view_opacity(style_config):
     return min(1.0, max(0.0, valor))
 
 
-def _graduated_ranges(color):
+def _graduated_ranges(color, por_omision):
+    """Los tramos de una vista graduada como los pinta la web (``buildFastViewColorFn``).
+
+    Con ``colors``: ``[breaks[i], breaks[i+1])`` da ``colors[i]`` (o el color por
+    omisión si no lo hay); por debajo del primer corte, el primer color; desde el
+    último, el último. Sin ``colors`` y con ``colorRamp``, la rampa continua entre el
+    primer y el último corte. Sin nada de eso, todo del color por omisión.
+
+    Returns:
+        ``(tramos, rampa)``.
+    """
     cortes = []
     for valor in color.get("breaks") or []:
         try:
             cortes.append(float(valor))
         except (TypeError, ValueError):
             continue
-    colores = [c for c in (color_from_any(v) for v in color.get("colors") or []) if c]
-    etiquetas = [str(e) for e in (color.get("labels") or [])]
-    if not cortes:
-        return []
-    if not colores:
-        colores = ramp_colors(color.get("colorRamp") or "viridis", max(len(cortes), 2))
+    colores = [color_from_any(v) for v in color.get("colors") or []]
+    etiquetas = [str(e) if e else "" for e in (color.get("labels") or [])]
+    if cortes and colores:
+        def de(i):
+            return colores[i] if i < len(colores) and colores[i] else por_omision
 
-    # El frontal: [breaks[i], breaks[i+1]) da colors[i]; por debajo del primer
-    # corte, el primer color; por encima del último, el último.
-    tramos = []
-    limites = [None] + cortes + [None]
-    for i in range(len(limites) - 1):
-        desde, hasta = limites[i], limites[i + 1]
-        indice = min(max(i - 1, 0), len(colores) - 1)
-        # Las etiquetas del editor son de los tramos entre cortes; el de por
-        # debajo del primero no tiene la suya y lleva la automática.
-        if desde is not None and indice < len(etiquetas):
-            etiqueta = etiquetas[indice]
-        else:
-            etiqueta = _range_label(desde, hasta)
-        tramos.append((desde, hasta, colores[indice], etiqueta))
-    return tramos
+        tramos = [(None, cortes[0], de(0), f"< {_js_numero(cortes[0])}")]
+        for i in range(len(cortes) - 1):
+            automatica = f"{_js_numero(cortes[i])} - {_js_numero(cortes[i + 1])}"
+            etiqueta = etiquetas[i] if i < len(etiquetas) and etiquetas[i] else automatica
+            tramos.append((cortes[i], cortes[i + 1], de(i), etiqueta))
+        ultimo = len(cortes) - 1
+        etiqueta = f"≥ {_js_numero(cortes[-1])}"
+        if ultimo < len(colores) and ultimo < len(etiquetas) and etiquetas[ultimo]:
+            etiqueta = etiquetas[ultimo]
+        tramos.append((cortes[-1], None, de(len(colores) - 1), etiqueta))
+        return tramos, None
+    if color.get("colorRamp") and len(cortes) >= 2:
+        # Como getColorFromRamp: el nombre exacto; si no existe, gris.
+        paradas = _rampas().get(str(color["colorRamp"])) or [(128, 128, 128)]
+        return [], (paradas, cortes[0], cortes[-1])
+    return [], None
 
 
-def _range_label(desde, hasta):
-    if desde is None:
-        return f"< {hasta:g}"
-    if hasta is None:
-        return f"≥ {desde:g}"
-    return f"{desde:g} – {hasta:g}"
+def _js_numero(valor):
+    """Un número escrito como lo escribe JavaScript (``10``, no ``10.0``)."""
+    return str(int(valor)) if float(valor).is_integer() else repr(float(valor))
 
 
 def _number_or(valor, defecto):
@@ -464,9 +483,10 @@ def match_expression(campo, valor):
 def filter_group_expression(grupo, campos=None):
     """Un grupo ``{operator, rules}`` de una regla de estilo a expresión.
 
-    ``campos`` traduce nombres de atributo a nombres de campo de QGIS. Las
-    reglas con operadores desconocidos se omiten; si no queda ninguna, devuelve
-    ``None``.
+    ``campos`` traduce nombres de atributo a nombres de campo de QGIS. Como
+    ``evaluateFilter`` de la web: sin condiciones casa siempre, un operador que no
+    conoce no casa nunca, y cada condición es verdadera o falsa, nunca nula (si
+    no, un valor vacío anularía el «no casó con las anteriores» de las reglas).
     """
     operador = " OR " if str(grupo.get("operator", "and")).lower() == "or" else " AND "
     partes = []
@@ -474,11 +494,10 @@ def filter_group_expression(grupo, campos=None):
         if not isinstance(regla, dict) or not regla.get("field"):
             continue
         campo = (campos or {}).get(regla["field"], regla["field"])
-        expresion = _rule_expression(campo, regla.get("operator"), regla.get("value"))
-        if expresion:
-            partes.append(expresion)
+        expresion = _rule_expression(campo, regla.get("operator"), regla.get("value")) or "FALSE"
+        partes.append(f"coalesce({expresion}, FALSE)")
     if not partes:
-        return None
+        return "TRUE"
     return "(" + operador.join(partes) + ")"
 
 
@@ -491,11 +510,14 @@ def _rule_expression(campo, operador, valor):
     if op in ("not_equals", "!=", "neq"):
         return f"({texto} IS NULL OR {texto} <> {S._quote_value(value_key(valor))})"
     if op in ("in", "not_in"):
-        valores = valor if isinstance(valor, list) else [valor]
-        lista = ", ".join(S._quote_value(value_key(v)) for v in valores)
-        if not lista:
-            return None
-        return f"{texto} IN ({lista})" if op == "in" else f"{texto} NOT IN ({lista})"
+        # Como la web: sin lista no casa ninguno de los dos; con la lista vacía,
+        # «in» no casa nunca y «not_in» siempre.
+        if not isinstance(valor, list):
+            return "FALSE"
+        if not valor:
+            return "FALSE" if op == "in" else "TRUE"
+        lista = ", ".join(S._quote_value(value_key(v)) for v in valor)
+        return f"{texto} IN ({lista})" if op == "in" else f"({texto} IS NULL OR {texto} NOT IN ({lista}))"
     numericos = {
         ">": ">", "gt": ">", "greater_than": ">",
         ">=": ">=", "gte": ">=", "greater_or_equal": ">=",

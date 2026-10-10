@@ -88,7 +88,7 @@ puntos con aviso.
 - [x] Opacidad de la vista (`point.opacity`, `line.opacity`, `polygon.fillOpacity`) aplicada.
 - [x] Atributos de información adicional en el estilo (`additional_info.<tipo>.<campo>` en
       `categorized`, `graduated` y en el peso del calor), pedidos con `include_ai_attr`.
-- [ ] `graduated` con `colorRamp` y cortes, y `rule_based` con todos los operadores del
+- [x] `graduated` con `colorRamp` y cortes, y `rule_based` con todos los operadores del
       frontal, cotejados con `viewStyleProcessor.js`.
 - [ ] `icon`: `colored` y `fixedColor`, `sizeMin`/`sizeMax`, color por el modo de la vista o
       el de la capa; sin `defaultIcon`, nada (como la web).
@@ -229,6 +229,31 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   Trampa del banco: la batería del backend vacía la caché de Redis (`cache.clear()`) y en
   desarrollo esa base es la misma que la de las suscripciones del websocket; el primer intento
   falló por eso, no por el producto.
+
+- 10/10 · `graduated` y `rule_based` cotejados con la web. El editor de la web no ofrece
+  estos dos modos (solo «Color único» y «Por categoría»): solo se crean por la API, y en local
+  no había ninguna vista así. Diferencias que había con `buildFastViewColorFn`, todas
+  arregladas: el valor justo en un corte caía en el tramo de abajo (los tramos de QGIS
+  cierran por arriba; la web, por abajo); lo que no es número no se pintaba (la web lo pinta
+  del color por omisión, gris si no lo hay); un tramo sin color tomaba el último (la web, el
+  de por omisión); `colorRamp` sin `colors` iba a saltos (la web interpola continuo, con
+  `getColorFromRamp`: ahora es un color calculado por expresión, con su borde); en las
+  reglas, un valor vacío en una regla anterior anulaba las siguientes (`NOT NULL`), una regla
+  sin color se saltaba (la web la pinta de gris y tapa a las siguientes), un filtro sin
+  condiciones no casaba (en la web casa siempre), un operador desconocido se ignoraba (en la
+  web no casa) y sin `else` lo que no casaba no se pintaba (la web, gris). Tramos y reglas van
+  ahora como reglas de QGIS con «Otros». Prueba `test_colores_web.py`: seis casos ficticios
+  con los colores sacados con node de la propia función de la web (`tests/colores_web.mjs` →
+  `colores_web.json`, frontal main d7ea44e0); fallaban cinco. Comprobado en la QGIS de pruebas
+  con tres vistas de prueba creadas en la base local (122 «Prueba QGIS · Graduada», 123
+  «· Rampa», 124 «· Reglas», en el arbolado de Cáceres; por `id`, porque sus campos numéricos
+  valen todos 1): árbol a árbol, el color de QGIS y el de la función de la web coinciden en
+  49.557 de 49.557 en las tres; el cotejo detecta un corte movido una unidad
+  (`scratchpad/vistas/vista-12{2,3,4}-qgis.png`). Suite 249 en QGIS 4 y 246 (+3) en 3.34.
+  **No igualado a propósito** (rarezas de JavaScript que pintarían mal): `Number(null)` vale 0
+  en `>`/`<` y `String(undefined)` es «undefined» en `contains`; un texto vacío en un tramo
+  cuenta como 0. **No comprobado**: rampa continua con iconos (el color calculado va a la
+  primera capa del símbolo), y la web en pantalla, que va en el repaso.
 
 ## Hallazgos para decidir
 

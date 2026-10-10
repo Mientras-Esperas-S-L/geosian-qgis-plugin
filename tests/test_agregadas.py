@@ -437,7 +437,7 @@ def test_graduado_y_peso_del_calor_por_un_campo_de_los_partes(app):
     colores = {}
     for f in capa.getFeatures():
         contexto.expressionContext().setFeature(f)
-        colores[f["id"]] = graduado.symbolForFeature(f, contexto).color().name()
+        colores[f["id"]] = graduado.symbolsForFeature(f, contexto)[0].color().name()
     graduado.stopRender(contexto)
     assert colores == {1: "#ff0000", 2: "#0000ff"}
 

@@ -13,13 +13,11 @@ from qgis.core import (
     QgsFillSymbol,
     QgsGradientColorRamp,
     QgsGradientStop,
-    QgsGraduatedSymbolRenderer,
     QgsHeatmapRenderer,
     QgsLineSymbol,
     QgsMarkerSymbol,
     QgsPalLayerSettings,
     QgsProperty,
-    QgsRendererRange,
     QgsRuleBasedRenderer,
     QgsSingleSymbolRenderer,
     QgsSvgMarkerSymbolLayer,
@@ -283,20 +281,32 @@ def view_renderer(style_config, geometry_type, schema, resolver, iconos=None):
 
     if tipo == "graduated":
         campo = resolver(vista["attribute"])
-        if campo is None or not vista["ranges"]:
+        if campo is None:
             avisos.append(f"La vista gradúa por «{vista['attribute']}», que la capa no tiene.")
-            return QgsSingleSymbolRenderer(make_symbol(familia, styles.FALLBACK_VIEW)), avisos
-        tramos = []
+            return QgsSingleSymbolRenderer(fabrica(vista["default"])), avisos
+        if not vista["ranges"] and not vista["ramp"]:
+            return QgsSingleSymbolRenderer(fabrica(vista["default"])), avisos
+        # Reglas y no tramos de QGIS: los de QGIS cierran por arriba (10 cae en 0-10)
+        # y no pintan lo que no es número; la web cierra por abajo y lo pinta del
+        # color por omisión.
+        valor = f"to_real({S._quote_field(campo)})"
+        raiz = QgsRuleBasedRenderer.Rule(None)
         for desde, hasta, color, etiqueta in vista["ranges"]:
-            tramos.append(
-                QgsRendererRange(
-                    -1e300 if desde is None else desde,
-                    1e300 if hasta is None else hasta,
-                    fabrica(color),
-                    etiqueta,
-                )
-            )
-        return QgsGraduatedSymbolRenderer(f"to_real({S._quote_field(campo)})", tramos), avisos
+            limites = [f"{valor} >= {S._number(desde)}" if desde is not None else None,
+                       f"{valor} < {S._number(hasta)}" if hasta is not None else None]
+            filtro = " AND ".join(x for x in limites if x)
+            raiz.appendChild(QgsRuleBasedRenderer.Rule(fabrica(color), filterExp=filtro, label=etiqueta))
+        if vista["ramp"]:
+            paradas, minimo, maximo = vista["ramp"]
+            simbolo = fabrica(paradas[len(paradas) // 2] + (styles.DEFAULT_ALPHA,))
+            _color_calculado(simbolo, familia, _rampa_continua(valor, paradas, minimo, maximo))
+            raiz.appendChild(QgsRuleBasedRenderer.Rule(
+                simbolo, filterExp=f"{valor} IS NOT NULL",
+                label=f"{styles._js_numero(minimo)} - {styles._js_numero(maximo)}"))
+        resto = QgsRuleBasedRenderer.Rule(fabrica(vista["default"]), label=vista["default_label"])
+        resto.setIsElse(True)
+        raiz.appendChild(resto)
+        return QgsRuleBasedRenderer(raiz), avisos
 
     if tipo == "rule_based":
         raiz = QgsRuleBasedRenderer.Rule(None)
@@ -310,10 +320,9 @@ def view_renderer(style_config, geometry_type, schema, resolver, iconos=None):
                 QgsRuleBasedRenderer.Rule(fabrica(color), filterExp=filtro, label=etiqueta)
             )
             anteriores.append(expresion)
-        if vista["default"] is not None:
-            resto = QgsRuleBasedRenderer.Rule(fabrica(vista["default"]), label="Otros")
-            resto.setIsElse(True)
-            raiz.appendChild(resto)
+        resto = QgsRuleBasedRenderer.Rule(fabrica(vista["default"]), label="Otros")
+        resto.setIsElse(True)
+        raiz.appendChild(resto)
         return QgsRuleBasedRenderer(raiz), avisos
 
     if tipo == "hexagon":
@@ -342,6 +351,36 @@ def view_renderer(style_config, geometry_type, schema, resolver, iconos=None):
         return calor, avisos
 
     return QgsSingleSymbolRenderer(make_symbol(familia, styles.FALLBACK_ANY)), avisos
+
+
+def _rampa_continua(valor, paradas, minimo, maximo, alfa=styles.DEFAULT_ALPHA):
+    """Expresión de color de ``getColorFromRamp`` de la web: la posición del valor entre
+    ``minimo`` y ``maximo``, recortada a [0, 1], interpolando entre las paradas de la
+    rampa y redondeando como ``Math.round``."""
+    ultimo = len(paradas) - 1
+    if ultimo == 0 or maximo == minimo:
+        return "color_rgba({}, {}, {}, {})".format(*paradas[0], alfa)
+    t = f"max(0, min(1, ({valor} - {S._number(minimo)}) / {S._number(maximo - minimo)}))"
+    tramos = []
+    for k in range(ultimo):
+        a, b = paradas[k], paradas[k + 1]
+        canales = ", ".join(f"floor({a[i]} + (@p - {k}) * {b[i] - a[i]} + 0.5)" for i in range(3))
+        tramos.append(f"WHEN @p < {k + 1} THEN color_rgba({canales}, {alfa})")
+    final = "color_rgba({}, {}, {}, {})".format(*paradas[-1], alfa)
+    return f"with_variable('p', {t} * {ultimo}, CASE {' '.join(tramos)} ELSE {final} END)"
+
+
+def _color_calculado(simbolo, familia, expresion):
+    """Pone ``expresion`` de color al símbolo, y su borde oscurecido como ``stroke_of``."""
+    borde = (
+        f"with_variable('c', {expresion}, color_rgba("
+        + ", ".join(f"floor(color_part(@c, '{p}') * {styles.STROKE_FACTOR})" for p in ("red", "green", "blue"))
+        + ", color_part(@c, 'alpha')))"
+    )
+    capa = simbolo.symbolLayer(0)
+    if familia != "line":
+        capa.setDataDefinedProperty(QgsSymbolLayer.PropertyFillColor, QgsProperty.fromExpression(expresion))
+    capa.setDataDefinedProperty(QgsSymbolLayer.PropertyStrokeColor, QgsProperty.fromExpression(borde))
 
 
 def heatmap_ramp(vista):
