@@ -361,3 +361,36 @@ def test_la_opacidad_de_la_vista_como_la_web(app, vista, opacidad):
         finally:
             QgsProject.instance().clear()
             connections.remove_connection("Opacidad")
+
+
+def test_una_vista_que_colorea_por_un_campo_de_los_partes(app):
+    """``additional_info.<tipo>.<campo>``: la web pide ``include_ai_attr`` y colorea por el
+    valor del parte. Antes la capa no tenía ese campo y todo salía con el color de «Otros»."""
+    from qgis.core import QgsProject, QgsRenderContext
+
+    from tests.fake_server import FakeGeosian
+
+    with FakeGeosian() as fake:
+        try:
+            [capa] = _añadir_vista(fake, "PorPartes", {"id": 12, "name": "Por labor"})
+            campo = "additional_info.parte_poda.labor"
+            assert capa.fields().indexOf(campo) >= 0
+            assert capa.attributeAlias(capa.fields().indexOf(campo)) == "Parte de poda · Labor"
+            fake.peticiones.clear()
+            valores = {f["id"]: f[campo] for f in capa.getFeatures()}
+            assert valores[1001] == "Poda" and valores[1002] == "Aclareo"
+            # Una lista, como la escribe String() en la web: si no, no casa con la categoría.
+            assert valores[1003] == "Poda"
+            assert any(c.get("include_ai_attr") == ["parte_poda.labor"]
+                       for r, c in fake.peticiones if r == "/api/v1/geodata/paginated/")
+            # El estilo lo encuentra: cada elemento con el color de su categoría.
+            contexto = QgsRenderContext()
+            renderizador = capa.renderer().clone()
+            renderizador.startRender(contexto, capa.fields())
+            colores = {f["id"]: renderizador.symbolsForFeature(f, contexto)[0].color().name()
+                       for f in capa.getFeatures()}
+            renderizador.stopRender(contexto)
+            assert colores[1001] == colores[1003] == "#ff0000" and colores[1002] == "#0000ff"
+        finally:
+            QgsProject.instance().clear()
+            connections.remove_connection("PorPartes")

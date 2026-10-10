@@ -21,6 +21,28 @@ descartan.
 _SUFIJOS = {"contains": "__contains", "gte": "__gte", "lte": "__lte"}
 
 
+PREFIJO_PARTES = "additional_info."
+
+
+def ai_attribute(style_config):
+    """``(tipo, campo)`` si la vista colorea o pesa por un campo de los partes.
+
+    La web escribe esos atributos como ``additional_info.<tipo>.<campo>`` (en el color,
+    en el peso del calor o de los contornos) y los pide con ``include_ai_attr``.
+    """
+    config = style_config if isinstance(style_config, dict) else {}
+    candidatos = [(config.get("color") or {}).get("attribute") if isinstance(config.get("color"), dict) else None]
+    for clave in ("heatmap", "contour"):
+        if isinstance(config.get(clave), dict):
+            candidatos.append(config[clave].get("weightAttribute"))
+    for valor in candidatos:
+        if isinstance(valor, str) and valor.startswith(PREFIJO_PARTES):
+            tipo, _, campo = valor[len(PREFIJO_PARTES):].partition(".")
+            if tipo and campo:
+                return tipo, campo
+    return None
+
+
 def filter_params(filter_config):
     """Parámetros de la API para el ``filter_config`` de una vista.
 

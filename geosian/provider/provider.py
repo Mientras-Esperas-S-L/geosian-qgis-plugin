@@ -21,6 +21,7 @@ from qgis.core import (
     QgsExpressionContext,
     QgsFeature,
     QgsFeatureRequest,
+    QgsField,
     QgsFields,
     QgsMessageLog,
     QgsRectangle,
@@ -177,6 +178,7 @@ class GeosianProvider(QgsVectorDataProvider):
         self._pasa = {}
         # Los filtros por partes y fechas de la URI, como parámetros de la API.
         self._filtros_uri = {}
+        self._ai_attr = None
         # Lo que respondió la API al abrir la capa, para guardarlo; y lo guardado,
         # cuando se abre sin sesión (``core/definitions.py``).
         self._respuestas = {}
@@ -295,6 +297,7 @@ class GeosianProvider(QgsVectorDataProvider):
         self._schema = self._pick_schema(definiciones)
         self._fields, self._attr_map = lad.build_fields(self._schema)
         self._filtros_uri = self._filtros_de_partes()
+        self._campo_de_partes()
 
         metadatos = {}
         try:
@@ -330,6 +333,23 @@ class GeosianProvider(QgsVectorDataProvider):
             self._extent = QgsRectangle(
                 float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
             )
+
+    def _campo_de_partes(self):
+        """El campo de un parte por el que colorea o pesa la vista, si lo hay.
+
+        Se llama como lo escribe la web (``additional_info.<tipo>.<campo>``), así el
+        estilo de la vista lo encuentra sin más; se pide con ``include_ai_attr``.
+        """
+        self._ai_attr = views.ai_attribute((self._view or {}).get("style_config"))
+        if self._ai_attr is None:
+            return
+        tipo, campo = self._ai_attr
+        info = next((i for i in self._schema.get("additional_information") or []
+                     if isinstance(i, dict) and i.get("name") == tipo), {})
+        definicion = next((a for a in S.flatten_attributes(info) if a.get("name") == campo), {})
+        nuevo = QgsField(f"{views.PREFIJO_PARTES}{tipo}.{campo}", QVariant.String)
+        nuevo.setAlias(f"{info.get('title') or tipo} · {S.field_title(definicion) or campo}")
+        self._fields.append(nuevo)
 
     def _filtros_de_partes(self):
         """Los filtros por partes y fechas de la URI, comprobados contra el esquema."""
@@ -503,6 +523,8 @@ class GeosianProvider(QgsVectorDataProvider):
         filtro lo evalúa QGIS.
         """
         extra = dict(self._filter)
+        if getattr(self, "_ai_attr", None):
+            extra["include_ai_attr"] = ".".join(self._ai_attr)
         for clave, valor in self._filtros_uri.items():
             extra.setdefault(clave, valor)
         for clave, valor in self._subset_params.items():
@@ -649,6 +671,14 @@ class GeosianProvider(QgsVectorDataProvider):
             nombre = campo.name()
             if nombre == "id":
                 valores.append(fid)
+                continue
+
+            if nombre.startswith(views.PREFIJO_PARTES):
+                # Lo que la API añade con include_ai_attr, anidado por tipo de parte.
+                tipo, _, de = nombre[len(views.PREFIJO_PARTES):].partition(".")
+                partes = propiedades.get("additional_info") or {}
+                valor = (partes.get(tipo) or {}).get(de) if isinstance(partes, dict) else None
+                valores.append(_como_texto(valor))
                 continue
 
             if nombre in propiedades:
@@ -1252,6 +1282,16 @@ def _como_lista(valor):
     if isinstance(valor, str):
         return [valor] if valor.strip() else None
     return [valor]
+
+
+def _como_texto(valor):
+    """Un valor de parte como lo escribe ``String()`` en la web, que es con lo que casa
+    las categorías de la vista: ``["Poda", "Tala"]`` es ``"Poda,Tala"``."""
+    if isinstance(valor, bool):
+        return "true" if valor else "false"
+    if isinstance(valor, list):
+        return ",".join("" if v is None else _como_texto(v) for v in valor)
+    return valor
 
 
 def _a_la_vista(texto):

@@ -258,6 +258,20 @@ VISTA_CONTORNOS = {
                          {"threshold": 5, "color": [240, 59, 32, 200], "strokeWidth": 3}]}},
 }
 
+VISTA_POR_PARTES = {
+    "id": 12,
+    "layer": 11,
+    "name": "Por labor",
+    "context_type": "elements",
+    "filter_config": {"query_groups": []},
+    "style_config": {"visualization": "default", "color": {
+        "mode": "categorized", "attribute": "additional_info.parte_poda.labor",
+        "attributeSource": "additional_info",
+        "categories": {"Poda": {"color": [255, 0, 0, 230], "label": "Poda"},
+                       "Aclareo": {"color": [0, 0, 255, 230], "label": "Aclareo"}},
+        "default": {"color": [158, 158, 158, 230], "label": "Otros"}}},
+}
+
 VISTA_TILOS = {
     "id": 7,
     "layer": 11,
@@ -300,6 +314,18 @@ def _pagina_de_elementos(consulta, lasso=None):
             if e["geometry"]
             and min(xs) <= e["geometry"]["coordinates"][0] <= max(xs)
             and min(ys) <= e["geometry"]["coordinates"][1] <= max(ys)
+        ]
+    # include_ai_attr=<tipo>.<campo>: el valor del último parte de cada elemento, en
+    # properties.additional_info.<tipo>.<campo>, como el backend.
+    pedido = consulta.get("include_ai_attr", [""])[0]
+    if pedido == "parte_poda.labor":
+        # El 1003, como lista: en los datos reales hay selecciones con un valor de los dos modos.
+        valores = {1001: "Poda", 1002: "Aclareo", 1003: ["Poda"]}
+        elementos = [
+            {**e, "properties": {**e["properties"], "additional_info": {
+                "parte_poda": {"labor": valores[e["properties"]["id"]]}}}}
+            if e["properties"]["id"] in valores else e
+            for e in elementos
         ]
     if consulta.get("no_geometry") == ["true"]:
         # Como la API desde el PR de no_geometry en /paginated/: los atributos, sin forma.
@@ -421,6 +447,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(VISTA_CALOR)
         elif ruta == "/api/v1/layer-views/11/":
             self._json(VISTA_CONTORNOS)
+        elif ruta == "/api/v1/layer-views/12/":
+            self._json(VISTA_POR_PARTES)
 
         elif ruta == "/api/v1/layer-views/7/":
             self._json(VISTA_TILOS)
