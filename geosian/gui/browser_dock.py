@@ -615,7 +615,9 @@ class GeosianBrowserDock(QDockWidget):
             return None
         capa.setCustomProperty(aggregated.PROPIEDAD, json.dumps(info))
         capa.setRenderer(symbology.hexagon_renderer(estilo))
-        capa.setOpacity(estilo["opacity"])
+        # Por teselas, la web pinta las celdas sin la opacidad de la vista (useMvtLayers no
+        # se la pasa); en GeoJSON, con ella.
+        capa.setOpacity(1.0 if _por_teselas(proveedor) else estilo["opacity"])
         leyendas.poner_leyenda_de_densidad(capa, styles.ramp_colors(estilo["ramp"], 6))
         return capa
 
@@ -639,6 +641,7 @@ class GeosianBrowserDock(QDockWidget):
         try:
             resolver = symbology.field_resolver(proveedor.fields(), proveedor.attr_map)
             tipo = proveedor.layer_uri.geometry_type
+            teselas = _por_teselas(proveedor) if proveedor.view is not None else True
             if proveedor.view is not None:
                 renderizador, avisos = symbology.view_renderer(
                     proveedor.view.get("style_config"),
@@ -646,16 +649,19 @@ class GeosianBrowserDock(QDockWidget):
                     proveedor.schema,
                     resolver,
                     iconos=icon_store.default_store().path,
-                    teselas=_por_teselas(proveedor),
+                    teselas=teselas,
                 )
             else:
                 renderizador, avisos = symbology.base_renderer(proveedor.schema, tipo, resolver)
             capa.setRenderer(renderizador)
             if proveedor.view is not None:
                 config = proveedor.view.get("style_config") or {}
-                if (config.get("visualization") or "default") != "default":
-                    # Como la web: las visualizaciones avanzadas (calor, iconos…) se
-                    # pintan con la opacidad de la vista; las normales la llevan en el color.
+                visualizacion = config.get("visualization") or "default"
+                # Como la web: las visualizaciones avanzadas (calor, iconos…) se pintan con
+                # la opacidad de la vista y las normales la llevan en el color. Salvo los
+                # iconos que la web lleva por teselas, que van sin ella.
+                icono = styles.view_style(config, tipo, proveedor.schema, teselas).get("icon") or {}
+                if visualizacion != "default" and not icono.get("por_teselas"):
                     capa.setOpacity(styles.view_opacity(config))
             for aviso in avisos:
                 proveedor.log_warning(f"{capa.name()}: {aviso}")

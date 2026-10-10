@@ -356,19 +356,27 @@ def test_los_contornos_son_isolineas_por_umbral_con_su_color_y_grosor(app):
             connections.remove_connection("Contornos")
 
 
-@pytest.mark.parametrize("vista, opacidad", [
-    ({"id": 10, "name": "Calor"}, 0.9),     # calor en capa pequeña: 0,9 por omisión
-    ({"id": 8, "name": "Iconos"}, 0.9),     # iconos, también
-    ({"id": 7, "name": "Tilos"}, 1.0),      # una vista normal: la transparencia va en el color
+MVT = {"mode": "mvt", "auto_threshold": 5000}
+
+
+@pytest.mark.parametrize("vista, tile_config, opacidad", [
+    ({"id": 10, "name": "Calor"}, None, 0.9),      # calor: 0,9 por omisión
+    ({"id": 10, "name": "Calor"}, MVT, 0.9),       # también por teselas (maps.jsx, aggData)
+    ({"id": 8, "name": "Iconos"}, None, 0.9),      # iconos en GeoJSON, también
+    ({"id": 9, "name": "Densidad"}, None, 0.7),    # hexágonos en GeoJSON, la suya (createViewHexagonLayer)
+    ({"id": 9, "name": "Densidad"}, MVT, 1.0),     # por teselas, la web no la aplica
+    ({"id": 7, "name": "Tilos"}, None, 1.0),       # una vista normal: la transparencia va en el color
 ])
-def test_la_opacidad_de_la_vista_como_la_web(app, vista, opacidad):
+def test_la_opacidad_de_la_vista_como_la_web(app, vista, tile_config, opacidad):
     """``point.opacity`` (0,9 si no dice) es la opacidad de las visualizaciones avanzadas
-    en la web; en las normales no cuenta."""
+    en la web, salvo en su camino por teselas para hexágonos e iconos (``useMvtLayers``
+    no la pasa); en las normales no cuenta."""
     from qgis.core import QgsProject
 
     from tests.fake_server import FakeGeosian
 
     with FakeGeosian() as fake:
+        fake.poner_tile_config(tile_config)
         try:
             [capa] = _añadir_vista(fake, "Opacidad", vista)
             assert abs(capa.opacity() - opacidad) < 1e-6
