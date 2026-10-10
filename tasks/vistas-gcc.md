@@ -99,7 +99,7 @@ puntos con aviso.
       con nombre ficticio desde el shell de Django local (nunca en devel ni producción).
 
 ### Decididas el 10/10
-- [ ] Celdas como la web: la capa de teselas de hexágonos y H3 pide el mismo zoom que deck.gl
+- [x] Celdas como la web: la capa de teselas de hexágonos y H3 pide el mismo zoom que deck.gl
       (un nivel menos que ahora), para que las celdas y sus colores sean los de la web.
 - [ ] Sin costuras entre teselas: las celdas de hexágonos y H3 como polígonos enteros (leer las
       teselas y unir cada celda una vez), sin la capa de teselas vectoriales de QGIS.
@@ -339,6 +339,18 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
     mapas, ninguno distinto); la cuenta de pruebas quedó con todas sus capas visibles.
   **No igualado** (va a las decisiones): el núcleo del calor (abajo) y el tamaño de las celdas.
 
+- 10/10 · Celdas como la web. **El zoom no era**: medido en la web (`selectedTiles` del
+  `MVTLayer`: zoom de la vista 13,0, teselas z=13) y en QGIS con el mismo encuadre
+  (`scaleToZoomLevel`: 13); las dos redondean el zoom igual. Las celdas parecían más pequeñas
+  porque QGIS mete el mismo ancho en un lienzo más estrecho; el hallazgo de «un zoom más» era
+  falso. Lo que las aclaraba era la **opacidad**: por teselas, la web no aplica `point.opacity`
+  a las celdas de hexágonos y H3 ni a los iconos (`useMvtLayers` no se la pasa; sí al calor y
+  a los contornos, `maps.jsx` con `aggData`), y QGIS la ponía siempre (0,9 por omisión) además
+  del alfa 200. Ahora solo la pone donde la web: en GeoJSON, y al calor y los contornos.
+  Prueba `test_la_opacidad_de_la_vista_como_la_web` ampliada con el modo de carga (fallaban
+  los dos casos de hexágonos). Comprobado en la QGIS de pruebas con la vista 90 junto a la web:
+  mismos colores (`scratchpad/vistas/lado-90.png`). Suite 264 en QGIS 4 y 261 (+3) en 3.34.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión)_
@@ -355,10 +367,7 @@ _(lo que no es del plugin o pide una decisión)_
   calientes (`scratchpad/vistas/lado-127.png`). QGIS no deja elegir el núcleo de su
   renderizador de calor; se podría acercar con un radio menor (un factor medido) o pintar el
   calor como un ráster propio. Decidir si compensa.
-- **Tamaño de las celdas de hexágonos**: QGIS pide teselas de un zoom más que deck.gl en el
-  mismo encuadre, así que sus celdas son más pequeñas, cuentan menos puntos y salen más claras
-  (`scratchpad/vistas/lado-90.png`). Se igualaría limitando el zoom de la capa de teselas un
-  nivel; decidir si se quiere igual que la web o más detalle.
+- ~~Tamaño de las celdas de hexágonos~~: falso, era la opacidad (ver «Celdas como la web»).
 - **Nombres reservados no declarados**: si los datos traen `id` (u otro nombre reservado) sin
   que el esquema lo declare, la web lo lee del alias `attr__id` y QGIS no tiene ese campo. Pasa
   en el arbolado de Cáceres. Decidir si el complemento debe crear esos campos.
