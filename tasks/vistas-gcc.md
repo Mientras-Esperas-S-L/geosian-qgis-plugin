@@ -57,7 +57,7 @@ puntos con aviso.
 - [x] `hexagon`: esa capa con relleno por `count`, rampa de 6, escala logarítmica con
       `colorMax`, alfa 200 y la opacidad de la vista; leyenda «Baja densidad / Alta densidad».
 - [x] `h3hexagon`: como lo pinta la web sobre una capa grande (los hexágonos del servidor).
-- [ ] DECIDE · H3 de verdad en capas pequeñas: la web usa `h3-js` con `resolution` en el
+- [x] DECIDE (10/10: no; se iguala el zoom de las celdas, abajo) · H3 de verdad en capas pequeñas: la web usa `h3-js` con `resolution` en el
       navegador; QGIS no trae H3 (habría que llevar la biblioteca `h3` o implementar la
       rejilla). Hoy van los hexágonos del servidor, como la web en capas grandes.
 
@@ -97,6 +97,16 @@ puntos con aviso.
 - [x] Cada tipo lado a lado con la web local, con captura de la ventana entera de QGIS, en
       capas pequeñas y grandes. Si en local falta algún tipo de vista, crear una de prueba
       con nombre ficticio desde el shell de Django local (nunca en devel ni producción).
+
+### Decididas el 10/10
+- [ ] Celdas como la web: la capa de teselas de hexágonos y H3 pide el mismo zoom que deck.gl
+      (un nivel menos que ahora), para que las celdas y sus colores sean los de la web.
+- [ ] Sin costuras entre teselas: las celdas de hexágonos y H3 como polígonos enteros (leer las
+      teselas y unir cada celda una vez), sin la capa de teselas vectoriales de QGIS.
+- [ ] Calor con el radio corregido: medir el factor que acerca la mancha del núcleo cuártico de
+      QGIS a la del gaussiano de deck.gl y aplicarlo al `radiusPixels` de la vista.
+- [ ] Backend: `subscribe_map` del websocket comprueba que el usuario puede ver el mapa, con su
+      prueba y su PR, sin fusionar.
 
 ## Hecho
 
