@@ -107,7 +107,12 @@ def value_key(valor):
 
 def geometry_default(schema, geometry_type):
     """Color por geometría (``getGeometryStyleColors``) cuando no hay reglas."""
-    geometrias = ((schema or {}).get("styles") or {}).get("geometries") or {}
+    # Una capa sin esquema (``/layer-attributes/`` da una lista vacía) la pinta la web
+    # gris, sea cual sea su geometría: ``getFeatureColor`` corta antes de mirar el tipo.
+    if not schema:
+        return FALLBACK_ANY
+    crudo = ((schema or {}).get("styles") or {}).get("geometries")
+    geometrias = crudo or {}
     familia = geometry_family(geometry_type)
 
     if familia == "point":
@@ -124,6 +129,10 @@ def geometry_default(schema, geometry_type):
             return hex_to_rgba(estilo["color"])
         return FALLBACK_LINE
 
+    # Sin bloque de geometrías (falsy en JavaScript: ausente o null; {} no lo es), la web
+    # pinta el violeta opaco (POLYGON_COLORS[0]); con él, la opacidad por defecto es 0,5.
+    if crudo is None or crudo is False or crudo == "" or crudo == 0:
+        return FALLBACK_POLYGON + (255,)
     estilo = geometrias.get("polyStyle") or {}
     try:
         opacidad = float(estilo.get("fill-opacity", 0.5))
@@ -290,6 +299,16 @@ def view_style(style_config, geometry_type, schema=None, teselas=True):
         resultado["unsupported"] = visualizacion
 
     modo = color.get("mode") or config.get("mode") or "single"
+    # Diámetro del círculo de la vista: ``(metros, mínimo px, máximo px)``, o metros
+    # ``None`` si es fijo. Por teselas, el radio de la vista en metros, entre 3 px y
+    # el propio radio (``mvtLayerGenerator.js``); en GeoJSON, 6 px fijos
+    # (``useViewLayersLegacy.js``). No el tamaño de la capa sin vista.
+    punto = config.get("point") if isinstance(config.get("point"), dict) else {}
+    if teselas and visualizacion == "default" and modo in ("single", "categorized"):
+        radio = _number_or(punto.get("radius"), 0) or 8
+        resultado["point_size"] = (2 * radio, 6, 2 * radio)
+    else:
+        resultado["point_size"] = (None, 12, 12)
 
     icono = config.get("icon") if isinstance(config.get("icon"), dict) else {}
     defecto = icono.get("defaultIcon") if isinstance(icono.get("defaultIcon"), dict) else {}

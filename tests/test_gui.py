@@ -1240,3 +1240,16 @@ def test_la_sesion_que_caduca_a_mitad_avisa_una_vez(app_gui):
     finally:
         sesion.unwatch_expired()
         conexiones.clear_expired()
+
+
+def test_el_panel_de_fotos_con_un_elemento_vacio_no_revienta(app):
+    """Los subformularios de partes le pasan al panel un elemento vacío cuando no hay ninguno
+    seleccionado; antes eso daba ``KeyError: '0'`` y la barra roja de error de Python."""
+    from qgis.core import QgsFeature, QgsVectorLayer
+
+    from geosian.gui import media_widget
+
+    capa = QgsVectorLayer("Point?crs=EPSG:4326&field=id:integer", "partes", "memory")
+    envoltorio = media_widget.MediaWidgetWrapper(capa, 0, None, None)
+    envoltorio.setFeature(QgsFeature())
+    assert envoltorio.value() is None

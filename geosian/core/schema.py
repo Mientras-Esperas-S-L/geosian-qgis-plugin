@@ -54,6 +54,31 @@ def flatten_attributes(schema):
     return salida
 
 
+def merged_attributes(schema):
+    """Como ``flatten_attributes``, pero un atributo por nombre.
+
+    Un mismo dato puede definirse en varias ramas del formulario (en el arbolado de Cáceres,
+    «Especie» en la de árboles y en la de palmeras, cada una con su lista): la web enseña la
+    que toca, pero es un solo dato y en QGIS un solo campo. Se queda la primera definición, con
+    los valores permitidos de todas, en orden y sin repetir.
+    """
+    salida, por_nombre = [], {}
+    for attr in flatten_attributes(schema):
+        nombre = attr.get("name")
+        if not nombre or nombre not in por_nombre:
+            copia = dict(attr)
+            salida.append(copia)
+            if nombre:
+                por_nombre[nombre] = copia
+            continue
+        primero = por_nombre[nombre]
+        valores = allowed_values(primero)
+        nuevos = [v for v in allowed_values(attr) if v not in valores]
+        if nuevos:
+            primero["allowed_values"] = valores + nuevos
+    return salida
+
+
 def _walk(atributos, path, salida):
     for attr in atributos:
         if not isinstance(attr, dict):
