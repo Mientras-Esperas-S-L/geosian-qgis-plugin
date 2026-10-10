@@ -394,3 +394,59 @@ def test_una_vista_que_colorea_por_un_campo_de_los_partes(app):
         finally:
             QgsProject.instance().clear()
             connections.remove_connection("PorPartes")
+
+
+def test_graduado_y_peso_del_calor_por_un_campo_de_los_partes(app):
+    """El valor de un parte llega como texto (``include_ai_attr``); graduar o pesar el
+    calor por él tiene que pedirlo y leerlo como número, igual que un campo de la capa."""
+    from qgis.core import (
+        QgsExpression,
+        QgsExpressionContext,
+        QgsExpressionContextUtils,
+        QgsFeature,
+        QgsRenderContext,
+        QgsVectorLayer,
+    )
+
+    from geosian.core import symbology, views
+
+    campo = "additional_info.parte_poda.altura"
+    for clave in ("heatmap", "contour"):
+        assert views.ai_attribute({clave: {"weightAttribute": campo}}) == ("parte_poda", "altura")
+    assert views.ai_attribute({"color": {"mode": "graduated", "attribute": campo}}) == (
+        "parte_poda", "altura")
+    assert views.ai_attribute({"color": {"attribute": "altura"}}) is None
+
+    capa = QgsVectorLayer(f'Point?crs=EPSG:4326&field=id:integer&field={campo}:string', "p", "memory")
+    elementos = []
+    for fid, valor in ((1, "3"), (2, "12")):
+        f = QgsFeature(capa.fields())
+        f.setAttributes([fid, valor])
+        elementos.append(f)
+    capa.dataProvider().addFeatures(elementos)
+    resolver = symbology.field_resolver(capa.fields(), {})
+
+    graduado, avisos = symbology.view_renderer(
+        {"color": {"mode": "graduated", "attribute": campo, "breaks": [0, 10, 20],
+                   "colors": [[255, 0, 0], [0, 0, 255]]}}, "points", {}, resolver)
+    assert not avisos
+    contexto = QgsRenderContext()
+    contexto.setExpressionContext(
+        QgsExpressionContext(QgsExpressionContextUtils.globalProjectLayerScopes(capa)))
+    graduado.startRender(contexto, capa.fields())
+    colores = {}
+    for f in capa.getFeatures():
+        contexto.expressionContext().setFeature(f)
+        colores[f["id"]] = graduado.symbolForFeature(f, contexto).color().name()
+    graduado.stopRender(contexto)
+    assert colores == {1: "#ff0000", 2: "#0000ff"}
+
+    calor, _ = symbology.view_renderer(
+        {"visualization": "heatmap", "heatmap": {"weightAttribute": campo}}, "points", {}, resolver)
+    expresion = QgsExpression(calor.weightExpression())
+    ctx = QgsExpressionContext(QgsExpressionContextUtils.globalProjectLayerScopes(capa))
+    pesos = []
+    for f in capa.getFeatures():
+        ctx.setFeature(f)
+        pesos.append(expresion.evaluate(ctx))
+    assert pesos == [3.0, 12.0]

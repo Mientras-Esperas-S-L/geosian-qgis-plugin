@@ -221,6 +221,8 @@ _(lo que no es del plugin o pide una decisión)_
   Comprobado en la QGIS de pruebas contra una API temporal con el arreglo (puerto 8012,
   parada al acabar), vista «Poda» del arbolado de Cáceres: 49.551 árboles, 13.160
   «Mantenimiento», 1.182 «Tala», etc., y 34.110 sin parte en «Otros»; contra la API sin el
-  arreglo, todos vacíos (`scratchpad/vistas/poda-partes-qgis.png`). Commit 889a0e3. **No
-  comprobado**: `graduated` y peso del calor por un campo de parte con datos reales (solo la
-  prueba de `ai_attribute`), y la comparación con la web, que va en el repaso.
+  arreglo, todos vacíos (`scratchpad/vistas/poda-partes-qgis.png`). Commit 889a0e3. Prueba aparte
+  `test_graduado_y_peso_del_calor_por_un_campo_de_los_partes`: el texto del parte se lee como
+  número al graduar y al pesar el calor (no falla sin arreglo: cubre lo que ya hacía
+  `to_real`). **No comprobado**: `graduated` y calor por un campo de parte con datos reales
+  (en local no hay vistas así), y la comparación con la web, que va en el repaso.
