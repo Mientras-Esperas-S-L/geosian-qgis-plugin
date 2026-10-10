@@ -376,8 +376,8 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   QGIS de pruebas junto a la web con las vistas 127 y 128: mismas manchas, mismos puntos
   calientes y el borde negro de `inferno` (`scratchpad/vistas/lado-12{7,8}.png`). Suite 266 en
   QGIS 4 y 263 (+3) en 3.34. **Queda**: la web, por teselas, calcula el calor con los centroides
-  de las celdas (`cells=96`) y QGIS, en capas pequeñas, con los puntos; de lejos la web es algo
-  más grumosa.
+  de las celdas (`cells=96`) y QGIS, en capas pequeñas, con los puntos; no he medido cuánto
+  cambia eso la mancha.
 
 ## Hallazgos para decidir
 
