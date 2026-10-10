@@ -105,7 +105,7 @@ puntos con aviso.
       teselas y unir cada celda una vez), sin la capa de teselas vectoriales de QGIS.
 - [x] Calor con el radio corregido: medir el factor que acerca la mancha del núcleo cuártico de
       QGIS a la del gaussiano de deck.gl y aplicarlo al `radiusPixels` de la vista.
-- [ ] Backend: `subscribe_map` del websocket comprueba que el usuario puede ver el mapa, con su
+- [x] Backend: `subscribe_map` del websocket comprueba que el usuario puede ver el mapa, con su
       prueba y su PR, sin fusionar.
 
 ## Hecho
@@ -379,6 +379,17 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   de las celdas (`cells=96`) y QGIS, en capas pequeñas, con los puntos; no he medido cuánto
   cambia eso la mancha.
 
+- 10/10 · Permisos del websocket. `subscribe_map` (`consumers_layer.py`) comprueba con
+  `filter_maps_by_permissions`, como la API REST; si no ve el mapa (o el id no es un número),
+  contesta `subscribe_denied` y no da de alta. Rama `fix/websocket-permiso-mapa`, PR
+  greencity-backend#298 sin fusionar; `tests/test_websocket_permiso_mapa.py` (los rechazos
+  fallaban), probado sobre el consumidor con una capa de canales falsa porque la imagen de
+  pruebas no tiene `daphne` (`channels.testing` lo pide). Batería: 4.178 bien, la de IoT de
+  la fecha de siempre. De punta a punta en local con la cuenta de auditoría (solo ve el mapa 3)
+  y dos ASGI de prueba (sin y con el cambio, parados al acabar): sin él se apunta al 19 y le
+  llega su aviso; con él, `subscribe_denied` en el 19 y solo le llega el del 3. **No cubierto**:
+  a quien ya está apuntado y pierde el permiso no se le da de baja hasta que se reconecta.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión)_
@@ -386,7 +397,7 @@ _(lo que no es del plugin o pide una decisión)_
   tesela y se ven líneas finas donde se juntan; la web las pinta sin recorte. Se quitaría
   pidiendo las celdas como polígonos sueltos (proveedor propio que decodifique las teselas)
   en vez de capa de teselas vectoriales. Más trabajo; decidir si compensa.
-- **El websocket no comprueba permisos al suscribirse**: `subscribe_map` (`consumers_layer.py`)
+- ~~**El websocket no comprueba permisos al suscribirse**~~ (decidido el 10/10, hecho: #298): `subscribe_map` (`consumers_layer.py`)
   mete en el grupo de cualquier mapa a cualquier usuario autenticado, sin mirar si puede verlo.
   Recibe los avisos de cambios (capa, elemento y usuario que cambió), no los datos. No es del
   complemento ni de las vistas; decidir si va en su propio PR.
