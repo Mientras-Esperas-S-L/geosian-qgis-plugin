@@ -201,13 +201,6 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   palmeras de Algeciras, 0,9 (`scratchpad/vistas/iconos-qgis.png`). Suite 241 en QGIS 4 y 238
   (+3) en 3.34.
 
-## Hallazgos para decidir
-
-_(lo que no es del plugin o pide una decisión)_
-- **Costuras entre teselas en las agregadas**: QGIS recorta cada celda al borde de su
-  tesela y se ven líneas finas donde se juntan; la web las pinta sin recorte. Se quitaría
-  pidiendo las celdas como polígonos sueltos (proveedor propio que decodifique las teselas)
-  en vez de capa de teselas vectoriales. Más trabajo; decidir si compensa.
 - 10/10 · Atributos de información adicional en el estilo. Una vista que colorea o pesa por
   `additional_info.<tipo>.<campo>` (`views.ai_attribute`: color, `weightAttribute` de calor y
   contornos) pide `include_ai_attr=<tipo>.<campo>` y la capa tiene ese campo con el nombre de
@@ -226,3 +219,25 @@ _(lo que no es del plugin o pide una decisión)_
   número al graduar y al pesar el calor (no falla sin arreglo: cubre lo que ya hacía
   `to_real`). **No comprobado**: `graduated` y calor por un campo de parte con datos reales
   (en local no hay vistas así), y la comparación con la web, que va en el repaso.
+  **Tiempo real** (lo preguntaste el 10/10): crear y editar un parte ya avisaban por websocket;
+  borrarlo, no, y el árbol seguía con el color del parte borrado. Arreglado en la rama
+  `fix/aviso-al-borrar-parte`, PR greencity-backend#297 sin fusionar, con su prueba (fallaba).
+  Comprobado de punta a punta en la QGIS de pruebas con la API y el websocket locales con los dos
+  arreglos: llegan `create` y `delete`, QGIS vuelve a pedir la capa solo y el árbol pasa de gris
+  a «Tala» y otra vez a gris, sin leer nada desde QGIS antes de capturar
+  (`scratchpad/vistas/poda-tiempo-real-{antes,creado,borrado}.png`). El parte de prueba se borró.
+  Trampa del banco: la batería del backend vacía la caché de Redis (`cache.clear()`) y en
+  desarrollo esa base es la misma que la de las suscripciones del websocket; el primer intento
+  falló por eso, no por el producto.
+
+## Hallazgos para decidir
+
+_(lo que no es del plugin o pide una decisión)_
+- **Costuras entre teselas en las agregadas**: QGIS recorta cada celda al borde de su
+  tesela y se ven líneas finas donde se juntan; la web las pinta sin recorte. Se quitaría
+  pidiendo las celdas como polígonos sueltos (proveedor propio que decodifique las teselas)
+  en vez de capa de teselas vectoriales. Más trabajo; decidir si compensa.
+- **El websocket no comprueba permisos al suscribirse**: `subscribe_map` (`consumers_layer.py`)
+  mete en el grupo de cualquier mapa a cualquier usuario autenticado, sin mirar si puede verlo.
+  Recibe los avisos de cambios (capa, elemento y usuario que cambió), no los datos. No es del
+  complemento ni de las vistas; decidir si va en su propio PR.
