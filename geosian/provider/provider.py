@@ -27,7 +27,14 @@ from qgis.core import (
     QgsVectorDataProvider,
     QgsWkbTypes,
 )
-from qgis.PyQt.QtCore import QCoreApplication, QObject, Qt, QTimeZone, pyqtSignal
+from qgis.PyQt.QtCore import (
+    QCoreApplication,
+    QObject,
+    Qt,
+    QTimeZone,
+    QVariant,
+    pyqtSignal,
+)
 
 from ..core import compat, connections, definitions, lad, media, views
 from ..core import schema as S
@@ -136,6 +143,7 @@ class GeosianProvider(QgsVectorDataProvider):
         self._valid = False
         self._error = ""
         self._fields = None
+        self._listas = None
         self._attr_map = {}
         self._schema = {}
         self._wkb_type = QgsWkbTypes.Unknown
@@ -620,6 +628,22 @@ class GeosianProvider(QgsVectorDataProvider):
 
     def _attributes_from(self, propiedades, fid):
         """Ordena las propiedades del GeoJSON según los campos de la capa."""
+        valores = self._valores_de(propiedades, fid)
+        for i in self._campos_lista():
+            valores[i] = _como_lista(valores[i])
+        return valores
+
+    def _campos_lista(self):
+        """Índices de los campos de selección múltiple, calculados una vez por esquema."""
+        if self._listas is None or self._listas[0] is not self._fields:
+            indices = [
+                i for i in range(self._fields.count())
+                if self._fields.at(i).type() == QVariant.StringList
+            ]
+            self._listas = (self._fields, indices)
+        return self._listas[1]
+
+    def _valores_de(self, propiedades, fid):
         valores = []
         for campo in self._fields:
             nombre = campo.name()
@@ -1208,6 +1232,19 @@ class _Avisos(QObject):
 
 
 _avisos = {"objeto": None}
+
+
+def _como_lista(valor):
+    """Una selección múltiple con un valor suelto, como lista de uno.
+
+    Los datos guardan a veces un texto donde el esquema dice ``multiple``; la web
+    acepta las dos formas, y QGIS pintaba el texto letra a letra.
+    """
+    if valor is None or isinstance(valor, list):
+        return valor
+    if isinstance(valor, str):
+        return [valor] if valor.strip() else None
+    return [valor]
 
 
 def _a_la_vista(texto):

@@ -1070,3 +1070,21 @@ def test_sin_red_se_avisa_en_la_barra_una_vez(capa, monkeypatch):
         assert "sin conexión" in aviso.lower()
     finally:
         connections._sin_red.clear()
+
+
+def test_una_seleccion_multiple_con_un_valor_suelto_llega_como_lista(capa):
+    """En Melilla, «Zona» y «Barrio» son de selección múltiple, pero muchos elementos
+    guardan un texto suelto («Zona Victoria»). QGIS lo pintaba letra a letra, con comas."""
+    proveedor = capa.dataProvider()
+    idx = capa.fields().indexOf("operacion")
+    valores = proveedor._attributes_from({"operacion": "Poda"}, 1)
+    assert valores[idx] == ["Poda"]
+    assert proveedor._attributes_from({"operacion": ["Poda", "Tala"]}, 1)[idx] == ["Poda", "Tala"]
+    assert proveedor._attributes_from({"operacion": ""}, 1)[idx] is None
+    assert proveedor._attributes_from({}, 1)[idx] is None
+
+
+def test_la_seleccion_multiple_usa_el_editor_de_listas(capa):
+    """Con el editor de texto por omisión, QGIS 4 pintaba la lista como «Z, ,, , ,,»."""
+    lad.apply_editor_config(capa, capa.dataProvider().schema)
+    assert capa.editorWidgetSetup(capa.fields().indexOf("operacion")).type() == "List"

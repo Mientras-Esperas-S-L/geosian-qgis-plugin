@@ -76,7 +76,7 @@ plugin y empezar la fase de escritura.
       (4 y 3.34), en verde en la rama.
 - [x] README de usuario en castellano: instalar, conectar (con doble factor), abrir un mapa,
       vistas, partes, fotos, filtros, etiquetas, fondos, tiempo real y qué no hace aún.
-- [ ] Repaso final contra la web en Melilla (local y devel): capas, vistas, ficha, partes,
+- [x] Repaso final contra la web en Melilla (local y devel): capas, vistas, ficha, partes,
       fotos, filtros, etiquetas, fondo y estructura, con capturas lado a lado en el scratchpad.
 
 ### Para decidir (DECIDE: no se hacen sin el usuario)
@@ -278,6 +278,24 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   los nombres de menús y acciones son los que tiene el complemento. Quité lo que no he visto
   funcionar (que una foto nueva llegue sola). **No comprobado**: que alguien de fuera lo siga
   paso a paso.
+- 10/10 · Repaso final contra la web local (pestaña propia de `localhost:3000`, sesión de
+  `tester2`; en QGIS la conexión «Local» con la clave local de `tester2`, que ya existía, solo
+  en memoria). Capturas lado a lado en `scratchpad/repaso/`: **mapa entero** (01: mismas capas,
+  mismas vistas activas —arbolado por barrio, mobiliario por tipo—, mismos colores y fondo),
+  **ficha** del árbol 470794-ac096465 (02) y sus **partes** (03: los mismos dos, mismos
+  usuarios y fechas). **Fallo encontrado**: en QGIS 4, «Zona», «Barrio» y «Marcado como»
+  (selección múltiple) salían como «Z, ,, , ,,». Dos causas: los datos guardan a veces un texto
+  suelto donde el esquema dice `multiple` (la web acepta las dos formas) y QGIS ponía su
+  editor de texto, que en QGIS 4 pinta así una lista. Ahora el valor suelto llega como lista de
+  uno y esos campos usan el editor de listas: «Zona Victoria», «Virgen de la Victoria».
+  Pruebas `test_una_seleccion_multiple_con_un_valor_suelto_llega_como_lista` y
+  `test_la_seleccion_multiple_usa_el_editor_de_listas` (fallaban); suite 216 en QGIS 4 y 213
+  (+3 saltadas) en 3.34. Lo demás del repaso ya estaba comprobado en sus casillas (filtros,
+  etiquetas, fondos, fotos, tiempo real). **No comprobado contra la web de devel**: la cuenta
+  de auditoría no tiene contraseña y las demás piden doble factor; contra la API de devel sí
+  (casilla 1). Diferencias que quedan, ya en «para decidir»: la web oculta los campos vacíos
+  («Marcado como» sale en QGIS y no en la web) y el pie de la lista de partes de la web dice
+  «1-10 de 10» con 2 (PR #202 sin fusionar).
 
 ## Hallazgos para decidir
 

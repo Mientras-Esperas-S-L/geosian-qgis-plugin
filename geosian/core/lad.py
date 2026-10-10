@@ -213,12 +213,14 @@ def _widget_setup(attr):
             },
         )
 
+    if S.is_multiple(attr):
+        # QGIS no tiene desplegable de selección múltiple sobre una lista fija
+        # sin capa de referencia: el editor de listas, y la comprobación de
+        # valores la hace el servidor. Hay que pedirlo: el que QGIS pone por
+        # omisión a una lista es el de texto, que en QGIS 4 la pinta «Z, ,, ,».
+        return QgsEditorWidgetSetup("List", {})
+
     if tipo in S.CHOICE_TYPES and valores:
-        if S.is_multiple(attr):
-            # QGIS no tiene desplegable de selección múltiple sobre una lista
-            # fija sin capa de referencia. Se queda con el editor de lista
-            # nativo y la comprobación de valores la hace el servidor.
-            return None
         return QgsEditorWidgetSetup(
             "ValueMap", {"map": [{str(v): str(v)} for v in valores]}
         )
