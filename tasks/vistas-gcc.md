@@ -74,9 +74,13 @@ puntos con aviso.
       (`agg=hex&geom=centroid&cells=96`, peso `weight` o `count`) como puntos de un calor de
       QGIS; si no se puede con teselas, las celdas como polígonos coloreados por `density`
       (lo que hace la web en móvil). Anotar cuál.
-- [ ] `contour`: rejilla de `cellSize` metros con la suma (o media) de los puntos, isolíneas por
+- [x] `contour`: rejilla de `cellSize` metros con la suma (o media) de los puntos, isolíneas por
       cada `threshold` con su `color` y `strokeWidth`. Capas pequeñas con sus puntos; grandes
       con los centroides del servidor.
+
+- [ ] Contornos sin congelar la ventana: hoy se piden las teselas y se trazan al añadir la
+      capa, en el hilo de la ventana (8,1 s en el arbolado de Cáceres, 64 teselas por unos
+      árboles sueltos lejos). Calcular en segundo plano y pintar al terminar.
 
 ### Fidelidad de lo que ya hay
 - [ ] Rampas exactas de la web (`colorRamps.js`: 5 colores interpolados a 6, como
@@ -156,6 +160,21 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   celdas cubren la ciudad (`scratchpad/vistas/calor-capa-grande-qgis.png`). Dos cosas vistas:
   el mapa base propio solo cubre España (en Nueva York no hay fondo) y QGIS recorta cada
   celda al borde de su tesela, así que se ven costuras finas (la web pinta sin recorte).
+- 10/10 · `contour`. `core/contours.py`: rejilla de `cellSize` metros (suma o media) e
+  isolíneas por *marching squares*, cerradas, con las sillas resueltas por el centro.
+  `core/mvt.py`: lector mínimo de MVT (propiedades de las celdas; con gzip). Los puntos son los
+  centroides de las celdas del servidor (`agg=hex&geom=centroid&cells=96`) a un zoom en que
+  cada celda mide la mitad de `cellSize`, como mucho 64 teselas: vale para capas pequeñas y
+  grandes, respeta los filtros de la vista, pesa por `weightAttribute` (`&weight=`) y se
+  recalcula con el tiempo real. `gui/contornos.py`: capa de líneas en memoria, una por umbral
+  con su color, su grosor en píxeles y su leyenda «≥ umbral»; la opacidad de la vista. Las
+  bandas (`threshold: [a, b]`) no las crea el editor de la web y se omiten. Pruebas en
+  `test_contornos.py` (7), `test_mvt.py` (2, con un codificador aparte) y
+  `test_los_contornos_son_isolineas_por_umbral_con_su_color_y_grosor` (fallaba); el servidor
+  falso sirve ya teselas. Comprobado con una vista de prueba creada en local («Prueba QGIS ·
+  Contornos», id 121, arbolado de Cáceres, los umbrales por omisión del editor): las cuatro
+  isolíneas sobre la ciudad (`scratchpad/vistas/contornos-qgis.png`). Tarda 8,1 s en el hilo de
+  la ventana: casilla nueva. Suite 237 en QGIS 4 y 234 (+3) en 3.34.
 
 ## Hallazgos para decidir
 

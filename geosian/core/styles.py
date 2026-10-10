@@ -254,8 +254,28 @@ def view_style(style_config, geometry_type, schema=None):
             opacity=view_opacity(config),
         )
         return resultado
+    if visualizacion == "contour" and geometry_family(geometry_type) == "point":
+        # Isolíneas calculadas con las celdas del servidor (``gui/contornos.py``).
+        contorno = config.get("contour") or {}
+        lineas = []
+        for c in contorno.get("contours") or []:
+            if not isinstance(c, dict) or isinstance(c.get("threshold"), (list, tuple)):
+                continue  # las bandas ([a, b]) no las crea el editor de la web
+            umbral = _number_or(c.get("threshold"), None)
+            if umbral is None:
+                continue
+            color = color_from_any(c.get("color")) or (0, 0, 0, 255)
+            lineas.append((umbral, color, _number_or(c.get("strokeWidth"), 1)))
+        resultado.update(
+            kind="contour",
+            cell_size=_number_or(contorno.get("cellSize"), 200),
+            aggregation=str(contorno.get("aggregation") or "SUM").upper(),
+            weight=contorno.get("weightAttribute") or None,
+            contours=sorted(lineas),
+            opacity=view_opacity(config),
+        )
+        return resultado
     if visualizacion not in ("default", "icon"):
-        # Contornos: todavía sin equivalente en QGIS. Se pinta el color.
         resultado["unsupported"] = visualizacion
 
     modo = color.get("mode") or config.get("mode") or "single"

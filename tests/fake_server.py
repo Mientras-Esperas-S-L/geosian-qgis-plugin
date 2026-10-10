@@ -246,6 +246,18 @@ VISTA_CALOR = {
                                  "colorRamp": "inferno"}},
 }
 
+VISTA_CONTORNOS = {
+    "id": 11,
+    "layer": 11,
+    "name": "Contornos",
+    "context_type": "elements",
+    "filter_config": {"query_groups": []},
+    "style_config": {"mode": "single", "visualization": "contour", "point": {"opacity": 0.8},
+                     "contour": {"cellSize": 400, "aggregation": "SUM", "contours": [
+                         {"threshold": 1, "color": [255, 255, 178, 128], "strokeWidth": 1},
+                         {"threshold": 5, "color": [240, 59, 32, 200], "strokeWidth": 3}]}},
+}
+
 VISTA_TILOS = {
     "id": 7,
     "layer": 11,
@@ -327,6 +339,26 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"detail": "Credenciales no válidas"}, 401)
             return
 
+        if ruta.startswith("/api/v1/geodata/tiles/") and ruta.endswith(".mvt"):
+            # Celdas agregadas con su centroide, como el servidor con agg=hex&geom=centroid:
+            # una por elemento (y diez en la del primero, para que haya un grupo).
+            from tests.test_mvt import _tesela
+
+            celdas = []
+            for e in ELEMENTOS:
+                if not e.get("geometry"):
+                    continue
+                lon, lat = e["geometry"]["coordinates"]
+                n = 10 if e["properties"]["id"] == 1001 else 1
+                celdas.append({"count": n, "lng": float(lon), "lat": float(lat)})
+            cuerpo = _tesela("agg", celdas)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/vnd.mapbox-vector-tile")
+            self.send_header("Content-Length", str(len(cuerpo)))
+            self.end_headers()
+            self.wfile.write(cuerpo)
+            return
+
         if ruta == "/api/v1/maps/":
             self._json(MAPAS)
 
@@ -387,6 +419,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(VISTA_HEXAGONOS)
         elif ruta == "/api/v1/layer-views/10/":
             self._json(VISTA_CALOR)
+        elif ruta == "/api/v1/layer-views/11/":
+            self._json(VISTA_CONTORNOS)
 
         elif ruta == "/api/v1/layer-views/7/":
             self._json(VISTA_TILOS)

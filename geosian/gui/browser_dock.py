@@ -51,7 +51,7 @@ from ..core import (
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri
-from . import formulario, leyendas, realtime_hub, sesion
+from . import contornos, formulario, leyendas, realtime_hub, sesion
 from .connection_dialog import ConnectionDialog
 
 ROL_TIPO = Qt.ItemDataRole.UserRole
@@ -575,6 +575,18 @@ class GeosianBrowserDock(QDockWidget):
         config = vista.get("style_config") or {}
         estilo = styles.view_style(config, proveedor.layer_uri.geometry_type, proveedor.schema)
         extra = None
+        if estilo.get("kind") == "contour":
+            authcfg = connections.tile_authcfg(conexion)
+            extension = proveedor.extent()
+            if extension.isNull():
+                return None
+            info = aggregated.describe(
+                conexion, proveedor.layer_uri.map_id, proveedor.layer_uri.layer_id,
+                proveedor._client.base_url, proveedor._extra(), authcfg,
+            )
+            info["bbox"] = [extension.xMinimum(), extension.yMinimum(),
+                            extension.xMaximum(), extension.yMaximum()]
+            return contornos.crear(vectorial.name(), info, estilo)
         if estilo.get("kind") == "heatmap" and proveedor.by_zone:
             # Una capa grande solo se pinta de cerca: de lejos el calor no salía. La
             # web pide celdas finas al servidor; QGIS no puede pintar calor sobre

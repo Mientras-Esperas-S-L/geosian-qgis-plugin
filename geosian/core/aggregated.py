@@ -100,3 +100,57 @@ def count_color_expression(rampa, color_max):
 
 # Las etiquetas de la leyenda de la web para las agregadas, en los extremos.
 LEYENDA = ("Baja densidad", "", "", "", "", "Alta densidad")
+
+
+# Contornos: los centroides de las celdas del servidor, a un zoom en que cada celda mida
+# la mitad de ``cellSize``. Como mucho estas teselas por cálculo; si no caben, menos zoom.
+MAX_TESELAS = 64
+_MUNDO = 40075016.686
+
+
+def contour_tiles(bbox, cell_size, maximo=MAX_TESELAS):
+    """``(z, [(x, y), …])`` de las teselas que cubren ``bbox`` (grados)."""
+    oeste, sur, este, norte = bbox
+    objetivo = max(float(cell_size or 200) / 2, 1.0)
+    z = round(math.log2(_MUNDO / (objetivo * CELDAS_DE_CALOR)))
+    z = max(0, min(ZOOM_MAXIMO, z))
+    while True:
+        x0, y1 = _tesela(oeste, sur, z)
+        x1, y0 = _tesela(este, norte, z)
+        teselas = [(x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)]
+        if len(teselas) <= maximo or z == 0:
+            return z, teselas
+        z -= 1
+
+
+def _tesela(lon, lat, z):
+    n = 2 ** z
+    lat = max(min(lat, 85.0511), -85.0511)
+    x = int((lon + 180.0) / 360.0 * n)
+    r = math.radians(lat)
+    y = int((1.0 - math.log(math.tan(r) + 1 / math.cos(r)) / math.pi) / 2.0 * n)
+    return min(max(x, 0), n - 1), min(max(y, 0), n - 1)
+
+
+def to_mercator(lon, lat):
+    x = lon * 20037508.342789244 / 180.0
+    y = math.log(math.tan((90.0 + lat) * math.pi / 360.0)) * 6378137.0
+    return x, y
+
+
+def cell_points(celdas, por_peso):
+    """``(x, y, peso)`` en metros (EPSG:3857) de las celdas con ``lng`` y ``lat``.
+
+    El peso es ``count``, o ``weight`` si la vista pesa por un atributo.
+    """
+    puntos = []
+    for celda in celdas:
+        lon, lat = celda.get("lng"), celda.get("lat")
+        if lon is None or lat is None:
+            continue
+        peso = celda.get("weight") if por_peso else None
+        if peso is None:
+            peso = celda.get("count") or 0
+        x, y = to_mercator(float(lon), float(lat))
+        puntos.append((x, y, peso))
+    return puntos

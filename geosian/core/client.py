@@ -389,6 +389,17 @@ class GeosianClient:
             {"geometry_type": data_type, "embed_images": "false"},
         )
 
+    def tiles(self, urls):
+        """Los bytes de varias teselas de la API, en paralelo y con el token."""
+        respuestas = self.transport.get_many(urls, self._headers({"Accept": "*/*"}), timeout=self.timeout)
+        cuerpos = []
+        for respuesta, url in zip(respuestas, urls):
+            if isinstance(respuesta, Exception):
+                cuerpos.append(None)  # una tesela que no llega no tumba las demás
+                continue
+            cuerpos.append(self._check(respuesta, url).body)
+        return cuerpos
+
     def download(self, path):
         """Bytes de una foto o un fichero servidos por la API, con el token."""
         url = self._url(path)

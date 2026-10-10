@@ -90,8 +90,9 @@ def test_vista_sin_color_usa_el_estilo_de_la_capa():
 
 
 def test_visualizaciones_sin_equivalente_se_avisan():
-    vista = styles.view_style({"visualization": "contour", "color": {"value": [1, 2, 3]}}, "points")
-    assert vista["unsupported"] == "contour"
+    # Todas las de la web tienen ya su equivalente; una desconocida sigue avisando.
+    vista = styles.view_style({"visualization": "algo_nuevo", "color": {"value": [1, 2, 3]}}, "points")
+    assert vista["unsupported"] == "algo_nuevo"
     assert vista["kind"] == "single"
     # Los hexágonos ya tienen su equivalente: las teselas agregadas del servidor.
     assert styles.view_style({"visualization": "hexagon"}, "points")["kind"] == "hexagon"

@@ -292,3 +292,31 @@ def test_el_calor_de_una_capa_grande_va_con_las_celdas_del_servidor(app, monkeyp
         finally:
             QgsProject.instance().clear()
             connections.remove_connection("Calor")
+
+
+def test_los_contornos_son_isolineas_por_umbral_con_su_color_y_grosor(app):
+    """Antes, puntos con un aviso. Ahora una capa de líneas: una por umbral de la vista,
+    calculada con las celdas del servidor, con su color, su grosor y su leyenda."""
+    from qgis.core import QgsProject, QgsWkbTypes
+
+    from tests.fake_server import FakeGeosian
+
+    with FakeGeosian() as fake:
+        try:
+            [capa] = _añadir_vista(fake, "Contornos", {"id": 11, "name": "Contornos"})
+            assert capa.name() == "Arbolado · Contornos"
+            assert QgsWkbTypes.geometryType(capa.wkbType()) == QgsWkbTypes.GeometryType.LineGeometry
+            umbrales = sorted(f["umbral"] for f in capa.getFeatures())
+            assert umbrales == [1, 5]  # el grupo de diez pasa del 5; el resto, del 1
+            assert all(not f.geometry().isEmpty() for f in capa.getFeatures())
+            pedidas = [c for r, c in fake.peticiones if r.startswith("/api/v1/geodata/tiles/")]
+            assert pedidas and all(c.get("geom") == ["centroid"] for c in pedidas)
+            assert all(c.get("cells") == ["96"] for c in pedidas)
+            categorias = capa.renderer().categories()
+            assert [c.label() for c in categorias] == ["≥ 1", "≥ 5"]
+            rojo = categorias[1].symbol()
+            assert rojo.color().getRgb() == (240, 59, 32, 200) and rojo.width() == 3
+            assert abs(capa.opacity() - 0.8) < 1e-6
+        finally:
+            QgsProject.instance().clear()
+            connections.remove_connection("Contornos")
