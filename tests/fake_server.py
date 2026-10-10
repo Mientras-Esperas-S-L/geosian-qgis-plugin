@@ -405,7 +405,11 @@ class Handler(BaseHTTPRequestHandler):
             if not consulta.get("include_tile_metadata"):
                 for capa in capas:
                     capa.pop("tile_metadata", None)
-            self._json(capas)
+            if consulta.get("include_tile_config") == ["true"] and self.server.tile_config:
+                # Como la API: con tile_config, las capas van envueltas.
+                self._json({"layers": capas, "tile_config": self.server.tile_config})
+            else:
+                self._json(capas)
 
         elif ruta == "/api/v1/layers/11/":
             # Como el backend: el detalle nunca trae tile_metadata.
@@ -590,6 +594,8 @@ class FakeGeosian:
     def __init__(self):
         Handler.peticiones = []
         self._server = HTTPServer(("127.0.0.1", 0), Handler)
+        # El tile_config de /maps/<id>/layers/; None, el de un servidor que no lo da.
+        self._server.tile_config = None
         self._hilo = threading.Thread(target=self._server.serve_forever, daemon=True)
 
     def __enter__(self):
@@ -608,6 +614,9 @@ class FakeGeosian:
     @property
     def peticiones(self):
         return Handler.peticiones
+
+    def poner_tile_config(self, config):
+        self._server.tile_config = config
 
     def rutas_pedidas(self):
         return [ruta for ruta, _ in Handler.peticiones]

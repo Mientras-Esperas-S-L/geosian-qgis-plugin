@@ -49,6 +49,7 @@ class GeosianClient:
         self.timeout = timeout
         self.user = None
         self._capas = {}
+        self._config_teselas = {}
         self._lads = {}
 
     # ------------------------------------------------------------------
@@ -186,19 +187,32 @@ class GeosianClient:
         guardado = self._capas.get(map_id)
         if guardado and time.monotonic() - guardado[0] < LAYERS_TTL:
             return guardado[1]
-        capas = _as_list(
-            self._get(
-                f"{API_PREFIX}/maps/{map_id}/layers/",
-                {"include_tile_metadata": "true"},
-                timeout=DEFINITION_TIMEOUT,
-            )
+        respuesta = self._get(
+            f"{API_PREFIX}/maps/{map_id}/layers/",
+            {"include_tile_metadata": "true", "include_tile_config": "true"},
+            timeout=DEFINITION_TIMEOUT,
+        )
+        capas = _as_list(respuesta)
+        # Con include_tile_config la API envuelve las capas y añade su modo de carga.
+        self._config_teselas[map_id] = (
+            respuesta.get("tile_config") if isinstance(respuesta, dict) else None
         )
         self._capas[map_id] = (time.monotonic(), capas)
         return capas
 
+    def tile_config(self, map_id):
+        """El ``tile_config`` del mapa (``mode``, ``auto_threshold``), o ``None``.
+
+        Con él y los metadatos de la capa se sabe si la web la carga por teselas
+        o en GeoJSON (``styles.load_mode``).
+        """
+        self.layers(map_id)
+        return self._config_teselas.get(map_id)
+
     def forget_layers(self):
         """Olvida los listados de capas guardados (el panel al refrescar)."""
         self._capas.clear()
+        self._config_teselas.clear()
         self._lads.clear()
 
     def layer_metadata(self, layer_id, map_id):

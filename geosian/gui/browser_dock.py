@@ -646,6 +646,7 @@ class GeosianBrowserDock(QDockWidget):
                     proveedor.schema,
                     resolver,
                     iconos=icon_store.default_store().path,
+                    teselas=_por_teselas(proveedor),
                 )
             else:
                 renderizador, avisos = symbology.base_renderer(proveedor.schema, tipo, resolver)
@@ -695,6 +696,24 @@ def _hoja_informativa(texto):
     item = QTreeWidgetItem([texto])
     item.setFlags(Qt.ItemFlag.ItemIsEnabled)
     return item
+
+
+def _por_teselas(proveedor):
+    """Si la web lleva esta capa por teselas: de eso depende el tamaño de los iconos.
+
+    Si no se puede saber (sin red, sesión caducada), por teselas: es el camino al que
+    va la web y el que tenía el complemento.
+    """
+    uri = proveedor.layer_uri
+    try:
+        cliente = proveedor._client
+        return styles.load_mode(
+            cliente.tile_config(uri.map_id),
+            cliente.layer_metadata(uri.layer_id, uri.map_id),
+            proveedor.schema,
+        ) == "mvt"
+    except Exception:
+        return True
 
 
 def _tipos_de_geometria(capa):

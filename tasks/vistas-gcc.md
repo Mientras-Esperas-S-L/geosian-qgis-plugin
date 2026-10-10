@@ -90,7 +90,7 @@ puntos con aviso.
       `categorized`, `graduated` y en el peso del calor), pedidos con `include_ai_attr`.
 - [x] `graduated` con `colorRamp` y cortes, y `rule_based` con todos los operadores del
       frontal, cotejados con `viewStyleProcessor.js`.
-- [ ] `icon`: `colored` y `fixedColor`, `sizeMin`/`sizeMax`, color por el modo de la vista o
+- [x] `icon`: `colored` y `fixedColor`, `sizeMin`/`sizeMax`, color por el modo de la vista o
       el de la capa; sin `defaultIcon`, nada (como la web).
 
 ### Repaso
@@ -254,6 +254,31 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   en `>`/`<` y `String(undefined)` es «undefined» en `contains`; un texto vacío en un tramo
   cuenta como 0. **No comprobado**: rampa continua con iconos (el color calculado va a la
   primera capa del símbolo), y la web en pantalla, que va en el repaso.
+
+- 10/10 · `icon`. Ya estaban `colored`/`fixedColor` y el color por modo (el de la vista si es
+  categorizada o graduada; si no, el de la capa). Faltaba: (1) **sin `defaultIcon` la web no
+  pinta la vista** y QGIS pintaba círculos: ahora no pinta nada y lo anota en el registro
+  (`QgsNullSymbolRenderer`); (2) **la web tiene dos caminos y no dimensionan igual**: por
+  teselas (`mvtLayerGenerator.js`, solo vistas únicas y categorizadas, `canUseMvtView` de
+  `maps.jsx`) el icono va en metros entre `max(8, sizeMin/2)` y `size` px, halo blanco 235; en
+  GeoJSON (`createViewIconLayer`: capas que no van por teselas y toda vista graduada o por
+  reglas) va a `size` px fijos acotados entre `sizeMin` y `sizeMax`, halo 230. El complemento
+  usaba siempre el primero. Ahora pide `include_tile_config` con las capas
+  (`client.tile_config`) y decide como `getLayerLoadMode` de la web (`styles.load_mode`:
+  `mvt`, `geojson`, `auto` por recuento, `manual` por `lod` del esquema; sin configuración,
+  GeoJSON como la web). Pruebas en `test_provider_qgis.py`: `test_el_modo_de_carga_como_la_web`,
+  `test_el_tamaño_del_icono_sigue_el_camino_de_la_web` (5 casos),
+  `test_vista_de_iconos_sin_icono_no_pinta_nada` y
+  `test_el_panel_sabe_si_la_web_lleva_la_capa_por_teselas` (5 casos); fallaban todas. Comprobado
+  en la QGIS de pruebas contra la API local (`tile_config` `mvt`): vista de prueba 125
+  «Prueba QGIS · Iconos graduados» con iconos a 30 px fijos de cerca y de lejos, y 126 «Prueba
+  QGIS · Iconos sin icono» (el estilo de la vista real 52 «listado incidencias», sin su filtro,
+  que en local deja 0 elementos) sin nada pintado sobre 49.557 árboles
+  (`scratchpad/vistas/iconos-graduados-{cerca,lejos}-qgis.png`, `iconos-sin-icono-qgis.png`).
+  Suite 261 en QGIS 4 y 258 (+3) en 3.34. **No comprobado**: la web en pantalla (va en el
+  repaso; lo de los dos caminos sale de leer su código); el camino GeoJSON colorea las
+  graduadas con `getViewFeatureStyle`, no con la función rápida, y si a un tramo le falta el
+  color la web pinta el icono blanco; QGIS lo pinta del color por omisión.
 
 ## Hallazgos para decidir
 

@@ -16,6 +16,7 @@ from qgis.core import (
     QgsHeatmapRenderer,
     QgsLineSymbol,
     QgsMarkerSymbol,
+    QgsNullSymbolRenderer,
     QgsPalLayerSettings,
     QgsProperty,
     QgsRuleBasedRenderer,
@@ -109,25 +110,38 @@ HALO_COLOR = (255, 255, 255, 235)
 HALO_SCALE = 1.18
 
 
-def make_icon_symbol(ruta_svg, color, size=24, size_min=16):
+# El blanco del halo en la vía GeoJSON de la web (``createViewIconLayer``).
+HALO_COLOR_GEOJSON = (255, 255, 255, 230)
+
+
+def make_icon_symbol(ruta_svg, color, size=24, size_min=16, size_max=48, por_teselas=True):
     """Marcador con el icono de una vista, teñido con ``color``.
 
-    El tamaño sigue a la web: ``size`` metros, acotado entre
-    ``max(8, size_min / 2)`` y ``size`` píxeles.
+    El tamaño sigue a la web, que tiene dos caminos. Por teselas
+    (``mvtLayerGenerator.js``): ``size`` metros, acotado entre ``max(8, size_min / 2)``
+    y ``size`` píxeles. En GeoJSON (``createViewIconLayer``): ``size`` píxeles fijos,
+    acotados entre ``size_min`` y ``size_max``.
     """
-    minimo = max(8.0, size_min * 0.5)
-    expresion = _px_desde_metros(size, minimo, size)
     simbolo = QgsMarkerSymbol()
     simbolo.deleteSymbolLayer(0)
-    for escala, relleno in ((HALO_SCALE, HALO_COLOR), (1.0, color)):
-        capa = QgsSvgMarkerSymbolLayer(ruta_svg, size * escala)
+    if por_teselas:
+        minimo = max(8.0, size_min * 0.5)
+        expresion = _px_desde_metros(size, minimo, size)
+        halo = HALO_COLOR
+    else:
+        fijo = min(max(size, size_min), size_max)
+        expresion = None
+        halo = HALO_COLOR_GEOJSON
+    for escala, relleno in ((HALO_SCALE, halo), (1.0, color)):
+        capa = QgsSvgMarkerSymbolLayer(ruta_svg, (size if por_teselas else fijo) * escala)
         capa.setSizeUnit(QgsUnitTypes.RenderPixels)
         capa.setFillColor(QColor(*relleno))
         capa.setStrokeWidth(0)
-        capa.setDataDefinedProperty(
-            QgsSymbolLayer.PropertySize,
-            QgsProperty.fromExpression(f"({expresion}) * {escala}"),
-        )
+        if expresion:
+            capa.setDataDefinedProperty(
+                QgsSymbolLayer.PropertySize,
+                QgsProperty.fromExpression(f"({expresion}) * {escala}"),
+            )
         simbolo.appendSymbolLayer(capa)
     return simbolo
 
@@ -218,20 +232,23 @@ def _rules_renderer(familia, estilo, resolver, fabrica=None):
     return QgsRuleBasedRenderer(raiz), avisos
 
 
-def view_renderer(style_config, geometry_type, schema, resolver, iconos=None):
+def view_renderer(style_config, geometry_type, schema, resolver, iconos=None, teselas=True):
     """Renderizador del ``style_config`` de una vista.
 
     Args:
         iconos: ``(lib, nombre) -> ruta del SVG o None``, para las vistas con
             icono. Sin él, o si el icono no se puede conseguir, se pintan
             círculos.
+        teselas: si la web lleva la capa por teselas (``styles.load_mode``).
 
     Returns:
         ``(renderizador, avisos)``.
     """
     familia = styles.geometry_family(geometry_type)
-    vista = styles.view_style(style_config, geometry_type, schema)
+    vista = styles.view_style(style_config, geometry_type, schema, teselas)
     avisos = []
+    if vista["kind"] == "none":
+        return QgsNullSymbolRenderer(), ["La vista es de iconos y no tiene icono: la web no la pinta."]
     if vista.get("unsupported"):
         avisos.append(
             f"La visualización «{vista['unsupported']}» de la vista no existe en QGIS; "
@@ -246,7 +263,8 @@ def view_renderer(style_config, geometry_type, schema, resolver, iconos=None):
         ruta = iconos(icono["lib"], icono["name"]) if iconos else None
         if ruta:
             def fabrica(color):  # el icono sustituye al círculo
-                return make_icon_symbol(ruta, color, icono["size"], icono["size_min"])
+                return make_icon_symbol(ruta, color, icono["size"], icono["size_min"],
+                                        icono["size_max"], icono["por_teselas"])
         else:
             avisos.append(
                 f"No se pudo conseguir el icono «{icono['name']}»; se pintan círculos."

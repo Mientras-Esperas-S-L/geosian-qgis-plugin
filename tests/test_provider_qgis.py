@@ -1088,3 +1088,96 @@ def test_la_seleccion_multiple_usa_el_editor_de_listas(capa):
     """Con el editor de texto por omisión, QGIS 4 pintaba la lista como «Z, ,, , ,,»."""
     lad.apply_editor_config(capa, capa.dataProvider().schema)
     assert capa.editorWidgetSetup(capa.fields().indexOf("operacion")).type() == "List"
+
+
+def _svg(tmp_path):
+    svg = tmp_path / "fa-FaTree.svg"
+    svg.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" fill="param(fill) #000000">'
+        '<path d="M0 0h10v10z"/></svg>'
+    )
+    return str(svg)
+
+
+def test_el_modo_de_carga_como_la_web():
+    """``getLayerLoadMode`` de la web: decide si la capa va por teselas o en GeoJSON."""
+    from geosian.core import styles
+
+    grande, pequeña = {"feature_count": 6000}, {"feature_count": 4000}
+    assert styles.load_mode({"mode": "mvt"}, pequeña, {}) == "mvt"
+    assert styles.load_mode({"mode": "geojson"}, grande, {}) == "geojson"
+    assert styles.load_mode({"mode": "auto", "auto_threshold": 5000}, grande, {}) == "mvt"
+    assert styles.load_mode({"mode": "auto"}, pequeña, {}) == "geojson"
+    assert styles.load_mode({"mode": "manual"}, grande, {"lod": {"mode": "mvt"}}) == "mvt"
+    assert styles.load_mode({"mode": "manual"}, grande, {}) == "geojson"
+    # Un servidor que no da la configuración: la de la web por omisión.
+    assert styles.load_mode(None, grande, {}) == "geojson"
+
+
+@pytest.mark.parametrize("modo, teselas, en_metros", [
+    ("categorized", True, True),     # por teselas: metros, entre max(8, sizeMin/2) y size px
+    ("single", True, True),
+    ("categorized", False, False),   # capa en GeoJSON: size px, entre sizeMin y sizeMax
+    ("graduated", True, False),      # graduada: la web nunca la lleva por teselas
+    ("rule_based", True, False),
+])
+def test_el_tamaño_del_icono_sigue_el_camino_de_la_web(capa, tmp_path, modo, teselas, en_metros):
+    from qgis.core import QgsRenderContext, QgsSymbolLayer
+
+    from geosian.core import symbology
+
+    config = {"mode": modo, "visualization": "icon",
+              "icon": {"defaultIcon": {"lib": "fa", "name": "FaTree"}, "size": 60, "sizeMin": 20,
+                       "sizeMax": 40},
+              "color": {"mode": modo, "value": [1, 2, 3]}}
+    proveedor = capa.dataProvider()
+    resolver = symbology.field_resolver(proveedor.fields(), proveedor.attr_map)
+    renderizador, _ = symbology.view_renderer(
+        config, "points", proveedor.schema, resolver, iconos=lambda lib, nombre: _svg(tmp_path),
+        teselas=teselas)
+    simbolo = renderizador.symbols(QgsRenderContext())[0]
+    halo, icono = simbolo.symbolLayers()
+    calculado = icono.dataDefinedProperties().property(QgsSymbolLayer.PropertySize)
+    if en_metros:
+        assert calculado.isActive()
+        assert calculado.expressionString().startswith("(clamp(10.0, 60.0 /")
+        assert halo.fillColor().alpha() == 235
+    else:
+        # Fijo: 60 px acotado a [20, 40]; el halo, un 18 % mayor y con el blanco de esa vía.
+        assert not calculado.isActive()
+        assert icono.size() == 40
+        assert round(halo.size(), 2) == round(40 * 1.18, 2)
+        assert halo.fillColor().alpha() == 230
+
+
+def test_vista_de_iconos_sin_icono_no_pinta_nada(capa):
+    """Sin ``defaultIcon`` la web no dibuja la vista; antes salían círculos."""
+    from qgis.core import QgsNullSymbolRenderer
+
+    from geosian.core import symbology
+
+    config = {"mode": "categorized", "visualization": "icon", "icon": {"defaultIcon": None},
+              "color": {"mode": "categorized", "attribute": "especie", "categories": {}}}
+    proveedor = capa.dataProvider()
+    resolver = symbology.field_resolver(proveedor.fields(), proveedor.attr_map)
+    renderizador, avisos = symbology.view_renderer(config, "points", proveedor.schema, resolver)
+    assert isinstance(renderizador, QgsNullSymbolRenderer)
+    assert any("no tiene icono" in a for a in avisos)
+
+
+@pytest.mark.parametrize("config, esperado", [
+    ({"mode": "mvt", "auto_threshold": 5000}, True),
+    ({"mode": "geojson", "auto_threshold": 5000}, False),
+    ({"mode": "auto", "auto_threshold": 2}, True),      # la capa de prueba tiene 3
+    ({"mode": "auto", "auto_threshold": 5000}, False),
+    (None, False),                                     # un servidor que no lo da
+])
+def test_el_panel_sabe_si_la_web_lleva_la_capa_por_teselas(servidor, config, esperado):
+    from geosian.gui import browser_dock
+
+    servidor.poner_tile_config(config)
+    vectorial = QgsVectorLayer(f"geosian://{CONEXION}/map/4/layer/11?geometry_type=points", "A", "geosian")
+    vectorial.dataProvider()._client.forget_layers()
+    assert browser_dock._por_teselas(vectorial.dataProvider()) is esperado
+    assert any(c.get("include_tile_config") == ["true"]
+               for r, c in servidor.peticiones if r == "/api/v1/maps/4/layers/")

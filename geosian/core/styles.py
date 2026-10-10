@@ -207,7 +207,7 @@ def _priority(valor):
 # ----------------------------------------------------------------------
 
 
-def view_style(style_config, geometry_type, schema=None):
+def view_style(style_config, geometry_type, schema=None, teselas=True):
     """Interpreta el ``style_config`` de una vista.
 
     Returns:
@@ -225,6 +225,11 @@ def view_style(style_config, geometry_type, schema=None):
           y ``default``, el color de lo que no casa con ninguna.
         - ``heatmap``: ``radius`` (px), ``weight`` (atributo o ``None``) y
           ``ramp`` (nombre).
+
+        - ``none``: no se pinta (una vista de iconos sin icono, como en la web).
+
+        ``teselas`` dice si la web lleva la capa por teselas (``load_mode``): de eso
+        depende cómo dimensiona los iconos.
 
         Lleva además ``unsupported`` con el nombre de la visualización si no
         tiene equivalente en QGIS y se ha caído al color normal, y
@@ -287,12 +292,20 @@ def view_style(style_config, geometry_type, schema=None):
 
     icono = config.get("icon") if isinstance(config.get("icon"), dict) else {}
     defecto = icono.get("defaultIcon") if isinstance(icono.get("defaultIcon"), dict) else {}
-    if visualizacion == "icon" and defecto.get("lib") and defecto.get("name"):
+    if visualizacion == "icon" and not (defecto.get("lib") and defecto.get("name")):
+        # Sin icono la web no dibuja la vista, por ninguno de sus dos caminos.
+        resultado.update(kind="none")
+        return resultado
+    if visualizacion == "icon":
         resultado["icon"] = {
             "lib": str(defecto["lib"]),
             "name": str(defecto["name"]),
             "size": _number_or(icono.get("size"), 24),
             "size_min": _number_or(icono.get("sizeMin"), 16),
+            "size_max": _number_or(icono.get("sizeMax"), 48),
+            # La web solo lleva por teselas las vistas únicas y categorizadas
+            # (``canUseMvtView`` de maps.jsx); el resto, en GeoJSON, con otro tamaño.
+            "por_teselas": bool(teselas) and modo in ("single", "categorized"),
         }
         # El color del icono (viewVisualizationHelpers.js): fijo si no va
         # coloreado; el de la vista si es categorizada o graduada; si no, el
@@ -363,6 +376,26 @@ def view_style(style_config, geometry_type, schema=None):
         return resultado
     resultado.update(kind="single", color=unico)
     return resultado
+
+
+def load_mode(tile_config, metadata, schema):
+    """``"mvt"`` o ``"geojson"``: cómo carga la web la capa (``getLayerLoadMode``).
+
+    ``tile_config`` es el que da ``/maps/<id>/layers/?include_tile_config=true``; sin
+    él, el de la web por omisión (GeoJSON).
+    """
+    config = tile_config if isinstance(tile_config, dict) else {}
+    modo = config.get("mode") or "geojson"
+    if modo == "mvt":
+        return "mvt"
+    if modo == "auto":
+        umbral = _number_or(config.get("auto_threshold"), 5000)
+        cuenta = _number_or((metadata or {}).get("feature_count"), 0)
+        return "mvt" if cuenta > umbral else "geojson"
+    if modo == "manual":
+        lod = (schema or {}).get("lod") if isinstance((schema or {}).get("lod"), dict) else {}
+        return lod.get("mode") or "geojson"
+    return "geojson"
 
 
 def view_opacity(style_config):
