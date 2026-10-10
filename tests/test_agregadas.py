@@ -245,14 +245,24 @@ def test_el_calor_usa_radio_intensidad_umbral_y_la_rampa_entera(app):
         assert calor.legendSettings().minimumLabel() == "Baja densidad"
         assert calor.legendSettings().maximumLabel() == "Alta densidad"
     assert "altura" in calor.weightExpression()
+    # El sombreador del HeatmapLayer (deck.gl 9, triangle-layer-fragment): con v el peso
+    # entre el máximo, el color sale de una textura de 6 píxeles con filtro lineal en
+    # f = min(v·intensidad, 1) (los centros de los píxeles en (i + 0,5)/6) y la opacidad es
+    # min(v·intensidad/umbral, 1). Con intensidad 2 y umbral 0,1, a mano:
     rampa = calor.colorRamp()
-    assert rampa.color1().alpha() == 0                       # nada de color en el cero
-    posiciones = [round(p.offset, 3) for p in rampa.stops()]
-    assert posiciones[0] == 0.1                              # el umbral
-    assert max(posiciones) == 0.5                            # intensidad 2: satura en la mitad
-    seis = styles.ramp_colors("viridis", 6)
-    assert {p.color.getRgb()[:3] for p in rampa.stops()} | {rampa.color2().getRgb()[:3]} >= {
-        c[:3] for c in seis}
+    seis = [c[:3] for c in styles.ramp_colors("viridis", 6)]
+
+    def color(v):
+        return rampa.color(v).getRgb()
+
+    assert color(0)[3] == 0                                   # en el cero, nada
+    assert color(0.025)[:3] == seis[0]                        # f = 0,05 < 0,5/6: el primero
+    assert abs(color(0.025)[3] - 128) <= 1                    # a medio camino del umbral (0,05)
+    assert color(0.05)[3] == 255                              # desde el umbral, opaco
+    medio = [round((a + b) / 2) for a, b in zip(seis[2], seis[3])]
+    assert all(abs(x - y) <= 1 for x, y in zip(color(0.25)[:3], medio))   # f = 0,5: entre 3.º y 4.º
+    assert color(5.5 / 12)[:3] == seis[5]                     # satura en el centro del último
+    assert color(1)[:3] == seis[5]
 
 
 def _esperar(condicion, segundos=10):

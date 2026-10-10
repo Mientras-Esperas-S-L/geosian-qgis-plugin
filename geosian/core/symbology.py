@@ -7,6 +7,8 @@ líneas 1 m de grosor, entre 1 y 3 px. Así de lejos no tapan el mapa y de cerca
 crecen con él. Los contornos van a 1 px fijo.
 """
 
+import math
+
 from qgis.core import (
     Qgis,
     QgsColorRampLegendNodeSettings,
@@ -404,21 +406,34 @@ def _color_calculado(simbolo, familia, expresion):
 def heatmap_ramp(vista):
     """La rampa del calor como la pinta el ``HeatmapLayer`` de la web.
 
-    Por debajo de ``threshold`` (fracción del máximo) no se pinta; los seis colores de
-    la rampa se reparten desde el umbral; ``intensity`` multiplica los pesos, así que
-    el color más caliente llega antes, en ``1/intensity``.
+    Su sombreador (deck.gl 9, ``triangle-layer-fragment``), con ``v`` el peso entre el
+    máximo: el color sale de una textura de los seis colores con filtro lineal en
+    ``f = min(v · intensity, 1)``, con los centros de los píxeles en ``(i + 0,5)/6``; la
+    opacidad es ``min(v · intensity / threshold, 1)``. Por debajo del umbral se ve el
+    primer color, cada vez más transparente (con ``inferno``, el borde negro). Color y
+    opacidad son lineales a trozos, así que basta una parada en cada quiebro.
     """
-    colores = [QColor(*c[:3]) for c in styles.ramp_colors(vista["ramp"], 6)]
-    umbral = vista.get("threshold", 0.05)
-    tope = min(1.0, 1.0 / vista.get("intensity", 1))
-    umbral = min(umbral, tope * 0.99)
-    transparente = QColor(colores[0])
-    transparente.setAlpha(0)
-    paradas = [QgsGradientStop(umbral, colores[0])]
-    for i, color in enumerate(colores[1:], start=1):
-        paradas.append(QgsGradientStop(umbral + (tope - umbral) * i / 5, color))
-    final = paradas.pop() if tope >= 1.0 else None
-    return QgsGradientColorRamp(transparente, final.color if final else colores[-1], False, paradas)
+    colores = [c[:3] for c in styles.ramp_colors(vista["ramp"], 6)]
+    intensidad = max(float(vista.get("intensity", 1) or 1), 1e-6)
+    umbral = max(float(vista.get("threshold", 0.05) or 0.05), 1e-6)
+
+    def color_en(v):
+        f = min(v * intensidad, 1.0)
+        x = f * len(colores) - 0.5
+        if x <= 0:
+            rgb = colores[0]
+        elif x >= len(colores) - 1:
+            rgb = colores[-1]
+        else:
+            i = math.floor(x)
+            k = x - i
+            rgb = tuple(round(a + (b - a) * k) for a, b in zip(colores[i], colores[i + 1]))
+        alfa = round(255 * min(v * intensidad / umbral, 1.0))
+        return QColor(*rgb, alfa)
+
+    quiebros = {umbral / intensidad} | {(i + 0.5) / (len(colores) * intensidad) for i in range(len(colores))}
+    paradas = [QgsGradientStop(v, color_en(v)) for v in sorted(q for q in quiebros if 0 < q < 1)]
+    return QgsGradientColorRamp(color_en(0.0), color_en(1.0), False, paradas)
 
 
 def hexagon_renderer(vista):
