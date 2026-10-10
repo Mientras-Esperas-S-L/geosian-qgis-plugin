@@ -456,6 +456,20 @@ def hexagon_renderer(vista):
     return renderizador
 
 
+def cells_renderer(vista):
+    """Las celdas agregadas de una capa de polígonos (``gui/celdas.py``): un color por
+    tramo de ``count``, como ``countColor`` de la web (rampa de seis, alfa 200)."""
+    from . import aggregated
+
+    rampa = [color[:3] + (200,) for color in styles.ramp_colors(vista["ramp"], 6)]
+    tramo = aggregated.count_bucket_expression(vista["color_max"])
+    raiz = QgsRuleBasedRenderer.Rule(None)
+    for i, ((r, g, b, a), etiqueta) in enumerate(zip(rampa, aggregated.LEYENDA)):
+        relleno = QgsFillSymbol.createSimple({"color": f"{r},{g},{b},{a}", "outline_style": "no"})
+        raiz.appendChild(QgsRuleBasedRenderer.Rule(relleno, filterExp=f"{tramo} = {i}", label=etiqueta))
+    return QgsRuleBasedRenderer(raiz)
+
+
 def apply_labels(layer, campo, geometry_type):
     """Etiquetas como las de la web: texto oscuro con halo blanco, de cerca."""
     formato = QgsTextFormat()

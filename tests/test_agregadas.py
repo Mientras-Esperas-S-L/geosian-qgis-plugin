@@ -1,5 +1,7 @@
 """Vistas agregadas (hexágonos…) con las teselas que agrega el servidor."""
 
+import json
+
 import pytest
 
 pytest.importorskip("qgis.core")
@@ -7,6 +9,7 @@ pytest.importorskip("qgis.core")
 from qgis.core import QgsApplication, QgsAuthMethodConfig
 
 from geosian.core import aggregated, connections
+from geosian.gui import celdas
 
 
 def _cabecera(authcfg):
@@ -82,25 +85,44 @@ def test_una_vista_de_hexagonos_entra_como_teselas_del_servidor(app):
             datos["vista"] = {"id": 9, "name": "Densidad"}
             [capa] = panel.añadir_capa(datos)
 
-            assert capa.type() == QgsMapLayerType.VectorTileLayer
+            # Polígonos enteros en una capa propia, no la capa de teselas de QGIS, que
+            # recortaba cada celda al borde de su tesela (las costuras).
+            assert capa.type() == QgsMapLayerType.VectorLayer
+            assert celdas.es_de_celdas(capa)
             assert capa.name() == "Arbolado · Densidad"
-            fuente = capa.source()
-            assert "tok-de-prueba" not in fuente and "authcfg=" in fuente
-            assert "agg%3Dhex" in fuente
-            # El filtro de la vista viaja a las teselas, como en la web.
-            assert "attr__especie%3DTilia" in fuente
+            assert "tok-de-prueba" not in capa.source()
             assert abs(capa.opacity() - 0.7) < 1e-6
-            # Un estilo por tramo de la rampa: la leyenda sale como el degradado de la
-            # web, con «Baja densidad» y «Alta densidad» en los extremos.
-            estilos = capa.renderer().styles()
-            assert len(estilos) == 6
-            assert {e.layerName() for e in estilos} == {"agg"}
-            assert [e.styleName() for e in estilos] == [
-                "Baja densidad", "", "", "", "", "Alta densidad",
-            ]
-            assert all("ln(1 + 50)" in e.filterExpression() for e in estilos)
-            assert estilos[0].filterExpression().endswith("= 0")
+            # Un estilo por tramo de la rampa, con «Baja densidad» y «Alta densidad».
+            # Etiquetas y filtros a listas: QGIS 3.34 se cae si se retienen las reglas de
+            # una capa que luego se borra.
+            reglas = capa.renderer().rootRule().children()
+            etiquetas = [r.label() for r in reglas]
+            filtros = [r.filterExpression() for r in reglas]
+            del reglas
+            assert etiquetas == ["Baja densidad", "", "", "", "", "Alta densidad"]
+            assert all("ln(1 + 50)" in f for f in filtros)
+            assert filtros[0].endswith("= 0")
             assert capa in QgsProject.instance().mapLayers().values()
+
+            # Al verse en el lienzo se piden las teselas de ese zoom, con el filtro de la
+            # vista, y sus celdas llegan enteras: sobresalen de la tesela.
+            fake.peticiones.clear()
+            x0, y0 = aggregated.to_mercator(-3.75, 40.38)
+            x1, y1 = aggregated.to_mercator(-3.65, 40.43)
+            celdas.actualizar(capa, (x0, y0, x1, y1), 12)
+            assert _esperar(lambda: capa.featureCount() > 0)
+            pedidas = [c for r, c in fake.peticiones if r.startswith("/api/v1/geodata/tiles/12/")]
+            assert pedidas and all(c.get("agg") == ["hex"] and "geom" not in c for c in pedidas)
+            assert all(c.get("attr__especie") == ["Tilia platyphyllos"] for c in pedidas)
+            fuera = False
+            for f in capa.getFeatures():
+                centro = f.geometry().centroid().asPoint()
+                lon, lat = _a_grados(centro.x(), centro.y())
+                tx, ty = aggregated._tesela(lon, lat, 12)
+                oeste, _, este, _ = aggregated.tile_bounds(12, tx, ty)
+                caja = f.geometry().boundingBox()
+                fuera = fuera or caja.xMinimum() < oeste or caja.xMaximum() > este
+            assert fuera
         finally:
             QgsProject.instance().clear()
             connections.remove_connection("Hex")
@@ -169,6 +191,12 @@ def test_la_leyenda_de_las_agregadas_es_el_degradado_de_la_web(app, tmp_path):
         proyecto.clear()
 
 
+def _a_grados(x, y):
+    import math
+
+    return x / 20037508.342789244 * 180.0, math.degrees(2 * math.atan(math.exp(y / 6378137.0)) - math.pi / 2)
+
+
 def test_las_agregadas_se_suscriben_y_se_repintan_con_el_tiempo_real(app):
     """Un cambio en la capa trae ``tile_version``: las teselas se piden con ella, como
     la web (``_v``), y la caché no sirve las viejas. La vista sustituye a sus puntos, así
@@ -211,15 +239,24 @@ def test_las_agregadas_se_suscriben_y_se_repintan_con_el_tiempo_real(app):
             assert canal.conectado.wait(3)
             assert esperar(lambda: {"type": "subscribe_map", "map_id": 4} in canal.recibidos)
 
+            x0, y0 = aggregated.to_mercator(-3.75, 40.38)
+            x1, y1 = aggregated.to_mercator(-3.65, 40.43)
+            celdas.actualizar(capa, (x0, y0, x1, y1), 12)
+            assert esperar(lambda: capa.featureCount() > 0)
+
+            def con_version(v):
+                return [c for r, c in fake.peticiones if "/geodata/tiles/" in r and c.get("_v") == [v]]
+
             canal.enviar({"type": "layer_data_changed", "map_id": 4, "layer_id": 11,
                           "change_type": "update", "tile_version": 7})
-            assert esperar(lambda: "_v%3D7" in capa.source())
-            assert len(capa.renderer().styles()) == 6  # el estilo se queda
+            assert esperar(lambda: con_version("7"))
+            assert esperar(lambda: capa.featureCount() > 0)
+            assert len(capa.renderer().rootRule().children()) == 6  # el estilo se queda
             # Un aviso de otra capa no la toca.
             canal.enviar({"type": "layer_data_changed", "map_id": 4, "layer_id": 99,
                           "change_type": "update", "tile_version": 8})
             esperar(lambda: False, 1)
-            assert "_v%3D7" in capa.source()
+            assert not con_version("8")
         finally:
             realtime_hub.unwatch_project()
             realtime_hub.stop_all()
@@ -310,9 +347,10 @@ def test_el_calor_de_una_capa_grande_va_con_las_celdas_del_servidor(app, monkeyp
         try:
             [capa] = _añadir_vista(fake, "Calor", {"id": 10, "name": "Calor"})
             if grande:
-                assert capa.type() == QgsMapLayerType.VectorTileLayer
-                assert "cells%3D96" in capa.source() and "agg%3Dhex" in capa.source()
-                assert len(capa.renderer().styles()) == 6
+                assert capa.type() == QgsMapLayerType.VectorLayer and celdas.es_de_celdas(capa)
+                info = json.loads(capa.customProperty(aggregated.PROPIEDAD))
+                assert info["extra"] == {"cells": 96}
+                assert len(capa.renderer().rootRule().children()) == 6
             else:
                 # La pequeña, con el calor de QGIS sobre sus puntos.
                 assert capa.type() == QgsMapLayerType.VectorLayer

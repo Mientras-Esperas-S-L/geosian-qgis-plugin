@@ -123,6 +123,53 @@ def contour_tiles(bbox, cell_size, maximo=MAX_TESELAS):
         z -= 1
 
 
+def tile_bounds(z, x, y):
+    """``(oeste, sur, este, norte)`` de una tesela, en metros de EPSG:3857."""
+    lado = _MUNDO / 2 ** z
+    oeste = -_MUNDO / 2 + x * lado
+    norte = _MUNDO / 2 - y * lado
+    return oeste, norte - lado, oeste + lado, norte
+
+
+def tiles_in_extent(extension, z):
+    """``[(x, y), …]`` de las teselas de zoom ``z`` que cubren ``extension`` (EPSG:3857)."""
+    oeste, sur, este, norte = extension
+    n = 2 ** z
+    lado = _MUNDO / n
+
+    def columna(v):
+        return min(max(int((v + _MUNDO / 2) // lado), 0), n - 1)
+
+    def fila(v):
+        return min(max(int((_MUNDO / 2 - v) // lado), 0), n - 1)
+
+    return [(x, y) for x in range(columna(oeste), columna(este) + 1)
+            for y in range(fila(norte), fila(sur) + 1)]
+
+
+def polygons_in_mercator(anillos, z, x, y, extension=4096):
+    """Los polígonos de una geometría MVT de la tesela ``z/x/y``, en EPSG:3857.
+
+    ``[[exterior, hueco, …], …]``: un anillo con área positiva en coordenadas de la
+    tesela (el exterior, según la especificación MVT) abre polígono; uno negativo es un
+    hueco del anterior. Los puntos fuera de [0, extensión] se respetan: el servidor no
+    recorta las celdas.
+    """
+    oeste, _, este, norte = tile_bounds(z, x, y)
+    escala = (este - oeste) / float(extension)
+    poligonos = []
+    for anillo in anillos:
+        if len(anillo) < 3:
+            continue
+        area = sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(anillo, anillo[1:] + anillo[:1]))
+        enmetros = [(oeste + px * escala, norte - py * escala) for px, py in anillo]
+        if area > 0 or not poligonos:
+            poligonos.append([enmetros])
+        else:
+            poligonos[-1].append(enmetros)
+    return poligonos
+
+
 def _tesela(lon, lat, z):
     n = 2 ** z
     lat = max(min(lat, 85.0511), -85.0511)

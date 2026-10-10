@@ -8,7 +8,6 @@ capas al desplegar el mapa. Con conexiones que tienen decenas de mapas, cargarlo
 todo de golpe al abrir QGIS sería una espera que nadie ha pedido.
 """
 
-import json
 from urllib.parse import quote
 
 from qgis.core import (
@@ -51,7 +50,7 @@ from ..core import (
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri
-from . import contornos, formulario, leyendas, realtime_hub, sesion
+from . import celdas, contornos, formulario, leyendas, realtime_hub, sesion
 from .connection_dialog import ConnectionDialog
 
 ROL_TIPO = Qt.ItemDataRole.UserRole
@@ -597,24 +596,20 @@ class GeosianBrowserDock(QDockWidget):
             extra = {"cells": aggregated.CELDAS_DE_CALOR}
         if estilo.get("kind") != "hexagon":
             return None
-        authcfg = connections.tile_authcfg(conexion)
-        if authcfg is None:
-            self.iface.messageBar().pushWarning(
-                "Geosian",
-                f"«{vectorial.name()}»: los hexágonos se piden al servidor con la sesión "
-                "guardada en el gestor de autenticación de QGIS, y no está disponible; "
-                "se pintan los puntos.",
-            )
-            return None
         info = aggregated.describe(
             conexion, proveedor.layer_uri.map_id, proveedor.layer_uri.layer_id,
-            proveedor._client.base_url, proveedor._extra(), authcfg, extra,
+            proveedor._client.base_url, proveedor._extra(), None, extra,
         )
-        capa = QgsVectorTileLayer(aggregated.uri_for(info), vectorial.name())
-        if not capa.isValid():
+        # Para encuadrar: la capa de celdas nace vacía y se rellena con lo que se ve.
+        extension = proveedor.metadata_extent()
+        if not extension.isNull():
+            info["bbox"] = [extension.xMinimum(), extension.yMinimum(),
+                            extension.xMaximum(), extension.yMaximum()]
+        # Polígonos enteros y no capa de teselas de QGIS, que recorta cada celda al borde
+        # de su tesela (las costuras); se rellena al verse en el lienzo (gui/celdas.py).
+        capa = celdas.crear(vectorial.name(), info, estilo)
+        if capa is None:
             return None
-        capa.setCustomProperty(aggregated.PROPIEDAD, json.dumps(info))
-        capa.setRenderer(symbology.hexagon_renderer(estilo))
         # Por teselas, la web pinta las celdas sin la opacidad de la vista (useMvtLayers no
         # se la pasa); en GeoJSON, con ella.
         capa.setOpacity(1.0 if _por_teselas(proveedor) else estilo["opacity"])
@@ -871,6 +866,8 @@ def _extension_de(capas):
     total.setNull()
     for capa in capas:
         extension = capa.extent()
+        if celdas.es_de_celdas(capa):
+            extension = celdas.extension(capa)
         if extension.isNull():
             continue
         total.combineExtentWith(extension)

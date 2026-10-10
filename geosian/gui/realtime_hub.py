@@ -15,7 +15,7 @@ from qgis.PyQt.QtWidgets import QPushButton
 
 from ..core import aggregated, connections, realtime
 from ..core.errors import GeosianError
-from . import contornos, formulario, leyendas
+from . import celdas, contornos, formulario, leyendas
 
 LOG_TAG = "Geosian"
 AGRUPAR_MS = 500
@@ -160,6 +160,9 @@ def _repedir_teselas(capa, version):
         return
     if info.get("tipo") == "contour":
         contornos.recalcular(capa)  # se recalcula con las celdas nuevas
+        return
+    if info.get("tipo") == celdas.TIPO:
+        celdas.recalcular(capa, version if version is not None else int(time.time()))
         return
     renderizador = capa.renderer().clone() if capa.renderer() else None
     leyenda = capa.customProperty(leyendas.PROPIEDAD)

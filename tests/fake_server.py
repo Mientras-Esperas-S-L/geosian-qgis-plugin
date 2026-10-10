@@ -368,16 +368,32 @@ class Handler(BaseHTTPRequestHandler):
         if ruta.startswith("/api/v1/geodata/tiles/") and ruta.endswith(".mvt"):
             # Celdas agregadas con su centroide, como el servidor con agg=hex&geom=centroid:
             # una por elemento (y diez en la del primero, para que haya un grupo).
-            from tests.test_mvt import _tesela
+            from geosian.core import aggregated
+            from tests.test_mvt import _tesela, _tesela_con_poligonos
 
-            celdas = []
+            z, x, y = (int(v) for v in ruta[len("/api/v1/geodata/tiles/"):-len(".mvt")].split("/"))
+            celdas, hexagonos = [], []
             for e in ELEMENTOS:
                 if not e.get("geometry"):
                     continue
                 lon, lat = e["geometry"]["coordinates"]
                 n = 10 if e["properties"]["id"] == 1001 else 1
                 celdas.append({"count": n, "lng": float(lon), "lat": float(lat)})
-            cuerpo = _tesela("agg", celdas)
+                # Sin geom=centroid, el hexágono entero, solo en la tesela de su centro y sin
+                # recortar (puede salirse de [0, 4096]), como el servidor.
+                if aggregated._tesela(lon, lat, z) == (x, y):
+                    oeste, sur, este, norte = aggregated.tile_bounds(z, x, y)
+                    mx, my = aggregated.to_mercator(lon, lat)
+                    px = round((mx - oeste) / (este - oeste) * 4096)
+                    py = round((norte - my) / (norte - sur) * 4096)
+                    r = 3000
+                    anillo = [(px - r, py), (px - r // 2, py - r), (px + r // 2, py - r),
+                              (px + r, py), (px + r // 2, py + r), (px - r // 2, py + r)]
+                    hexagonos.append(({"count": n}, [anillo]))
+            if consulta.get("geom") == ["centroid"]:
+                cuerpo = _tesela("agg", celdas)
+            else:
+                cuerpo = _tesela_con_poligonos("agg", hexagonos)
             self.send_response(200)
             self.send_header("Content-Type", "application/vnd.mapbox-vector-tile")
             self.send_header("Content-Length", str(len(cuerpo)))
