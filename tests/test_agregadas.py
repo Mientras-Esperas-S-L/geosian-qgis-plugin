@@ -101,3 +101,15 @@ def test_una_vista_de_hexagonos_entra_como_teselas_del_servidor(app):
         finally:
             QgsProject.instance().clear()
             connections.remove_connection("Hex")
+
+
+def test_h3_va_por_los_hexagonos_del_servidor_como_la_web_en_capas_grandes():
+    """Sobre una capa MVT la web pinta H3 con los mismos hexágonos del servidor."""
+    from geosian.core import styles
+
+    vista = styles.view_style({"visualization": "h3hexagon", "h3hexagon": {"resolution": 9},
+                               "point": {"opacity": 0.85}}, "points")
+    assert vista["kind"] == "hexagon"
+    assert vista["ramp"] == "plasma"  # la de la web cuando la vista no dice otra
+    assert vista["opacity"] == 0.85
+    assert "h3hexagon" in aggregated.HEXAGONOS

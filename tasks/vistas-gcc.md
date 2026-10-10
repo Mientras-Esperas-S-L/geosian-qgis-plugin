@@ -56,9 +56,10 @@ puntos con aviso.
       `MapUser`), se arregla allí.
 - [x] `hexagon`: esa capa con relleno por `count`, rampa de 6, escala logarítmica con
       `colorMax`, alfa 200 y la opacidad de la vista; leyenda «Baja densidad / Alta densidad».
-- [ ] `h3hexagon`: como lo pinta la web sobre una capa grande (los hexágonos del servidor).
-      DECIDE si en capas pequeñas hace falta H3 de verdad (la web usa `h3-js` con
-      `resolution`; QGIS no trae H3 y habría que llevar la biblioteca o implementarla).
+- [x] `h3hexagon`: como lo pinta la web sobre una capa grande (los hexágonos del servidor).
+- [ ] DECIDE · H3 de verdad en capas pequeñas: la web usa `h3-js` con `resolution` en el
+      navegador; QGIS no trae H3 (habría que llevar la biblioteca `h3` o implementar la
+      rejilla). Hoy van los hexágonos del servidor, como la web en capas grandes.
 
 - [ ] Leyenda de las agregadas: degradado de la rampa con «Baja densidad» y «Alta
       densidad», como la web (hoy la capa de teselas enseña una sola entrada, «Celdas»).
@@ -111,6 +112,11 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   (`scratchpad/vistas/hexagonos-qgis.png`). Suite 221 en QGIS 4 y 218 (+3) en 3.34 (en 3.34
   la propiedad se llama `PropertyFillColor`). **No comparado aún con la web**: activar la
   vista en la web local cambia el mapa y la vista guardados de `tester2`; va en el repaso.
+- 10/10 · `h3hexagon`: ya entraba con los hexágonos (misma vía; rampa por omisión
+  `plasma`, como la web). Prueba `test_h3_va_por_los_hexagonos_del_servidor_como_la_web_en_capas_grandes`
+  (no falla sin arreglo: el arreglo es el de los hexágonos). Comprobado con una vista de
+  prueba creada en la base local («Prueba QGIS · H3», id 119, en el arbolado de Cáceres):
+  capa de teselas con opacidad 0,85 y rampa plasma (`scratchpad/vistas/h3-qgis.png`).
 
 ## Hallazgos para decidir
 
