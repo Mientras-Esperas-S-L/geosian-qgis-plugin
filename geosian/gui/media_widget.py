@@ -134,7 +134,10 @@ class MediaWidgetWrapper(QgsEditorWidgetWrapper):
         # QGIS avisa del elemento por aquí; updateValues no se puede
         # sobrescribir desde Python.
         super().setFeature(feature)
-        valor = feature.attribute(self.fieldIdx())
+        # Los subformularios de partes mandan un elemento vacío cuando no hay ninguno
+        # seleccionado: sin ese atributo, no hay elemento del que enseñar fotos.
+        idx = self.fieldIdx()
+        valor = feature.attribute(idx) if 0 <= idx < len(feature.attributes()) else None
         self._valor = None if _es_nulo(valor) else valor
         if self._panel is not None:
             self._panel.set_element(self._valor)
