@@ -86,7 +86,7 @@ puntos con aviso.
 - [x] Rampas exactas de la web (`colorRamps.js`: 5 colores interpolados a 6, como
       `generatePalette`), con `oranges`, que falta.
 - [x] Opacidad de la vista (`point.opacity`, `line.opacity`, `polygon.fillOpacity`) aplicada.
-- [ ] Atributos de información adicional en el estilo (`additional_info.<tipo>.<campo>` en
+- [x] Atributos de información adicional en el estilo (`additional_info.<tipo>.<campo>` en
       `categorized`, `graduated` y en el peso del calor), pedidos con `include_ai_attr`.
 - [ ] `graduated` con `colorRamp` y cortes, y `rule_based` con todos los operadores del
       frontal, cotejados con `viewStyleProcessor.js`.
@@ -208,3 +208,19 @@ _(lo que no es del plugin o pide una decisión)_
   tesela y se ven líneas finas donde se juntan; la web las pinta sin recorte. Se quitaría
   pidiendo las celdas como polígonos sueltos (proveedor propio que decodifique las teselas)
   en vez de capa de teselas vectoriales. Más trabajo; decidir si compensa.
+- 10/10 · Atributos de información adicional en el estilo. Una vista que colorea o pesa por
+  `additional_info.<tipo>.<campo>` (`views.ai_attribute`: color, `weightAttribute` de calor y
+  contornos) pide `include_ai_attr=<tipo>.<campo>` y la capa tiene ese campo con el nombre de
+  la web y alias «<parte> · <campo>», así el estilo lo encuentra sin tocarlo. Las listas se
+  escriben como `String()` de la web (`["Poda"]` → «Poda»), o no casan con la categoría.
+  Prueba `test_una_vista_que_colorea_por_un_campo_de_los_partes` (fallaba; también con un
+  valor en lista). **Fallo del backend**: con `data_type` la API devolvía el campo vacío
+  (buscaba el modelo con el nombre del LAD y llevaba líneas y polígonos a las tablas simples).
+  Arreglado en la rama `fix/include-ai-attr-data-type`, PR greencity-backend#296 sin fusionar,
+  con su prueba (fallaba) y la batería en verde salvo una de IoT que depende de la fecha.
+  Comprobado en la QGIS de pruebas contra una API temporal con el arreglo (puerto 8012,
+  parada al acabar), vista «Poda» del arbolado de Cáceres: 49.551 árboles, 13.160
+  «Mantenimiento», 1.182 «Tala», etc., y 34.110 sin parte en «Otros»; contra la API sin el
+  arreglo, todos vacíos (`scratchpad/vistas/poda-partes-qgis.png`). Commit 889a0e3. **No
+  comprobado**: `graduated` y peso del calor por un campo de parte con datos reales (solo la
+  prueba de `ai_attribute`), y la comparación con la web, que va en el repaso.
