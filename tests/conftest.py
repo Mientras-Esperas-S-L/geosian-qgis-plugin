@@ -8,7 +8,14 @@ Se crea con interfaz gráfica activada aunque no se vea nada (``offscreen``),
 porque las pruebas de la interfaz construyen widgets de verdad.
 """
 
+import os
+import tempfile
+
 import pytest
+
+# La base de autenticación de las pruebas, aparte: nunca la del perfil de quien las
+# corre. QGIS la lee de aquí al arrancar.
+os.environ.setdefault("QGIS_AUTH_DB_DIR_PATH", tempfile.mkdtemp(prefix="geosian-auth-"))
 
 qgis_core = pytest.importorskip("qgis.core")
 
@@ -20,6 +27,8 @@ def app():
     QgsApplication.setPrefixPath("/usr", True)
     aplicacion = QgsApplication([], True)
     aplicacion.initQgis()
+    # Contraseña maestra de esa base temporal, para poder guardar credenciales.
+    QgsApplication.authManager().setMasterPassword("pruebas", True)
     # Los tipos de campo de QGIS (texto, lista…). La aplicación de QGIS los
     # registra sola; aquí no, y una ficha con un campo sin tipo se cae.
     from qgis.gui import QgsGui

@@ -26,6 +26,8 @@ from qgis.core import (
     QgsTextFormat,
     QgsUnitTypes,
     QgsVectorLayerSimpleLabeling,
+    QgsVectorTileBasicRenderer,
+    QgsVectorTileBasicRendererStyle,
 )
 from qgis.PyQt.QtGui import QColor
 
@@ -312,6 +314,15 @@ def view_renderer(style_config, geometry_type, schema, resolver, iconos=None):
             raiz.appendChild(resto)
         return QgsRuleBasedRenderer(raiz), avisos
 
+    if tipo == "hexagon":
+        # Los hexágonos los pinta una capa de teselas del servidor; si se llega
+        # aquí es que no se pudo montar, y quedan los puntos.
+        avisos.append(
+            "Los hexágonos se piden al servidor y no se pudo: se pintan los puntos."
+        )
+        color = styles.ramp_colors(vista["ramp"], 6)[3]
+        return QgsSingleSymbolRenderer(make_symbol(familia, color)), avisos
+
     if tipo == "heatmap":
         calor = QgsHeatmapRenderer()
         calor.setRadius(vista["radius"])
@@ -326,6 +337,30 @@ def view_renderer(style_config, geometry_type, schema, resolver, iconos=None):
         return calor, avisos
 
     return QgsSingleSymbolRenderer(make_symbol(familia, styles.FALLBACK_ANY)), avisos
+
+
+# El color de relleno definido por datos: ``Property.FillColor`` desde QGIS 3.36,
+# ``PropertyFillColor`` en la 3.34.
+FILL_COLOR = getattr(QgsSymbolLayer, "PropertyFillColor", None)
+if FILL_COLOR is None:
+    FILL_COLOR = QgsSymbolLayer.Property.FillColor
+
+
+def hexagon_renderer(vista):
+    """Las celdas de las teselas agregadas, coloreadas por su número de puntos."""
+    from . import aggregated
+
+    rampa = [color[:3] + (200,) for color in styles.ramp_colors(vista["ramp"], 6)]
+    relleno = QgsFillSymbol.createSimple({"color": "0,0,0,0", "outline_style": "no"})
+    relleno.symbolLayer(0).setDataDefinedProperty(
+        FILL_COLOR,
+        QgsProperty.fromExpression(aggregated.count_color_expression(rampa, vista["color_max"])),
+    )
+    estilo = QgsVectorTileBasicRendererStyle("Celdas", aggregated.CAPA_MVT, Qgis.GeometryType.Polygon)
+    estilo.setSymbol(relleno)
+    renderizador = QgsVectorTileBasicRenderer()
+    renderizador.setStyles([estilo])
+    return renderizador
 
 
 def apply_labels(layer, campo, geometry_type):

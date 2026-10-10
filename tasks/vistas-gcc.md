@@ -49,16 +49,21 @@ puntos con aviso.
 ## Casillas
 
 ### Teselas agregadas del servidor
-- [ ] Teselas autenticadas: un `authcfg` de cabecera (`APIHeader`, `Authorization: Token …`)
+- [x] Teselas autenticadas: un `authcfg` de cabecera (`APIHeader`, `Authorization: Token …`)
       por conexión, nunca la credencial en la URI ni en el proyecto; se renueva al volver a
       entrar. Una capa de teselas vectoriales de `…/tiles/{z}/{x}/{y}.mvt?layer_id=&agg=hex`
       con los filtros de la vista. Si la API no deja (CORS no aplica; ETag, 403 sin
       `MapUser`), se arregla allí.
-- [ ] `hexagon`: esa capa con relleno por `count`, rampa de 6, escala logarítmica con
+- [x] `hexagon`: esa capa con relleno por `count`, rampa de 6, escala logarítmica con
       `colorMax`, alfa 200 y la opacidad de la vista; leyenda «Baja densidad / Alta densidad».
 - [ ] `h3hexagon`: como lo pinta la web sobre una capa grande (los hexágonos del servidor).
       DECIDE si en capas pequeñas hace falta H3 de verdad (la web usa `h3-js` con
       `resolution`; QGIS no trae H3 y habría que llevar la biblioteca o implementarla).
+
+- [ ] Leyenda de las agregadas: degradado de la rampa con «Baja densidad» y «Alta
+      densidad», como la web (hoy la capa de teselas enseña una sola entrada, «Celdas»).
+- [ ] Tiempo real en las agregadas: un `layer_data_changed` de su capa tiene que repintar
+      las teselas (hoy la capa de teselas no se entera).
 
 ### Calor y contornos
 - [ ] `heatmap` en capas pequeñas: el renderizador de calor de QGIS con los parámetros de la
@@ -91,6 +96,21 @@ puntos con aviso.
 ## Hecho
 
 _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se comprobó de verdad)_
+- 10/10 · Teselas autenticadas y `hexagon`. `connections.tile_authcfg`: un `authcfg`
+  `APIHeader` (`Authorization: Token …`) por conexión, guardado en el gestor de QGIS, que se
+  actualiza al volver a entrar y se borra con la conexión; la URI de la capa solo lleva su id.
+  `core/aggregated.py` arma la URI de `…/tiles/{z}/{x}/{y}.mvt?layer_id=&agg=hex` con los
+  filtros de la vista y la expresión de color (`count`, rampa de 6, escala logarítmica con
+  `colorMax`, alfa 200); el panel añade esa capa de teselas en lugar de los puntos, con la
+  opacidad de la vista (`point.opacity`). Las pruebas usan ya una base de autenticación
+  temporal con su contraseña maestra (`conftest.py`), nunca la del perfil. Pruebas en
+  `test_agregadas.py` (4, fallaban). Comprobado en una QGIS de pruebas nueva (perfil
+  `vistas`, porque la del perfil `pruebas` tiene una contraseña maestra que no puse yo)
+  contra el backend local: vista «Hexágonos densidad (prototipo)» de Cáceres, capa de teselas
+  con `authcfg` y sin el token en la fuente, hexágonos coloreados por número de árboles
+  (`scratchpad/vistas/hexagonos-qgis.png`). Suite 221 en QGIS 4 y 218 (+3) en 3.34 (en 3.34
+  la propiedad se llama `PropertyFillColor`). **No comparado aún con la web**: activar la
+  vista en la web local cambia el mapa y la vista guardados de `tester2`; va en el repaso.
 
 ## Hallazgos para decidir
 

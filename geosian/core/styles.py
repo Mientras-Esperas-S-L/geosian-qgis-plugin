@@ -240,9 +240,19 @@ def view_style(style_config, geometry_type, schema=None):
             ramp=calor.get("colorRamp") or "inferno",
         )
         return resultado
+    if visualizacion in ("hexagon", "h3hexagon") and geometry_family(geometry_type) == "point":
+        # Los agrega el servidor en teselas (``core/aggregated.py``), como la web
+        # sobre una capa grande: color por número de puntos.
+        hexagono = config.get(visualizacion) or {}
+        resultado.update(
+            kind="hexagon",
+            ramp=hexagono.get("colorRamp") or ("plasma" if visualizacion == "h3hexagon" else "viridis"),
+            color_max=_number_or(hexagono.get("colorMax"), 100),
+            opacity=view_opacity(config),
+        )
+        return resultado
     if visualizacion not in ("default", "icon"):
-        # Hexágonos, contornos y H3 agregan en el servidor o en la GPU; no
-        # hay un renderizador de QGIS que haga lo mismo. Se pinta el color.
+        # Contornos: todavía sin equivalente en QGIS. Se pinta el color.
         resultado["unsupported"] = visualizacion
 
     modo = color.get("mode") or config.get("mode") or "single"
@@ -316,6 +326,13 @@ def view_style(style_config, geometry_type, schema=None):
         return resultado
     resultado.update(kind="single", color=unico)
     return resultado
+
+
+def view_opacity(style_config):
+    """La opacidad de una vista: la de sus puntos, como la web (0,9 por omisión)."""
+    punto = (style_config or {}).get("point") if isinstance(style_config, dict) else None
+    valor = _number_or((punto or {}).get("opacity"), 0.9)
+    return min(1.0, max(0.0, valor))
 
 
 def _graduated_ranges(color):

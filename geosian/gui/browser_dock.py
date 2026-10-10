@@ -38,6 +38,7 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from ..core import (
+    aggregated,
     basemaps,
     connections,
     icon_store,
@@ -489,6 +490,17 @@ class GeosianBrowserDock(QDockWidget):
                 nombre = f"{nombre} ({ETIQUETAS_GEOMETRIA.get(tipo, tipo)})"
             vectorial.setName(nombre)
 
+            agregada = self._capa_agregada(vectorial, conexion)
+            if agregada is not None:
+                # La vista agregada sustituye a sus puntos, como en la web.
+                if grupo is None:
+                    QgsProject.instance().addMapLayer(agregada)
+                else:
+                    QgsProject.instance().addMapLayer(agregada, False)
+                    grupo.addLayer(agregada)
+                añadidas.append(agregada)
+                continue
+
             self._aplicar_esquema(vectorial)
             self._aplicar_estilo(vectorial)
             self._aplicar_etiquetas(vectorial)
@@ -547,6 +559,42 @@ class GeosianBrowserDock(QDockWidget):
                 relaciones.append((relacion, info))
         if relaciones:
             lad.add_relations_tab(capa, relaciones)
+
+    def _capa_agregada(self, vectorial, conexion):
+        """La capa de teselas agregadas de una vista de hexágonos, o ``None``.
+
+        ``None`` si la vista no es de las que agrega el servidor o si no se puede
+        montar (sin sesión guardada en el gestor de autenticación): entonces se
+        añaden los puntos, con su aviso.
+        """
+        proveedor = vectorial.dataProvider()
+        vista = getattr(proveedor, "view", None)
+        if not vista:
+            return None
+        config = vista.get("style_config") or {}
+        if config.get("visualization") not in aggregated.HEXAGONOS:
+            return None
+        estilo = styles.view_style(config, proveedor.layer_uri.geometry_type, proveedor.schema)
+        if estilo.get("kind") != "hexagon":
+            return None
+        authcfg = connections.tile_authcfg(conexion)
+        if authcfg is None:
+            self.iface.messageBar().pushWarning(
+                "Geosian",
+                f"«{vectorial.name()}»: los hexágonos se piden al servidor con la sesión "
+                "guardada en el gestor de autenticación de QGIS, y no está disponible; "
+                "se pintan los puntos.",
+            )
+            return None
+        uri = aggregated.tile_layer_uri(
+            proveedor._client.base_url, proveedor.layer_uri.layer_id, proveedor._extra(), authcfg
+        )
+        capa = QgsVectorTileLayer(uri, vectorial.name())
+        if not capa.isValid():
+            return None
+        capa.setRenderer(symbology.hexagon_renderer(estilo))
+        capa.setOpacity(estilo["opacity"])
+        return capa
 
     def _aplicar_etiquetas(self, capa):
         """Las etiquetas que la web enciende sola, a partir de la misma escala."""

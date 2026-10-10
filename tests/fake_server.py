@@ -223,6 +223,18 @@ VISTA_ICONOS = {
 }
 
 # Vista 7 de la capa 11: solo los tilos, pintados de rojo.
+VISTA_HEXAGONOS = {
+    "id": 9,
+    "layer": 11,
+    "name": "Densidad",
+    "context_type": "elements",
+    "filter_config": {"query_groups": [{"operator": "and", "context": "elements", "rules": [
+        {"field": "especie", "operator": "equals", "value": "Tilia platyphyllos"}]}]},
+    "style_config": {"mode": "single", "visualization": "hexagon",
+                     "hexagon": {"radius": 200, "colorRamp": "viridis", "colorMax": 50},
+                     "point": {"opacity": 0.7}},
+}
+
 VISTA_TILOS = {
     "id": 7,
     "layer": 11,
@@ -360,6 +372,8 @@ class Handler(BaseHTTPRequestHandler):
 
         elif ruta == "/api/v1/layer-views/8/":
             self._json(VISTA_ICONOS)
+        elif ruta == "/api/v1/layer-views/9/":
+            self._json(VISTA_HEXAGONOS)
 
         elif ruta == "/api/v1/layer-views/7/":
             self._json(VISTA_TILOS)
