@@ -85,7 +85,7 @@ puntos con aviso.
 ### Fidelidad de lo que ya hay
 - [x] Rampas exactas de la web (`colorRamps.js`: 5 colores interpolados a 6, como
       `generatePalette`), con `oranges`, que falta.
-- [ ] Opacidad de la vista (`point.opacity`, `line.opacity`, `polygon.fillOpacity`) aplicada.
+- [x] Opacidad de la vista (`point.opacity`, `line.opacity`, `polygon.fillOpacity`) aplicada.
 - [ ] Atributos de información adicional en el estilo (`additional_info.<tipo>.<campo>` en
       `categorized`, `graduated` y en el peso del calor), pedidos con `include_ai_attr`.
 - [ ] `graduated` con `colorRamp` y cortes, y `rule_based` con todos los operadores del
@@ -192,6 +192,14 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   web (fallaba: la copia anterior tenía 3 colores por rampa). Comprobado en la QGIS de pruebas:
   las seis celdas de los hexágonos de Cáceres con los colores de la web
   (`scratchpad/vistas/hexagonos-qgis.png`). Suite 238.
+- 10/10 · Opacidad de la vista. Mirado en la web: `point.opacity` (0,9 si no dice) es la de
+  las visualizaciones avanzadas (calor, hexágonos, iconos, contornos, H3: `maps.jsx`); en las
+  normales la transparencia va en el color (alfa 230, que el complemento ya respeta) y
+  `polygon.fillOpacity` solo cuenta con colores opacos. Faltaba en el calor de capas pequeñas
+  y en los iconos. Prueba `test_la_opacidad_de_la_vista_como_la_web` (calor, iconos y una
+  normal; fallaba). Comprobado en la QGIS de pruebas: «Tipo de valvula» y los iconos de
+  palmeras de Algeciras, 0,9 (`scratchpad/vistas/iconos-qgis.png`). Suite 241 en QGIS 4 y 238
+  (+3) en 3.34.
 
 ## Hallazgos para decidir
 

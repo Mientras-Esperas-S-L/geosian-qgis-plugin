@@ -650,6 +650,12 @@ class GeosianBrowserDock(QDockWidget):
             else:
                 renderizador, avisos = symbology.base_renderer(proveedor.schema, tipo, resolver)
             capa.setRenderer(renderizador)
+            if proveedor.view is not None:
+                config = proveedor.view.get("style_config") or {}
+                if (config.get("visualization") or "default") != "default":
+                    # Como la web: las visualizaciones avanzadas (calor, iconos…) se
+                    # pintan con la opacidad de la vista; las normales la llevan en el color.
+                    capa.setOpacity(styles.view_opacity(config))
             for aviso in avisos:
                 proveedor.log_warning(f"{capa.name()}: {aviso}")
         except Exception as exc:

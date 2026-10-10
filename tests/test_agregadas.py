@@ -340,3 +340,24 @@ def test_los_contornos_son_isolineas_por_umbral_con_su_color_y_grosor(app):
         finally:
             QgsProject.instance().clear()
             connections.remove_connection("Contornos")
+
+
+@pytest.mark.parametrize("vista, opacidad", [
+    ({"id": 10, "name": "Calor"}, 0.9),     # calor en capa pequeña: 0,9 por omisión
+    ({"id": 8, "name": "Iconos"}, 0.9),     # iconos, también
+    ({"id": 7, "name": "Tilos"}, 1.0),      # una vista normal: la transparencia va en el color
+])
+def test_la_opacidad_de_la_vista_como_la_web(app, vista, opacidad):
+    """``point.opacity`` (0,9 si no dice) es la opacidad de las visualizaciones avanzadas
+    en la web; en las normales no cuenta."""
+    from qgis.core import QgsProject
+
+    from tests.fake_server import FakeGeosian
+
+    with FakeGeosian() as fake:
+        try:
+            [capa] = _añadir_vista(fake, "Opacidad", vista)
+            assert abs(capa.opacity() - opacidad) < 1e-6
+        finally:
+            QgsProject.instance().clear()
+            connections.remove_connection("Opacidad")
