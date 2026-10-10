@@ -1181,3 +1181,31 @@ def test_el_panel_sabe_si_la_web_lleva_la_capa_por_teselas(servidor, config, esp
     assert browser_dock._por_teselas(vectorial.dataProvider()) is esperado
     assert any(c.get("include_tile_config") == ["true"]
                for r, c in servidor.peticiones if r == "/api/v1/maps/4/layers/")
+
+
+def test_el_punto_de_una_vista_tiene_el_tamaño_de_la_web(app):
+    """Por teselas, el radio de la vista (8 m por omisión) con topes de 3 px y el propio
+    radio; en GeoJSON (graduada, reglas…), 6 px de radio fijos."""
+    from qgis.core import QgsRenderContext
+
+    from geosian.core import styles, symbology
+
+    categorias = {"mode": "categorized", "color": {"mode": "categorized", "attribute": "especie",
+                                                   "categories": {"A": {"color": [1, 2, 3]}}}}
+    assert styles.view_style(categorias, "points", teselas=True)["point_size"] == (16, 6, 16)
+    con_radio = dict(categorias, point={"radius": 5})
+    assert styles.view_style(con_radio, "points", teselas=True)["point_size"] == (10, 6, 10)
+    assert styles.view_style(categorias, "points", teselas=False)["point_size"] == (None, 12, 12)
+    graduada = {"mode": "graduated", "color": {"mode": "graduated", "attribute": "altura"}}
+    assert styles.view_style(graduada, "points", teselas=True)["point_size"] == (None, 12, 12)
+
+    simbolo = symbology.make_symbol("point", (1, 2, 3, 230), (None, 12, 12))
+    fijo = simbolo.symbolLayer(0)
+    assert fijo.size() == 12
+    assert not fijo.dataDefinedProperties().property(fijo.PropertySize).isActive()
+
+    graduada["color"].update(breaks=[0, 5, 10], colors=[[1, 2, 3], [4, 5, 6]])
+    renderizador, _ = symbology.view_renderer(graduada, "points", None, lambda nombre: nombre, teselas=True)
+    simbolos = renderizador.symbols(QgsRenderContext())
+    assert len(simbolos) > 1
+    assert {s.symbolLayer(0).size() for s in simbolos} == {12}

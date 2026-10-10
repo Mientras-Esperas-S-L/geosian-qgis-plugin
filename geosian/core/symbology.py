@@ -65,8 +65,12 @@ def _rgba(color):
     return ",".join(str(int(c)) for c in color)
 
 
-def make_symbol(familia, color):
-    """Símbolo de QGIS para un color de relleno de Geosian."""
+def make_symbol(familia, color, punto=None):
+    """Símbolo de QGIS para un color de relleno de Geosian.
+
+    ``punto``: diámetro del círculo como ``(metros, mínimo px, máximo px)``, con
+    metros ``None`` si es fijo; por omisión, el de la capa sin vista.
+    """
     borde = styles.stroke_of(color)
     if familia == "point":
         simbolo = QgsMarkerSymbol.createSimple(
@@ -78,13 +82,15 @@ def make_symbol(familia, color):
                 "outline_width_unit": "Pixel",
             }
         )
+        metros, minimo, maximo = punto or (POINT_SIZE_M, POINT_MIN_PX, POINT_MAX_PX)
         capa = simbolo.symbolLayer(0)
-        capa.setSize(POINT_MAX_PX)
+        capa.setSize(maximo)
         capa.setSizeUnit(QgsUnitTypes.RenderPixels)
-        capa.setDataDefinedProperty(
-            QgsSymbolLayer.PropertySize,
-            QgsProperty.fromExpression(_px_desde_metros(POINT_SIZE_M, POINT_MIN_PX, POINT_MAX_PX)),
-        )
+        if metros is not None:
+            capa.setDataDefinedProperty(
+                QgsSymbolLayer.PropertySize,
+                QgsProperty.fromExpression(_px_desde_metros(metros, minimo, maximo)),
+            )
         return simbolo
     if familia == "line":
         # En las teselas del frontal la línea va con el color oscurecido.
@@ -258,7 +264,7 @@ def view_renderer(style_config, geometry_type, schema, resolver, iconos=None, te
         )
 
     def fabrica(color):
-        return make_symbol(familia, color)
+        return make_symbol(familia, color, vista.get("point_size"))
 
     icono = vista.get("icon")
     if icono and familia == "point":

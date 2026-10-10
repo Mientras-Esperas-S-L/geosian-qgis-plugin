@@ -295,6 +295,16 @@ def view_style(style_config, geometry_type, schema=None, teselas=True):
         resultado["unsupported"] = visualizacion
 
     modo = color.get("mode") or config.get("mode") or "single"
+    # Diámetro del círculo de la vista: ``(metros, mínimo px, máximo px)``, o metros
+    # ``None`` si es fijo. Por teselas, el radio de la vista en metros, entre 3 px y
+    # el propio radio (``mvtLayerGenerator.js``); en GeoJSON, 6 px fijos
+    # (``useViewLayersLegacy.js``). No el tamaño de la capa sin vista.
+    punto = config.get("point") if isinstance(config.get("point"), dict) else {}
+    if teselas and visualizacion == "default" and modo in ("single", "categorized"):
+        radio = _number_or(punto.get("radius"), 0) or 8
+        resultado["point_size"] = (2 * radio, 6, 2 * radio)
+    else:
+        resultado["point_size"] = (None, 12, 12)
 
     icono = config.get("icon") if isinstance(config.get("icon"), dict) else {}
     defecto = icono.get("defaultIcon") if isinstance(icono.get("defaultIcon"), dict) else {}
