@@ -94,7 +94,7 @@ puntos con aviso.
       el de la capa; sin `defaultIcon`, nada (como la web).
 
 ### Repaso
-- [ ] Cada tipo lado a lado con la web local, con captura de la ventana entera de QGIS, en
+- [x] Cada tipo lado a lado con la web local, con captura de la ventana entera de QGIS, en
       capas pequeñas y grandes. Si en local falta algún tipo de vista, crear una de prueba
       con nombre ficticio desde el shell de Django local (nunca en devel ni producción).
 
@@ -300,6 +300,35 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   categorizada, iconos (por teselas y en GeoJSON), calor pequeño y grande, hexágonos, H3,
   contornos y por campo de parte, cada una lado a lado.
 
+- 10/10 · Repaso, segunda parte (casilla cerrada). Con el mismo método, en la web local y en
+  QGIS con el mismo encuadre y, en la web, solo la capa de la vista visible
+  (`scratchpad/vistas/lado-*.png`): por categoría en capa grande (72), mediana (73) y pequeña
+  (61), por campo de parte (51), hexágonos (90), H3 (119), contornos (121), calor en capa
+  pequeña (127) y grande (128) e iconos por categoría (129). Por categorías, el color de cada
+  elemento en QGIS es el de la función de la web en los 1.874, 4.287 y 26 elementos. Lo
+  encontrado:
+  - **Web, PR greencity-frontend#205** (sin fusionar): al abrir un mapa, a veces no volvían
+    las vistas activas guardadas. El catálogo de vistas y los ajustes del usuario llegan por
+    peticiones distintas y la restauración no esperaba a los ajustes; si el catálogo llegaba
+    antes, se daba por hecha sin nada, y el siguiente guardado dejaba `active_view_ids` en
+    `[]`. Medido con Playwright: sin el arreglo, 1 de 6 cargas normales y 3 de 3 con los
+    ajustes retrasados 1,5 s; con él, 3 de 3 bien. Las capturas del repaso retrasan el
+    catálogo para no tropezar con esto.
+  - **Web, PR greencity-frontend#206** (sin fusionar): las vistas H3 sobre capas por teselas
+    se coloreaban con `style_config.hexagon` y no con `h3hexagon`: perdían su rampa. Con el
+    arreglo la web pinta el H3 con `plasma`, como QGIS (`scratchpad/vistas/h3-tres.png`).
+  - **Complemento**, commit 421de93: sin `colorRamp`, hexágonos y H3 van con `inferno`
+    (`resolveColorRange` de la web); iban con `viridis`/`plasma` (la vista 90 no la guarda).
+  - **Complemento**, commit 0d0b486: la rampa del calor sigue el sombreador del
+    `HeatmapLayer` (colores desde el peso cero hasta max/intensity, entre los centros de los
+    seis píxeles; por debajo del umbral, el primer color con opacidad creciente, el borde
+    negro de `inferno`). Prueba con valores sacados a mano del sombreador.
+  - Vista 51 (por campo de parte): la web la colorea y QGIS no, porque la API local de 8010 no
+    lleva el arreglo de greencity-backend#296; con él coincidía (casilla de partes).
+  - Suite 261 en QGIS 4 y 258 (+3) en 3.34. Los ajustes de `tester2` siguen como estaban (18
+    mapas, ninguno distinto); la cuenta de pruebas quedó con todas sus capas visibles.
+  **No igualado** (va a las decisiones): el núcleo del calor (abajo) y el tamaño de las celdas.
+
 ## Hallazgos para decidir
 
 _(lo que no es del plugin o pide una decisión)_
@@ -311,3 +340,15 @@ _(lo que no es del plugin o pide una decisión)_
   mete en el grupo de cualquier mapa a cualquier usuario autenticado, sin mirar si puede verlo.
   Recibe los avisos de cambios (capa, elemento y usuario que cambió), no los datos. No es del
   complemento ni de las vistas; decidir si va en su propio PR.
+- **Núcleo del calor**: QGIS suaviza con un núcleo cuártico que llega entero al radio; deck.gl,
+  con uno gaussiano. Con el mismo `radiusPixels`, las manchas de QGIS salen más anchas y más
+  calientes (`scratchpad/vistas/lado-127.png`). QGIS no deja elegir el núcleo de su
+  renderizador de calor; se podría acercar con un radio menor (un factor medido) o pintar el
+  calor como un ráster propio. Decidir si compensa.
+- **Tamaño de las celdas de hexágonos**: QGIS pide teselas de un zoom más que deck.gl en el
+  mismo encuadre, así que sus celdas son más pequeñas, cuentan menos puntos y salen más claras
+  (`scratchpad/vistas/lado-90.png`). Se igualaría limitando el zoom de la capa de teselas un
+  nivel; decidir si se quiere igual que la web o más detalle.
+- **Nombres reservados no declarados**: si los datos traen `id` (u otro nombre reservado) sin
+  que el esquema lo declare, la web lo lee del alias `attr__id` y QGIS no tiene ese campo. Pasa
+  en el arbolado de Cáceres. Decidir si el complemento debe crear esos campos.
