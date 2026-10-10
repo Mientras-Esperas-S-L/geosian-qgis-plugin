@@ -78,7 +78,7 @@ puntos con aviso.
       cada `threshold` con su `color` y `strokeWidth`. Capas pequeñas con sus puntos; grandes
       con los centroides del servidor.
 
-- [ ] Contornos sin congelar la ventana: hoy se piden las teselas y se trazan al añadir la
+- [x] Contornos sin congelar la ventana: hoy se piden las teselas y se trazan al añadir la
       capa, en el hilo de la ventana (8,1 s en el arbolado de Cáceres, 64 teselas por unos
       árboles sueltos lejos). Calcular en segundo plano y pintar al terminar.
 
@@ -175,6 +175,15 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   Contornos», id 121, arbolado de Cáceres, los umbrales por omisión del editor): las cuatro
   isolíneas sobre la ciudad (`scratchpad/vistas/contornos-qgis.png`). Tarda 8,1 s en el hilo de
   la ventana: casilla nueva. Suite 237 en QGIS 4 y 234 (+3) en 3.34.
+- 10/10 · Contornos sin congelar la ventana. Dos causas: las teselas se pedían y trazaban en
+  el hilo de la ventana, y casi todo el tiempo se iba en otra cosa: `extent()` del proveedor con
+  una vista baja todos los puntos para ajustar la extensión, y se usaba solo para saber qué
+  teselas pedir. Ahora la extensión sale de los metadatos (`metadata_extent()`) y el trazado va
+  en una `QgsTask`; la capa entra vacía y se rellena al terminar (también al recalcular con el
+  tiempo real). Prueba ampliada en `test_los_contornos_son_isolineas_por_umbral_con_su_color_y_grosor`
+  (entra vacía, sin bajar puntos, y se rellena; fallaba). Medido en la QGIS de pruebas, arbolado
+  de Cáceres: añadir la capa 8,17 s → 0,07 s; las líneas, a los 0,1 s, con el bucle de la ventana
+  sin pasar de 0,026 s por vuelta. Suite 237 en QGIS 4 y 234 (+3) en 3.34.
 
 ## Hallazgos para decidir
 

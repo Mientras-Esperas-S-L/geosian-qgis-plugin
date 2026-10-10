@@ -577,7 +577,9 @@ class GeosianBrowserDock(QDockWidget):
         extra = None
         if estilo.get("kind") == "contour":
             authcfg = connections.tile_authcfg(conexion)
-            extension = proveedor.extent()
+            # La de los metadatos: ``extent()`` con una vista bajaría todos los puntos
+            # (8 s en Cáceres) solo para saber qué teselas pedir.
+            extension = proveedor.metadata_extent()
             if extension.isNull():
                 return None
             info = aggregated.describe(

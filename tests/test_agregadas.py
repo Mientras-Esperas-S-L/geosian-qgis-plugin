@@ -251,6 +251,20 @@ def test_el_calor_usa_radio_intensidad_umbral_y_la_rampa_entera(app):
         c[:3] for c in seis}
 
 
+def _esperar(condicion, segundos=10):
+    import time
+
+    from qgis.PyQt.QtCore import QCoreApplication
+
+    limite = time.monotonic() + segundos
+    while time.monotonic() < limite:
+        QCoreApplication.processEvents()
+        if condicion():
+            return True
+        time.sleep(0.02)
+    return False
+
+
 def _añadir_vista(fake, nombre, vista):
     from geosian.gui.browser_dock import ROL_DATOS, GeosianBrowserDock
     from tests.test_gui import IfaceFalso
@@ -305,6 +319,12 @@ def test_los_contornos_son_isolineas_por_umbral_con_su_color_y_grosor(app):
         try:
             [capa] = _añadir_vista(fake, "Contornos", {"id": 11, "name": "Contornos"})
             assert capa.name() == "Arbolado · Contornos"
+            # Se calcula en segundo plano: la capa entra al momento, vacía, y la
+            # ventana no se congela mientras se piden las teselas (8 s en Cáceres).
+            assert capa.featureCount() == 0
+            # Y sin bajar los puntos de la capa: la extensión sale de sus metadatos.
+            assert not [r for r, _ in fake.peticiones if r == "/api/v1/geodata/paginated/"]
+            assert _esperar(lambda: capa.featureCount() == 2)
             assert QgsWkbTypes.geometryType(capa.wkbType()) == QgsWkbTypes.GeometryType.LineGeometry
             umbrales = sorted(f["umbral"] for f in capa.getFeatures())
             assert umbrales == [1, 5]  # el grupo de diez pasa del 5; el resto, del 1

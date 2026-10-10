@@ -11,6 +11,7 @@ real.
 import json
 
 from qgis.core import (
+    QgsApplication,
     QgsCategorizedSymbolRenderer,
     QgsFeature,
     QgsField,
@@ -18,9 +19,11 @@ from qgis.core import (
     QgsLineSymbol,
     QgsPointXY,
     QgsRendererCategory,
+    QgsTask,
     QgsUnitTypes,
     QgsVectorLayer,
 )
+from qgis.PyQt import sip
 from qgis.PyQt.QtCore import QVariant
 from qgis.PyQt.QtGui import QColor
 
@@ -42,13 +45,42 @@ def crear(nombre, info, estilo):
     return capa
 
 
+# Las tareas en curso, por capa: QGIS no guarda la referencia de Python y, sin ella,
+# la tarea se recogería a medias.
+_tareas = {}
+
+
 def recalcular(capa):
-    """Vuelve a pedir las celdas y a trazar las isolíneas (también tras un cambio)."""
+    """Vuelve a pedir las celdas y a trazar las isolíneas (también tras un cambio).
+
+    En segundo plano, con una tarea de QGIS: pedir las teselas y trazar puede tardar
+    segundos y la ventana no debe congelarse. Al terminar se rellena la capa.
+    """
     info = json.loads(capa.customProperty(aggregated.PROPIEDAD))
-    estilo = info["estilo"]
     cliente = connections.client_for(info["conexion"])
     if cliente is None:
         return
+    clave = capa.id()
+
+    def al_terminar(error, lineas=None):
+        _tareas.pop(clave, None)
+        if error is not None or lineas is None or sip.isdeleted(capa):
+            return
+        _rellenar(capa, lineas)
+
+    tarea = QgsTask.fromFunction(
+        f"Geosian: contornos de «{capa.name()}»",
+        lambda _tarea: _isolineas(cliente, info),
+        on_finished=al_terminar,
+        flags=QgsTask.Flag.CanCancel,
+    )
+    _tareas[clave] = tarea
+    QgsApplication.taskManager().addTask(tarea)
+
+
+def _isolineas(cliente, info):
+    """``[(umbral, segmentos), …]``: las teselas y el trazado, fuera de la ventana."""
+    estilo = info["estilo"]
     z, teselas = aggregated.contour_tiles(info["bbox"], estilo["cell_size"])
     extra = {"geom": "centroid", "cells": aggregated.CELDAS_DE_CALOR}
     if estilo.get("weight"):
@@ -62,12 +94,14 @@ def recalcular(capa):
             celdas.extend(mvt.decode(cuerpo).get(aggregated.CAPA_MVT, []))
     puntos = aggregated.cell_points(celdas, por_peso=bool(estilo.get("weight")))
     rejilla = contours.grid(puntos, estilo["cell_size"], estilo["aggregation"])
+    return [(umbral, contours.isolines(rejilla, umbral)) for umbral, _, _ in estilo["contours"]]
 
+
+def _rellenar(capa, lineas):
     proveedor = capa.dataProvider()
     proveedor.truncate()
     nuevos = []
-    for umbral, _, _ in estilo["contours"]:
-        segmentos = contours.isolines(rejilla, umbral)
+    for umbral, segmentos in lineas:
         if not segmentos:
             continue
         elemento = QgsFeature(capa.fields())

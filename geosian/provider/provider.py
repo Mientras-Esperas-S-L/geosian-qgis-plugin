@@ -754,6 +754,13 @@ class GeosianProvider(QgsVectorDataProvider):
             self._ensure_loaded()
         return self._extent
 
+    def metadata_extent(self):
+        """La extensión de la capa entera según sus metadatos, sin bajar nada.
+
+        ``extent()`` con una vista baja los elementos para ajustarla al filtro.
+        """
+        return QgsRectangle(self._extent)
+
     def isValid(self):
         return self._valid
 
