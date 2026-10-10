@@ -276,7 +276,9 @@ def test_el_calor_usa_radio_intensidad_umbral_y_la_rampa_entera(app):
     resolver = {"altura": "altura"}.get
     calor, _avisos = symbology.view_renderer(config, "points", {}, resolver)
     assert calor.type() == "heatmapRenderer"
-    assert calor.radius() == 40
+    # El radio, corregido: la mancha del núcleo cuártico de QGIS a media altura igual que
+    # la de la gaussiana de deck.gl (σ = radio/6, weights-fs): 0,196·40 / 0,541 ≈ 14,5 px.
+    assert abs(calor.radius() - 14.5) < 0.1
     # La leyenda, con los textos de la web (QGIS 3.34 no deja cambiarlos).
     if hasattr(calor, "legendSettings"):
         assert calor.legendSettings().minimumLabel() == "Baja densidad"

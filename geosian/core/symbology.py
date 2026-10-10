@@ -356,7 +356,7 @@ def view_renderer(style_config, geometry_type, schema, resolver, iconos=None, te
 
     if tipo == "heatmap":
         calor = QgsHeatmapRenderer()
-        calor.setRadius(vista["radius"])
+        calor.setRadius(vista["radius"] * RADIO_CUARTICO)
         calor.setRadiusUnit(QgsUnitTypes.RenderPixels)
         calor.setColorRamp(heatmap_ramp(vista))
         if hasattr(calor, "setLegendSettings"):  # no en QGIS 3.34: «Mínimo» y «Máximo»
@@ -371,6 +371,13 @@ def view_renderer(style_config, geometry_type, schema, resolver, iconos=None, te
         return calor, avisos
 
     return QgsSingleSymbolRenderer(make_symbol(familia, styles.FALLBACK_ANY)), avisos
+
+
+# El calor de la web (deck.gl, weights-fs) suaviza con una gaussiana de σ = radio/6 cortada
+# en el radio; el de QGIS, con un núcleo cuártico (1 − u²)² que llega entero al suyo. Con el
+# mismo radio la mancha de QGIS sale casi tres veces más ancha. Se iguala la anchura a media
+# altura: la gaussiana cae a la mitad en σ·√(2·ln 2) y la cuártica en √(1 − 1/√2) de su radio.
+RADIO_CUARTICO = (math.sqrt(2 * math.log(2)) / 6) / math.sqrt(1 - 1 / math.sqrt(2))
 
 
 def _rampa_continua(valor, paradas, minimo, maximo, alfa=styles.DEFAULT_ALPHA):
