@@ -259,7 +259,8 @@ def view_style(style_config, geometry_type, schema=None, teselas=True):
         hexagono = config.get(visualizacion) or {}
         resultado.update(
             kind="hexagon",
-            ramp=hexagono.get("colorRamp") or ("plasma" if visualizacion == "h3hexagon" else "viridis"),
+            # Sin colorRamp, la de resolveColorRange de la web.
+            ramp=hexagono.get("colorRamp") or "inferno",
             color_max=_number_or(hexagono.get("colorMax"), 100),
             opacity=view_opacity(config),
         )

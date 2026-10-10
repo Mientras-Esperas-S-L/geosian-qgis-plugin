@@ -113,7 +113,11 @@ def test_h3_va_por_los_hexagonos_del_servidor_como_la_web_en_capas_grandes():
     vista = styles.view_style({"visualization": "h3hexagon", "h3hexagon": {"resolution": 9},
                                "point": {"opacity": 0.85}}, "points")
     assert vista["kind"] == "hexagon"
-    assert vista["ramp"] == "plasma"  # la de la web cuando la vista no dice otra
+    # Sin colorRamp, la de resolveColorRange de la web: inferno (no la que pone el editor
+    # al crear la vista, que sí la guarda).
+    assert vista["ramp"] == "inferno"
+    assert styles.view_style({"visualization": "hexagon", "hexagon": {}}, "points")["ramp"] == "inferno"
+    assert styles.view_style({"visualization": "hexagon"}, "points")["ramp"] == "inferno"
     assert vista["opacity"] == 0.85
     assert "h3hexagon" in aggregated.HEXAGONOS
 
