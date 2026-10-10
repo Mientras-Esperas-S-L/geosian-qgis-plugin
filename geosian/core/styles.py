@@ -16,6 +16,8 @@ convierte el resultado en renderizadores de QGIS.
 Los colores van siempre como tuplas ``(r, g, b, a)`` de 0 a 255.
 """
 
+import math
+
 from . import schema as S
 
 # Alfa que pone el frontal cuando el color no lo trae (``hexToRgba``).
@@ -404,34 +406,49 @@ def _number_or(valor, defecto):
         return float(defecto)
 
 
-# Rampas que usa el editor de vistas (``colorRamps.js``), con sus extremos y un
-# punto medio. Basta para una aproximación fiel a la vista; los tramos se
-# interpolan entre estos puntos.
-RAMPS = {
-    "viridis": [(68, 1, 84), (33, 145, 140), (253, 231, 37)],
-    "inferno": [(0, 0, 4), (187, 55, 84), (252, 255, 164)],
-    "plasma": [(13, 8, 135), (204, 71, 120), (240, 249, 33)],
-    "magma": [(0, 0, 4), (183, 55, 121), (252, 253, 191)],
-    "blues": [(247, 251, 255), (107, 174, 214), (8, 48, 107)],
-    "reds": [(255, 245, 240), (251, 106, 74), (103, 0, 13)],
-    "greens": [(247, 252, 245), (116, 196, 118), (0, 68, 27)],
-}
+# Las rampas de la web (COLOR_RAMPS de colorRamps.js), copiadas a
+# resources/rampas.json; si cambian allí, hay que volver a copiarlas.
+_RAMPAS = None
+# La que usa deck.gl cuando la vista no dice ninguna o no existe.
+RAMPA_POR_OMISION = [(1, 152, 189), (73, 227, 206), (216, 254, 181), (254, 237, 177),
+                     (254, 173, 84), (209, 55, 78)]
 
 
-def ramp_colors(nombre, n):
-    puntos = RAMPS.get(str(nombre).lower(), RAMPS["viridis"])
+def _rampas():
+    global _RAMPAS
+    if _RAMPAS is None:
+        import json
+        import os
+
+        ruta = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources", "rampas.json")
+        with open(ruta, encoding="utf-8") as fichero:
+            datos = json.load(fichero)
+        datos.pop("metadata", None)
+        _RAMPAS = {k: [tuple(c) for c in v] for k, v in datos.items()}
+    return _RAMPAS
+
+
+def _redondea(x):
+    """Math.round de JavaScript (la mitad, hacia arriba), no el de Python."""
+    return math.floor(x + 0.5)
+
+
+def ramp_colors(nombre, n, alpha=DEFAULT_ALPHA):
+    """n colores de una rampa, como generatePalette de la web."""
+    colores = _rampas().get(str(nombre).lower()) or RAMPA_POR_OMISION
     if n <= 1:
-        return [puntos[0] + (DEFAULT_ALPHA,)]
-    colores = []
+        return [colores[0] + (alpha,)]
+    paso = (len(colores) - 1) / (n - 1)
+    if n <= len(colores):
+        return [colores[_redondea(i * paso)] + (alpha,) for i in range(n)]
+    paleta = []
     for i in range(n):
-        t = i / (n - 1) * (len(puntos) - 1)
-        j = min(int(t), len(puntos) - 2)
-        f = t - j
-        a, b = puntos[j], puntos[j + 1]
-        colores.append(
-            tuple(round(a[k] + (b[k] - a[k]) * f) for k in range(3)) + (DEFAULT_ALPHA,)
-        )
-    return colores
+        posicion = i * paso
+        bajo, alto = math.floor(posicion), math.ceil(posicion)
+        f = posicion - bajo
+        a, b = colores[bajo], colores[alto]
+        paleta.append(tuple(_redondea(a[k] + f * (b[k] - a[k])) for k in range(3)) + (alpha,))
+    return paleta
 
 
 # ----------------------------------------------------------------------

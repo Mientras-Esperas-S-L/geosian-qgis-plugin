@@ -83,7 +83,7 @@ puntos con aviso.
       árboles sueltos lejos). Calcular en segundo plano y pintar al terminar.
 
 ### Fidelidad de lo que ya hay
-- [ ] Rampas exactas de la web (`colorRamps.js`: 5 colores interpolados a 6, como
+- [x] Rampas exactas de la web (`colorRamps.js`: 5 colores interpolados a 6, como
       `generatePalette`), con `oranges`, que falta.
 - [ ] Opacidad de la vista (`point.opacity`, `line.opacity`, `polygon.fillOpacity`) aplicada.
 - [ ] Atributos de información adicional en el estilo (`additional_info.<tipo>.<campo>` en
@@ -184,6 +184,14 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   (entra vacía, sin bajar puntos, y se rellena; fallaba). Medido en la QGIS de pruebas, arbolado
   de Cáceres: añadir la capa 8,17 s → 0,07 s; las líneas, a los 0,1 s, con el bucle de la ventana
   sin pasar de 0,026 s por vuelta. Suite 237 en QGIS 4 y 234 (+3) en 3.34.
+- 10/10 · Rampas exactas. Las 20 rampas de `COLOR_RAMPS` (`colorRamps.js`) copiadas a
+  `resources/rampas.json` (con su origen) y `ramp_colors` como `generatePalette`: equidistantes
+  si se piden menos colores que la rampa, interpoladas si más, con el redondeo de JavaScript;
+  sin rampa conocida, la de deck.gl. Entran `oranges` (faltaba) y las de categorías. Prueba
+  `test_las_rampas_son_las_de_la_web`, con valores sacados con node de la propia función de la
+  web (fallaba: la copia anterior tenía 3 colores por rampa). Comprobado en la QGIS de pruebas:
+  las seis celdas de los hexágonos de Cáceres con los colores de la web
+  (`scratchpad/vistas/hexagonos-qgis.png`). Suite 238.
 
 ## Hallazgos para decidir
 

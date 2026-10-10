@@ -141,3 +141,21 @@ def test_etiquetas_que_se_pueden_encender_como_la_web():
 
     assert styles.label_choices(esquema) == [("codigo", "Código"), ("especie", "Especie")]
     assert styles.label_choices({}) == []
+
+
+def test_las_rampas_son_las_de_la_web():
+    """Valores sacados de ``generatePalette`` de ``colorRamps.js`` (la web), con node."""
+    assert styles.ramp_colors("viridis", 6) == [
+        (68, 1, 84, 230), (61, 66, 128, 230), (43, 120, 140, 230),
+        (57, 167, 123, 230), (126, 207, 86, 230), (253, 231, 37, 230)]
+    assert styles.ramp_colors("plasma", 6) == [
+        (13, 8, 135, 230), (103, 4, 161, 230), (173, 44, 139, 230),
+        (222, 102, 98, 230), (246, 169, 58, 230), (240, 249, 33, 230)]
+    # «oranges» faltaba: el editor de vistas la ofrece.
+    assert styles.ramp_colors("oranges", 6) == [
+        (255, 245, 235, 230), (254, 219, 176, 230), (253, 169, 100, 230),
+        (239, 113, 36, 230), (199, 65, 2, 230), (127, 39, 4, 230)]
+    # Menos colores que la rampa: equidistantes, sin interpolar.
+    assert styles.ramp_colors("reds", 3) == [(255, 245, 240, 230), (251, 106, 74, 230), (103, 0, 13, 230)]
+    assert styles.ramp_colors("category10", 4) == [
+        (31, 119, 180, 230), (214, 39, 40, 230), (227, 119, 194, 230), (23, 190, 207, 230)]
