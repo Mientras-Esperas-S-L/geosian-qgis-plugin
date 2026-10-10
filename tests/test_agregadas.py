@@ -12,44 +12,35 @@ from geosian.core import aggregated, connections
 from geosian.gui import celdas
 
 
-def _cabecera(authcfg):
-    config = QgsAuthMethodConfig()
-    QgsApplication.authManager().loadAuthenticationConfig(authcfg, config, True)
-    return config.method(), config.configMap()
+def test_las_vistas_agregadas_no_guardan_credenciales_de_teselas(app):
+    """Las celdas y los contornos piden las teselas con el cliente y la sesión: ya no hace
+    falta guardar el token en el gestor de autenticación de QGIS como cabecera aparte."""
+    from qgis.core import QgsProject
+
+    from tests.fake_server import FakeGeosian
+
+    with FakeGeosian() as fake:
+        antes = set(QgsApplication.authManager().configIds())
+        try:
+            _añadir_vista(fake, "SinCabecera", {"id": 9, "name": "Densidad"})
+            _añadir_vista(fake, "SinCabecera", {"id": 11, "name": "Contornos"})
+            nuevas = set(QgsApplication.authManager().configIds()) - antes
+            nombres = set()
+            for i in nuevas:
+                config = QgsAuthMethodConfig()
+                QgsApplication.authManager().loadAuthenticationConfig(i, config, False)
+                nombres.add(config.name())
+            assert not any("teselas" in n for n in nombres), nombres
+        finally:
+            QgsProject.instance().clear()
+            connections.remove_connection("SinCabecera")
 
 
-def test_la_credencial_de_las_teselas_va_en_el_gestor_y_no_en_la_uri(app):
-    connections.save_connection("Teselas", "https://api.ejemplo.org", "a@b.c")
-    try:
-        connections.set_session("Teselas", "tok-secreto", "jwt")
-        authcfg = connections.tile_authcfg("Teselas")
-        assert authcfg
-        assert _cabecera(authcfg) == ("APIHeader", {"Authorization": "Token tok-secreto"})
-
-        uri = aggregated.tile_layer_uri(
-            "https://api.ejemplo.org", 120, {"attr__especie": ["Tilo", "Olmo"]}, authcfg
-        )
-        assert "tok-secreto" not in uri
-        assert f"authcfg={authcfg}" in uri
-        assert "agg%3Dhex" in uri and "layer_id%3D120" in uri
-        assert "attr__especie%3DTilo" in uri and "attr__especie%3DOlmo" in uri
-        assert "{z}/{x}/{y}.mvt" in uri
-
-        # Al volver a entrar, la misma configuración con la sesión nueva.
-        connections.set_session("Teselas", "tok-nuevo", "jwt")
-        assert connections.tile_authcfg("Teselas") == authcfg
-        assert _cabecera(authcfg)[1] == {"Authorization": "Token tok-nuevo"}
-    finally:
-        connections.remove_connection("Teselas")
-    assert not QgsApplication.authManager().configIds().count(authcfg)
-
-
-def test_sin_sesion_no_hay_credencial_de_teselas(app):
-    connections.save_connection("SinSesion", "https://api.ejemplo.org", "a@b.c")
-    try:
-        assert connections.tile_authcfg("SinSesion") is None
-    finally:
-        connections.remove_connection("SinSesion")
+def test_la_uri_de_las_teselas_no_lleva_la_credencial():
+    uri = aggregated.tile_layer_uri("https://api.ejemplo.org", 120, {"attr__especie": ["Tilo", "Olmo"]}, None)
+    assert "authcfg" not in uri
+    assert "agg%3Dhex" in uri and "layer_id%3D120" in uri
+    assert "attr__especie%3DTilo" in uri and "attr__especie%3DOlmo" in uri
 
 
 def test_color_por_numero_de_puntos_en_escala_logaritmica():

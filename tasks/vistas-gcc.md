@@ -359,7 +359,7 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   una capa de polígonos en memoria (campos en la URI, para que sobreviva al proyecto) que se
   rehace al mover el lienzo (250 ms de espera), al añadirse y con el tiempo real (`_v`);
   caché de 256 teselas por capa. Hexágonos, H3 y el calor de capas grandes van por aquí; ya no
-  hace falta la credencial de teselas del gestor (`tile_authcfg` queda sin uso). Pruebas:
+  hace falta la credencial de teselas del gestor (`tile_authcfg` se quitó el 10/10 al revisar el PR: los contornos la creaban sin usarla y guardaba el token en otro sitio; prueba `test_las_vistas_agregadas_no_guardan_credenciales_de_teselas`). Pruebas:
   `test_lee_los_poligonos_enteros_aunque_salgan_de_la_tesela`, `test_las_celdas_de_una_tesela_en_metros`
   y las de agregadas adaptadas (una celda sobresale de su tesela; tiempo real con `_v=7`); el
   servidor de mentira manda hexágonos enteros. Trampa de QGIS 3.34: retener en Python las reglas

@@ -150,41 +150,6 @@ def set_session(nombre, token, jwt=None):
     """Guarda la credencial de la sesión en curso sin tocar los ajustes."""
     _memoria[nombre] = {"token": token, "jwt": jwt}
     _clientes.pop(nombre, None)
-    if QgsSettings().value(f"{GROUP}/{nombre}/tile_authcfg", ""):
-        tile_authcfg(nombre)  # que las teselas vayan con la sesión nueva
-
-
-def tile_authcfg(nombre):
-    """El ``authcfg`` con la cabecera de la sesión para las teselas de la API.
-
-    QGIS pide las teselas vectoriales por su cuenta, sin pasar por el cliente: la
-    credencial tiene que estar en el gestor de autenticación, como una cabecera
-    ``Authorization: Token …``, y la capa la cita por su id. Así no va en la URI ni
-    en el proyecto. ``None`` si no hay sesión o el gestor no está disponible.
-    """
-    token = (get_credentials(nombre) or {}).get("token")
-    if not token:
-        return None
-    try:
-        gestor = QgsApplication.authManager()
-        if gestor.isDisabled():
-            return None
-        ajustes = QgsSettings()
-        actual = ajustes.value(f"{GROUP}/{nombre}/tile_authcfg", "")
-        config = QgsAuthMethodConfig()
-        config.setName(f"Geosian (teselas): {nombre}")
-        config.setMethod("APIHeader")
-        config.setConfig("Authorization", f"Token {token}")
-        if actual and actual in gestor.configIds():
-            config.setId(actual)
-            if gestor.updateAuthenticationConfig(config):
-                return actual
-        if gestor.storeAuthenticationConfig(config):
-            ajustes.setValue(f"{GROUP}/{nombre}/tile_authcfg", config.id())
-            return config.id()
-    except Exception:
-        pass
-    return None
 
 
 # Conexiones cuya sesión ha rechazado el servidor al abrir una capa (al reabrir un

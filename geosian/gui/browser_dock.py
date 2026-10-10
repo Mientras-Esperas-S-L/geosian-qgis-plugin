@@ -575,7 +575,6 @@ class GeosianBrowserDock(QDockWidget):
         estilo = styles.view_style(config, proveedor.layer_uri.geometry_type, proveedor.schema)
         extra = None
         if estilo.get("kind") == "contour":
-            authcfg = connections.tile_authcfg(conexion)
             # La de los metadatos: ``extent()`` con una vista bajaría todos los puntos
             # (8 s en Cáceres) solo para saber qué teselas pedir.
             extension = proveedor.metadata_extent()
@@ -583,7 +582,7 @@ class GeosianBrowserDock(QDockWidget):
                 return None
             info = aggregated.describe(
                 conexion, proveedor.layer_uri.map_id, proveedor.layer_uri.layer_id,
-                proveedor._client.base_url, proveedor._extra(), authcfg,
+                proveedor._client.base_url, proveedor._extra(), None,
             )
             info["bbox"] = [extension.xMinimum(), extension.yMinimum(),
                             extension.xMaximum(), extension.yMaximum()]
