@@ -1,0 +1,15 @@
+# Configuración de las herramientas. El complemento no se instala con pip: QGIS lo
+# carga desde su carpeta de complementos (ver Makefile).
+
+[tool.ruff]
+# La versión la fija la CI (.github/workflows/pruebas.yml); las reglas por omisión
+# cambian entre versiones de ruff.
+target-version = "py312"
+
+[tool.ruff.lint]
+ignore = [
+    # Un complemento no debe tumbar QGIS: capturar cualquier excepción, avisar y
+    # seguir es a propósito en los ganchos que llama QGIS.
+    "BLE001",
+    "S110",
+]

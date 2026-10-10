@@ -11,7 +11,6 @@ from qgis.core import (
     QgsAbstractFeatureSource,
     QgsCoordinateTransform,
     QgsCsException,
-    QgsFeature,
     QgsFeatureIterator,
     QgsFeatureRequest,
 )

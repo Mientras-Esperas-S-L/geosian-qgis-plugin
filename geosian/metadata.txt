@@ -2,8 +2,8 @@
 name=Geosian
 qgisMinimumVersion=3.34
 qgisMaximumVersion=4.99
-description=Trabaja en QGIS directamente contra Geosian: las capas se leen y se escriben a través de su API, respetando permisos, esquemas y lógica de negocio.
-about=Geosian (GreenCityControl) es una plataforma de gestión de datos geoespaciales para servicios urbanos. Este complemento convierte QGIS en un cliente más de la plataforma: registra un proveedor de datos propio que habla con la API de Geosian, de modo que las capas no son ficheros ni una conexión directa a la base de datos, sino datos vivos del servidor. Los formularios se generan a partir del esquema dinámico de cada capa.
+description=Abre en QGIS los mapas y capas de Geosian (GreenCityControl) a través de su API, con sus permisos, fichas, partes, fotos, vistas y filtros. Por ahora, solo lectura.
+about=Geosian (GreenCityControl) es una plataforma de gestión de datos geoespaciales para servicios urbanos. Este complemento convierte QGIS en un cliente más de la plataforma: registra un proveedor de datos propio que habla con la API de Geosian, de modo que las capas no son ficheros ni una conexión directa a la base de datos, sino datos vivos del servidor, con los permisos de cada usuario. Las fichas se generan a partir del esquema de cada capa, con sus partes, fotos y archivos; las vistas, las etiquetas y los fondos son los de la web, y los cambios hechos en GCC llegan solos. Esta versión solo lee: la edición llegará en la siguiente fase.
 version=0.1.0-dev
 author=Mientras Esperas S.L.
 email=desarrollo@greencitycontrol.com
@@ -21,5 +21,13 @@ server=False
 hasProcessingProvider=False
 
 changelog=0.1.0-dev
-    - Fase 1: lectura. Conexión, árbol de mapas y capas, proveedor de solo
-      lectura y soporte del esquema dinámico de atributos.
+    - Fase 1, solo lectura. Conexión con doble factor y sesión cifrada en el
+      gestor de autenticación de QGIS; panel con los mapas y capas del usuario.
+    - Capas con el estilo, las vistas, las etiquetas y los fondos de la web
+      (mapa base propio, ortofoto del IGN y mapa oscuro); capas grandes por zonas.
+    - Fichas con pestañas a partir del esquema, partes (información adicional),
+      fotos y archivos por enlace autenticado.
+    - Filtros de QGIS, por partes y por fechas, como el panel de la web.
+    - Tiempo real: lo que cambia en GCC se recarga solo, también los campos.
+    - Sesión caducada, sin red o sin permiso: avisos claros y sin perder la capa.
+    - QGIS 3.34 LTR y QGIS 4.

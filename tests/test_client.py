@@ -5,7 +5,7 @@ import json
 import pytest
 
 from geosian.core.client import GeosianClient
-from geosian.core.errors import ApiError, AuthError, NotFoundError
+from geosian.core.errors import ApiError, AuthError, ForbiddenError, NotFoundError
 from geosian.core.http import Response, Transport
 
 
@@ -23,6 +23,7 @@ class TransporteFalso(Transport):
                 "url": url,
                 "headers": headers or {},
                 "body": json.loads(body) if body else None,
+                "timeout": timeout,
             }
         )
         for patron, respuesta in self.respuestas.items():
@@ -67,6 +68,23 @@ def test_login_con_doble_factor_no_da_token_todavia():
     assert not cliente.authenticated
 
 
+def test_segundo_factor_va_a_la_ruta_con_barra():
+    transporte = TransporteFalso(
+        {
+            "/users/login/verify-2fa/": respuesta(
+                {"api_token": "tok123", "jwt_token": "jwt456"}, 202
+            )
+        }
+    )
+    cliente = GeosianClient("https://api.ejemplo.com", transporte)
+    cliente.verify_2fa("mfa", "123456")
+
+    # Sin la barra, Django responde con una redirección y QGIS no la sigue.
+    assert transporte.llamadas[0]["url"].endswith("/users/login/verify-2fa/")
+    assert transporte.llamadas[0]["body"]["otp_code"] == "123456"
+    assert cliente.token == "tok123"
+
+
 def test_cabecera_de_autorizacion():
     transporte = TransporteFalso({"/maps/": respuesta([])})
     cliente = GeosianClient("https://api.ejemplo.com", transporte, token="tok")
@@ -78,7 +96,7 @@ def test_cabecera_de_autorizacion():
 def test_traduccion_de_errores():
     casos = [
         (401, AuthError),
-        (403, AuthError),
+        (403, ForbiddenError),
         (404, NotFoundError),
         (500, ApiError),
     ]
@@ -114,17 +132,49 @@ def test_geodata_arma_bien_la_consulta():
     assert "response_format=geojson" in url
 
 
-def test_layer_metadata_devuelve_el_bloque():
+def test_layer_metadata_sale_del_listado_del_mapa():
     transporte = TransporteFalso(
         {
-            "/layers/11/": respuesta(
-                {"id": 11, "tile_metadata": {"feature_count": 42}}
+            "/maps/4/layers/": respuesta(
+                [
+                    {"id": 10, "tile_metadata": {"feature_count": 7}},
+                    {"id": 11, "tile_metadata": {"feature_count": 42}},
+                ]
             )
         }
     )
     cliente = GeosianClient("https://x", transporte, token="t")
-    assert cliente.layer_metadata(11)["feature_count"] == 42
+    assert cliente.layer_metadata(11, 4)["feature_count"] == 42
+    # El detalle /layers/<id>/ no trae los metadatos aunque se le pidan.
+    assert "/maps/4/layers/" in transporte.llamadas[0]["url"]
     assert "include_tile_metadata=true" in transporte.llamadas[0]["url"]
+
+
+def test_listado_de_capas_se_reutiliza_al_abrir_varias():
+    transporte = TransporteFalso(
+        {"/maps/4/layers/": respuesta([{"id": 10}, {"id": 11}])}
+    )
+    cliente = GeosianClient("https://x", transporte, token="t")
+    cliente.layer_metadata(10, 4)
+    cliente.layer_metadata(11, 4)
+    assert len(transporte.llamadas) == 1
+
+    cliente.forget_layers()
+    cliente.layers(4)
+    assert len(transporte.llamadas) == 2
+
+
+def test_los_lad_se_piden_juntos_y_se_reutilizan():
+    transporte = TransporteFalso(
+        {"/layer-attributes/": respuesta([{"id": 1, "schema": {"title": "X"}}])}
+    )
+    cliente = GeosianClient("https://x", transporte, token="t")
+    cliente.prefetch_layer_attributes([10, 11])
+    assert len(transporte.llamadas) == 2
+
+    assert cliente.layer_attributes(10)[0]["schema"]["title"] == "X"
+    cliente.prefetch_layer_attributes([10, 11])
+    assert len(transporte.llamadas) == 2  # ya estaban
 
 
 def test_url_del_websocket():
@@ -140,3 +190,20 @@ def test_el_token_no_viaja_en_la_url_del_websocket():
     cliente.jwt = "secreto"
     assert "secreto" not in cliente.websocket_url()
     assert "token.secreto" in cliente.websocket_subprotocols()
+
+
+def test_la_definicion_de_una_capa_espera_menos_que_los_datos():
+    """Abrir una capa pide su definición en el hilo de la ventana: con el servidor
+    mudo, QGIS se quedaba congelado los 30 s enteros. Los datos van en los hilos de
+    pintado y conservan los 30 s."""
+    t = TransporteFalso({"/layer-attributes/": respuesta([]), "/layers/": respuesta([])})
+    cliente = GeosianClient("https://geo.example.com", transport=t, token="x")
+    cliente.layer_attributes(11)
+    cliente.layers(4)
+    cliente.layer_view(3)
+    cliente.geodata_paginated(11)
+    tiempos = {c["url"].split("?")[0].rsplit("/api/v1/", 1)[1]: c["timeout"] for c in t.llamadas}
+    assert tiempos["layer-attributes/"] == 15
+    assert tiempos["maps/4/layers/"] == 15
+    assert tiempos["layer-views/3/"] == 15
+    assert tiempos["geodata/paginated/"] == 30

@@ -29,7 +29,16 @@ class HttpError(GeosianError):
 
 
 class AuthError(HttpError):
-    """401 o 403. La credencial no vale o no llega para lo que se pide."""
+    """401. La credencial no vale o ha caducado: hay que volver a entrar."""
+
+
+class ForbiddenError(HttpError):
+    """403. La credencial vale, pero el usuario no tiene permiso para eso.
+
+    No es lo mismo que un 401: volver a entrar no lo arregla. Tratarlo igual
+    abría el diálogo de conexión al desplegar un mapa sin permiso sobre sus
+    capas, y se quedaba ahí.
+    """
 
 
 class ConflictError(HttpError):

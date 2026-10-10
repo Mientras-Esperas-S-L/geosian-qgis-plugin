@@ -16,14 +16,15 @@ from qgis.core import (
     Qgis,
     QgsAttributeEditorContainer,
     QgsAttributeEditorField,
+    QgsAttributeEditorRelation,
     QgsDefaultValue,
     QgsEditFormConfig,
     QgsEditorWidgetSetup,
+    QgsExpression,
     QgsField,
     QgsFieldConstraints,
     QgsFields,
     QgsOptionalExpression,
-    QgsExpression,
 )
 from qgis.PyQt.QtCore import QVariant
 
@@ -65,6 +66,36 @@ def build_fields(schema):
         fields.append(campo)
         usados.add(nombre)
 
+    _append_schema_fields(fields, mapa, usados, schema)
+    return fields, mapa
+
+
+# Los de un parte (información adicional): el suyo, el del elemento al que
+# pertenece, que es por donde se relaciona con su capa, y quién y cuándo.
+INFO_SYSTEM_FIELDS = (
+    ("id", QVariant.LongLong, "ID del parte"),
+    ("geodata_id", QVariant.LongLong, "ID interno del elemento"),
+    ("usuario", QVariant.String, "Usuario"),
+    ("created_at", QVariant.String, "Fecha"),
+    ("updated_at", QVariant.String, "Última modificación"),
+)
+
+
+def build_info_fields(info_schema):
+    """Como :func:`build_fields`, para un tipo de información adicional."""
+    fields = QgsFields()
+    mapa = {}
+    usados = set()
+    for nombre, tipo, alias in INFO_SYSTEM_FIELDS:
+        campo = QgsField(nombre, tipo, _type_name(tipo))
+        campo.setAlias(alias)
+        fields.append(campo)
+        usados.add(nombre)
+    _append_schema_fields(fields, mapa, usados, info_schema)
+    return fields, mapa
+
+
+def _append_schema_fields(fields, mapa, usados, schema):
     for attr in S.flatten_attributes(schema):
         # Las fotos y los adjuntos no son columnas: tienen su propio panel y
         # llegan en la fase 4. Meterlos como campo solo estorbaría.
@@ -78,8 +109,6 @@ def build_fields(schema):
             campo.setComment(str(attr["description"]))
         fields.append(campo)
         mapa[nombre] = attr
-
-    return fields, mapa
 
 
 def _type_name(tipo):
@@ -184,12 +213,14 @@ def _widget_setup(attr):
             },
         )
 
+    if S.is_multiple(attr):
+        # QGIS no tiene desplegable de selección múltiple sobre una lista fija
+        # sin capa de referencia: el editor de listas, y la comprobación de
+        # valores la hace el servidor. Hay que pedirlo: el que QGIS pone por
+        # omisión a una lista es el de texto, que en QGIS 4 la pinta «Z, ,, ,».
+        return QgsEditorWidgetSetup("List", {})
+
     if tipo in S.CHOICE_TYPES and valores:
-        if S.is_multiple(attr):
-            # QGIS no tiene desplegable de selección múltiple sobre una lista
-            # fija sin capa de referencia. Se queda con el editor de lista
-            # nativo y la comprobación de valores la hace el servidor.
-            return None
         return QgsEditorWidgetSetup(
             "ValueMap", {"map": [{str(v): str(v)} for v in valores]}
         )
@@ -211,17 +242,23 @@ def apply_form(layer, schema):
     raiz = schema.get("attributes") if isinstance(schema, dict) else schema
     raiz = raiz or []
 
+    principales = _main_attributes(schema)
+    if principales:
+        principal = _pestaña("Información Principal")
+        _fill_container(principal, principales, fields)
+        form.addTab(principal)
+
     sueltos = [
         a for a in raiz
         if isinstance(a, dict) and a.get("type") not in S.CONTAINER_TYPES
     ]
     if sueltos:
-        general = QgsAttributeEditorContainer("General", None)
+        general = _pestaña("General")
         _fill_container(general, sueltos, fields)
         form.addTab(general)
 
     for contenedor, hijos in S.iter_containers(schema):
-        tab = QgsAttributeEditorContainer(S.field_title(contenedor), None)
+        tab = _pestaña(S.field_title(contenedor))
         expr = _container_visibility(contenedor)
         if expr:
             tab.setVisibilityExpression(QgsOptionalExpression(QgsExpression(expr)))
@@ -230,6 +267,89 @@ def apply_form(layer, schema):
 
     form.setLayout(QgsEditFormConfig.TabLayout)
     layer.setEditFormConfig(form)
+
+
+def _main_attributes(schema):
+    """Los ``main_attributes`` del esquema, que la web enseña arriba de la ficha.
+
+    Como en la web, se enseñan sin su ``visible_if`` y sin los invisibles; un
+    nombre que no esté en el esquema (un campo de sistema) también vale.
+    """
+    nombres = schema.get("main_attributes") if isinstance(schema, dict) else None
+    if not isinstance(nombres, list):
+        return []
+    definiciones = {}
+    for attr in S.flatten_attributes(schema):
+        definiciones.setdefault(attr.get("name"), attr)
+    return [
+        {"name": n, "visible": S.is_visible(definiciones.get(n, {}))}
+        for n in nombres
+        if isinstance(n, str)
+    ]
+
+
+def add_relations_tab(layer, partes):
+    """Pestaña «Información adicional» con los partes de cada tipo.
+
+    Se llama después de :func:`apply_form`, que empieza de cero las pestañas.
+
+    Args:
+        partes: pares ``(QgsRelation, tipo)``, con el tipo tal y como viene en
+            ``additional_information`` del esquema.
+    """
+    form = layer.editFormConfig()
+    pestaña = _pestaña("Información adicional")
+    for relacion, info in partes:
+        # Cada tipo en su grupo, porque en QGIS la visibilidad vive en el
+        # contenedor: la web solo ofrece los tipos cuyas dependencias cumple el
+        # elemento (un parte de palmeras, solo en las palmeras).
+        grupo = QgsAttributeEditorContainer(info.get("title") or info.get("name"), pestaña)
+        _as_group_box(grupo)
+        expr = _dependencies_expression(info.get("attribute_dependencies"))
+        if expr:
+            grupo.setVisibilityExpression(QgsOptionalExpression(QgsExpression(expr)))
+        hijo = QgsAttributeEditorRelation(relacion, grupo)
+        hijo.setRelationWidgetTypeId("relation_editor")
+        hijo.setShowLabel(False)
+        grupo.addChildElement(hijo)
+        pestaña.addChildElement(grupo)
+    _add_tab(form, pestaña)
+    layer.setEditFormConfig(form)
+
+
+def add_media_tab(layer, schema, widget_type):
+    """Pestaña «Fotos y archivos» si el esquema tiene campos de fotos o archivos.
+
+    Lleva el campo ``id`` con el tipo de campo del complemento que enseña las
+    fotos y archivos del elemento (``gui/media_widget.py``).
+    """
+    if not any(S.is_attachment(a) for a in S.flatten_attributes(schema)):
+        return False
+    idx = layer.fields().indexOf("id")
+    if idx < 0:
+        return False
+    layer.setEditorWidgetSetup(idx, QgsEditorWidgetSetup(widget_type, {}))
+    form = layer.editFormConfig()
+    pestaña = _pestaña("Fotos y archivos")
+    campo = QgsAttributeEditorField("id", idx, pestaña)
+    campo.setShowLabel(False)
+    pestaña.addChildElement(campo)
+    _add_tab(form, pestaña)
+    layer.setEditFormConfig(form)
+    return True
+
+
+def _dependencies_expression(dependencias):
+    """Como ``availableTabs`` de FeatureInfo.jsx: todas, sin mayúsculas ni espacios."""
+    if not isinstance(dependencias, list):
+        return None
+    partes = [
+        f"lower(trim(to_string({S._quote_field(d['name'])}))) = "
+        f"{S._quote_value(str(d.get('value', '')).strip().lower())}"
+        for d in dependencias
+        if isinstance(d, dict) and d.get("name")
+    ]
+    return " AND ".join(f"coalesce({p}, FALSE)" for p in partes) or None
 
 
 def _fill_container(contenedor, atributos, fields):
@@ -250,7 +370,9 @@ def _fill_container(contenedor, atributos, fields):
             contenedor.addChildElement(hijo)
             continue
 
-        if S.is_attachment(attr):
+        # «visible: false» es un campo que la web no enseña en la ficha. Se
+        # queda en la tabla de atributos, que hace de «Mostrar campos invisibles».
+        if S.is_attachment(attr) or not S.is_visible(attr):
             continue
 
         nombre = attr.get("name")
@@ -275,6 +397,43 @@ def _fill_container(contenedor, atributos, fields):
             contenedor.addChildElement(envoltorio)
         else:
             contenedor.addChildElement(campo)
+
+
+def _add_tab(form, pestaña):
+    """``addTab`` sin perder el «sin etiqueta» de lo que ya había.
+
+    En QGIS 4 añadir una pestaña a la copia del formulario clona las demás y los
+    campos vuelven a enseñar su etiqueta: «ID interno» salía junto a las fotos en
+    cuanto se añadía después la pestaña de los partes.
+    """
+    antes = [e.showLabel() for e in _elements(form.tabs())]
+    form.addTab(pestaña)
+    for elemento, mostrar in zip(_elements(form.tabs()), antes):
+        if elemento.showLabel() != mostrar:
+            elemento.setShowLabel(mostrar)
+
+
+def _elements(elementos):
+    """Todos los elementos del formulario, en orden y bajando por los contenedores."""
+    for elemento in elementos:
+        yield elemento
+        if isinstance(elemento, QgsAttributeEditorContainer):
+            yield from _elements(elemento.children())
+
+
+def _pestaña(nombre):
+    """Contenedor de primer nivel, marcado como pestaña.
+
+    En QGIS 4 un contenedor sin padre nace como grupo, no como pestaña, y la
+    ficha salía con todas las secciones apiladas.
+    """
+    contenedor = QgsAttributeEditorContainer(nombre, None)
+    tipos = getattr(Qgis, "AttributeEditorContainerType", None)
+    if tipos is not None and hasattr(contenedor, "setType"):
+        contenedor.setType(tipos.Tab)
+    else:
+        contenedor.setIsGroupBox(False)
+    return contenedor
 
 
 def _as_group_box(contenedor):

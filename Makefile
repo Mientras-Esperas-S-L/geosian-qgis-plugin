@@ -1,7 +1,11 @@
 PLUGIN  := geosian
-QGIS_PROFILE ?= $(HOME)/.local/share/QGIS/QGIS3/profiles/default
+# QGIS 3 y QGIS 4 guardan el perfil en carpetas distintas (QGIS3/, QGIS4/).
+# Se pregunta la versión al PyQGIS instalado; si no responde, se asume la 3.
+QGIS_MAJOR   ?= $(shell python3 -c 'from qgis.core import Qgis; print(Qgis.versionInt() // 10000)' 2>/dev/null || echo 3)
+QGIS_PROFILE ?= $(HOME)/.local/share/QGIS/QGIS$(QGIS_MAJOR)/profiles/default
 PLUGIN_DIR   := $(QGIS_PROFILE)/python/plugins/$(PLUGIN)
 PYTHON  ?= .venv/bin/python
+BUILD   ?= $(CURDIR)/build
 VERSION := $(shell sed -n 's/^version=//p' $(PLUGIN)/metadata.txt)
 
 export QT_QPA_PLATFORM ?= offscreen
@@ -25,13 +29,18 @@ test:
 	$(PYTHON) -m pytest tests/ -q
 
 lint:
-	$(PYTHON) -m ruff check $(PLUGIN) tests || true
+	$(PYTHON) -m ruff check $(PLUGIN) tests
 
-package: clean
-	@mkdir -p build
-	zip -qr build/$(PLUGIN)-$(VERSION).zip $(PLUGIN) \
-		-x '*__pycache__*' '*.pyc' '*.pyo'
-	@echo "build/$(PLUGIN)-$(VERSION).zip"
+# Solo lo versionado de $(PLUGIN)/ (nada de cachés ni restos locales) y la
+# licencia dentro, que el repositorio de complementos de QGIS la exige.
+package:
+	@rm -rf $(BUILD)/$(PLUGIN) $(BUILD)/$(PLUGIN)-$(VERSION).zip
+	@mkdir -p $(BUILD)/$(PLUGIN)
+	git ls-files -z $(PLUGIN) | xargs -0 -I{} cp --parents {} $(BUILD)/
+	cp LICENSE $(BUILD)/$(PLUGIN)/LICENSE
+	cd $(BUILD) && zip -qr $(PLUGIN)-$(VERSION).zip $(PLUGIN)
+	@rm -rf $(BUILD)/$(PLUGIN)
+	@echo "$(BUILD)/$(PLUGIN)-$(VERSION).zip"
 
 install:
 	@mkdir -p $(dir $(PLUGIN_DIR))

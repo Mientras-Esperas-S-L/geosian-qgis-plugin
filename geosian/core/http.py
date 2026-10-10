@@ -46,6 +46,19 @@ class Transport:
     def request(self, method, url, headers=None, body=None, timeout=DEFAULT_TIMEOUT):
         raise NotImplementedError
 
+    def get_many(self, urls, headers=None, timeout=DEFAULT_TIMEOUT):
+        """Varios GET. Devuelve, por cada URL, su ``Response`` o la excepción.
+
+        Por omisión van de uno en uno; el transporte de QGIS los lanza a la vez.
+        """
+        salida = []
+        for url in urls:
+            try:
+                salida.append(self.request("GET", url, headers, timeout=timeout))
+            except NetworkError as exc:
+                salida.append(exc)
+        return salida
+
 
 class UrllibTransport(Transport):
     """Transporte de la biblioteca estándar."""
@@ -96,6 +109,10 @@ class QgisTransport(Transport):
             QNetworkRequest.Attribute.CacheSaveControlAttribute, False
         )
 
+        # El tiempo de espera pedido, no el general de QGIS (60 s por omisión):
+        # estas peticiones bloquean la interfaz mientras duran.
+        request.setTransferTimeout(int(timeout * 1000))
+
         blocking = QgsBlockingNetworkRequest()
 
         # El cuerpo va en un QBuffer y no en un QByteArray: QGIS 4 espera un
@@ -133,7 +150,8 @@ class QgisTransport(Transport):
         if status is None:
             if code != QgsBlockingNetworkRequest.NoError:
                 raise NetworkError(
-                    blocking.errorMessage() or f"No se pudo conectar con {url}"
+                    network_reason(reply.error(), blocking.errorMessage(), timeout)
+                    or f"No se pudo conectar con {url}"
                 )
             raise NetworkError(f"Respuesta vacía de {url}")
 
@@ -142,6 +160,61 @@ class QgisTransport(Transport):
             for name in reply.rawHeaderList()
         }
         return Response(int(status), bytes(reply.content()), raw)
+
+    def get_many(self, urls, headers=None, timeout=DEFAULT_TIMEOUT):
+        return _get_many_qgis(urls, headers, timeout)
+
+
+def _get_many_qgis(urls, headers, timeout):
+    """GET en paralelo sobre el gestor de red de QGIS, esperando a todos."""
+    from functools import partial
+
+    from qgis.core import QgsNetworkAccessManager
+    from qgis.PyQt.QtCore import QEventLoop, QTimer, QUrl
+    from qgis.PyQt.QtNetwork import QNetworkRequest
+
+    gestor = QgsNetworkAccessManager.instance()
+    salida = [None] * len(urls)
+    pendientes = set()
+    bucle = QEventLoop()
+
+    def terminado(i, respuesta):
+        estado = respuesta.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
+        if estado is None:
+            salida[i] = NetworkError(
+                respuesta.errorString() or f"No se pudo conectar con {urls[i]}"
+            )
+        else:
+            salida[i] = Response(int(estado), bytes(respuesta.readAll()))
+        respuesta.deleteLater()
+        pendientes.discard(i)
+        if not pendientes:
+            bucle.quit()
+
+    respuestas = []
+    for i, url in enumerate(urls):
+        peticion = QNetworkRequest(QUrl(url))
+        for clave, valor in (headers or {}).items():
+            peticion.setRawHeader(clave.encode("utf-8"), str(valor).encode("utf-8"))
+        # Igual que en ``request``: siempre a la red, nunca a la caché de Qt.
+        peticion.setAttribute(
+            QNetworkRequest.Attribute.CacheLoadControlAttribute,
+            QNetworkRequest.CacheLoadControl.AlwaysNetwork,
+        )
+        peticion.setAttribute(QNetworkRequest.Attribute.CacheSaveControlAttribute, False)
+        respuesta = gestor.get(peticion)
+        pendientes.add(i)
+        respuesta.finished.connect(partial(terminado, i, respuesta))
+        respuestas.append(respuesta)  # que no las recoja el recolector
+
+    if pendientes:
+        QTimer.singleShot(int(timeout * 1000), bucle.quit)
+        bucle.exec()
+
+    for i in list(pendientes):
+        respuestas[i].abort()
+        salida[i] = NetworkError(f"Tiempo agotado esperando a {urls[i]}")
+    return salida
 
 
 def default_transport():
@@ -152,3 +225,29 @@ def default_transport():
         return QgisTransport()
     except ImportError:
         return UrllibTransport()
+
+
+def network_reason(codigo, mensaje, timeout):
+    """El motivo de un fallo de red en castellano; Qt lo da en inglés.
+
+    Args:
+        codigo: el ``QNetworkReply.NetworkError`` de la respuesta.
+        mensaje: el texto de Qt, que se queda si el código no es de los conocidos.
+    """
+    from qgis.PyQt.QtNetwork import QNetworkReply
+
+    e = QNetworkReply.NetworkError
+    motivos = {
+        e.TimeoutError: f"GCC no ha respondido en {timeout:g} s",
+        # Así termina QGIS una petición que pasa del tiempo de espera.
+        e.OperationCanceledError: f"GCC no ha respondido en {timeout:g} s",
+        e.HostNotFoundError: "no se encuentra el servidor (¿hay conexión a Internet?)",
+        e.ConnectionRefusedError: "el servidor no acepta conexiones",
+        e.RemoteHostClosedError: "la conexión se ha cortado",
+        e.ProxyConnectionClosedError: "la conexión se ha cortado en el proxy",
+        e.ProxyConnectionRefusedError: "el proxy no acepta conexiones",
+        e.ProxyNotFoundError: "no se encuentra el proxy",
+        e.NetworkSessionFailedError: "no hay conexión de red",
+        e.TemporaryNetworkFailureError: "no hay conexión de red",
+    }
+    return motivos.get(codigo, mensaje)

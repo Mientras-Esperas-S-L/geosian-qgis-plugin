@@ -7,8 +7,11 @@ token se queda solo en memoria y habrá que volver a entrar al reabrir QGIS,
 que es preferible a dejarlo escrito en claro en el perfil.
 """
 
+import time
+
 from qgis.core import QgsApplication, QgsAuthMethodConfig, QgsSettings
 
+from . import definitions
 from .client import GeosianClient
 
 GROUP = "geosian/connections"
@@ -40,6 +43,19 @@ def get_connection(nombre):
     return {"name": nombre, "url": url, "email": email, "authcfg": authcfg}
 
 
+def ws_url(nombre):
+    """URL del canal de tiempo real si la conexión la fija, o ``None``.
+
+    Normalmente es la de la API (``wss://<api>/ws/layer-data/``). En desarrollo
+    la sirve otro proceso en otro puerto, como en la web (``:8001``).
+    """
+    return QgsSettings().value(f"{GROUP}/{nombre}/ws_url", "") or None
+
+
+def set_ws_url(nombre, url):
+    QgsSettings().setValue(f"{GROUP}/{nombre}/ws_url", url or "")
+
+
 def save_connection(nombre, url, email, token=None, jwt=None):
     """Guarda la conexión y, si se puede, la credencial cifrada."""
     authcfg = ""
@@ -60,11 +76,15 @@ def save_connection(nombre, url, email, token=None, jwt=None):
 
 def remove_connection(nombre):
     conexion = get_connection(nombre)
-    if conexion and conexion.get("authcfg"):
+    ids = [
+        conexion.get("authcfg") if conexion else "",
+        QgsSettings().value(f"{GROUP}/{nombre}/tile_authcfg", ""),
+    ]
+    for authcfg in ids:
+        if not authcfg:
+            continue
         try:
-            QgsApplication.authManager().removeAuthenticationConfig(
-                conexion["authcfg"]
-            )
+            QgsApplication.authManager().removeAuthenticationConfig(authcfg)
         except Exception:
             pass
     ajustes = QgsSettings()
@@ -73,6 +93,7 @@ def remove_connection(nombre):
     ajustes.endGroup()
     _memoria.pop(nombre, None)
     _clientes.pop(nombre, None)
+    definitions.forget(nombre)
 
 
 def get_credentials(nombre):
@@ -129,6 +150,74 @@ def set_session(nombre, token, jwt=None):
     """Guarda la credencial de la sesión en curso sin tocar los ajustes."""
     _memoria[nombre] = {"token": token, "jwt": jwt}
     _clientes.pop(nombre, None)
+
+
+# Conexiones cuya sesión ha rechazado el servidor al abrir una capa (al reabrir un
+# proyecto, normalmente). La interfaz las ofrece para volver a entrar.
+_caducadas = set()
+
+
+_al_caducar = []
+
+
+def mark_expired(nombre):
+    nueva = nombre not in _caducadas
+    _caducadas.add(nombre)
+    if nueva:
+        # Copia: un oyente puede darse de baja mientras se recorre.
+        for avisar in list(_al_caducar):  # noqa: PERF101
+            avisar(nombre)
+
+
+def add_expired_listener(funcion):
+    _al_caducar.append(funcion)
+
+
+def remove_expired_listener(funcion):
+    if funcion in _al_caducar:
+        _al_caducar.remove(funcion)
+
+
+def expired():
+    return set(_caducadas)
+
+
+def clear_expired(nombre=None):
+    if nombre is None:
+        _caducadas.clear()
+    else:
+        _caducadas.discard(nombre)
+
+
+# Conexiones sin red: hasta cuándo no se vuelve a intentar. Cada intento contra un
+# servidor caído bloquea la interfaz hasta agotar la espera, y la tabla de
+# atributos o la ficha piden datos sin parar.
+_sin_red = {}
+PAUSA_SIN_RED = 30
+
+
+def mark_offline(nombre, segundos=PAUSA_SIN_RED):
+    _sin_red[nombre] = time.monotonic() + segundos
+
+
+def is_offline(nombre):
+    hasta = _sin_red.get(nombre)
+    if hasta is None:
+        return False
+    if time.monotonic() >= hasta:
+        _sin_red.pop(nombre, None)
+        return False
+    return True
+
+
+def cached_client(nombre):
+    """El cliente de una conexión si ya se creó, sin crearlo.
+
+    Crear uno lee la sesión del almacén de credenciales, y eso puede pedir la
+    contraseña maestra de QGIS. Lo que no necesite hablar con el servidor, como
+    repintar el panel, no debe provocarlo.
+    """
+    return _clientes.get(nombre)
 
 
 def client_for(nombre):

@@ -6,17 +6,30 @@ inyecta, así que se puede usar y probar por separado.
 """
 
 import json
+import time
 from urllib.parse import urlencode
 
 from .errors import (
     ApiError,
     AuthError,
     ConflictError,
+    ForbiddenError,
+    GeosianError,
     NotFoundError,
 )
-from .http import DEFAULT_TIMEOUT, default_transport
+from .http import DEFAULT_TIMEOUT, Response, default_transport
 
 API_PREFIX = "/api/v1"
+
+# Cuánto se reutiliza el listado de capas de un mapa. Abrir un mapa entero son
+# decenas de capas seguidas y cada una pregunta por sus metadatos: sin esto, el
+# listado completo se pedía una vez por capa. Es corto a propósito para que un
+# "Refrescar" del panel vea lo nuevo.
+LAYERS_TTL = 30
+# Lo que se espera a la definición de una capa (campos, metadatos, vista): QGIS la
+# pide al abrirla, en el hilo de la ventana, que no responde mientras tanto. Son
+# respuestas pequeñas; los datos van en los hilos de pintado y esperan DEFAULT_TIMEOUT.
+DEFINITION_TIMEOUT = 15
 
 
 class GeosianClient:
@@ -35,6 +48,9 @@ class GeosianClient:
         self.jwt = None
         self.timeout = timeout
         self.user = None
+        self._capas = {}
+        self._config_teselas = {}
+        self._lads = {}
 
     # ------------------------------------------------------------------
     # Fontanería
@@ -75,17 +91,21 @@ class GeosianClient:
         except (ValueError, UnicodeDecodeError):
             cuerpo = None
 
-        if response.status in (401, 403):
+        if response.status == 401:
             raise AuthError(response.status, mensaje, response.body, url)
+        if response.status == 403:
+            raise ForbiddenError(response.status, mensaje, response.body, url)
         if response.status == 404:
             raise NotFoundError(response.status, mensaje, response.body, url)
         if response.status == 409:
             raise ConflictError(response.status, mensaje, response.body, url)
         raise ApiError(response.status, mensaje, response.body, url)
 
-    def _get(self, path, params=None):
+    def _get(self, path, params=None, timeout=None):
         url = self._url(path, params)
-        resp = self.transport.request("GET", url, self._headers(), timeout=self.timeout)
+        resp = self.transport.request(
+            "GET", url, self._headers(), timeout=timeout or self.timeout
+        )
         return self._check(resp, url).json()
 
     def _post(self, path, data=None, params=None):
@@ -125,10 +145,10 @@ class GeosianClient:
     def verify_2fa(self, mfa_token, code, remember_device=False):
         """Segunda fase del login cuando hay doble factor."""
         resultado = self._post(
-            "/users/login/verify-2fa",
+            "/users/login/verify-2fa/",
             {
                 "mfa_token": mfa_token,
-                "otp": code,
+                "otp_code": code,
                 "remember_device": remember_device,
             },
         )
@@ -158,22 +178,58 @@ class GeosianClient:
         return _as_list(self._get(f"{API_PREFIX}/maps/"))
 
     def layers(self, map_id):
-        """Capas de un mapa."""
-        return _as_list(self._get(f"{API_PREFIX}/maps/{map_id}/layers/"))
+        """Capas de un mapa, cada una con su ``tile_metadata``.
 
-    def layer_metadata(self, layer_id):
+        Sin esos metadatos el panel no sabe qué tipos de geometría tiene cada
+        capa. El servidor los omite si trabaja solo con GeoJSON
+        (``GEODATA_TILE_MODE``).
+        """
+        guardado = self._capas.get(map_id)
+        if guardado and time.monotonic() - guardado[0] < LAYERS_TTL:
+            return guardado[1]
+        respuesta = self._get(
+            f"{API_PREFIX}/maps/{map_id}/layers/",
+            {"include_tile_metadata": "true", "include_tile_config": "true"},
+            timeout=DEFINITION_TIMEOUT,
+        )
+        capas = _as_list(respuesta)
+        # Con include_tile_config la API envuelve las capas y añade su modo de carga.
+        self._config_teselas[map_id] = (
+            respuesta.get("tile_config") if isinstance(respuesta, dict) else None
+        )
+        self._capas[map_id] = (time.monotonic(), capas)
+        return capas
+
+    def tile_config(self, map_id):
+        """El ``tile_config`` del mapa (``mode``, ``auto_threshold``), o ``None``.
+
+        Con él y los metadatos de la capa se sabe si la web la carga por teselas
+        o en GeoJSON (``styles.load_mode``).
+        """
+        self.layers(map_id)
+        return self._config_teselas.get(map_id)
+
+    def forget_layers(self):
+        """Olvida los listados de capas guardados (el panel al refrescar)."""
+        self._capas.clear()
+        self._config_teselas.clear()
+        self._lads.clear()
+
+    def layer_metadata(self, layer_id, map_id):
         """Metadatos de tiling de una capa: recuento, extensión y geometrías.
 
-        Es lo que permite al proveedor responder ``featureCount()`` y
-        ``extent()`` sin descargar la capa.
+        Es lo que permite al proveedor responder ``wkbType()``,
+        ``featureCount()`` y ``extent()`` sin descargar la capa. Salen del
+        listado de capas del mapa: el detalle ``/layers/<id>/`` no los devuelve
+        aunque se le pida ``include_tile_metadata``.
         """
-        datos = self._get(
-            f"{API_PREFIX}/layers/{layer_id}/",
-            {"include_tile_metadata": "true"},
-        )
-        if isinstance(datos, dict):
-            return datos.get("tile_metadata") or {}
-        return {}
+        for capa in self.layers(map_id):
+            if isinstance(capa, dict) and capa.get("id") == layer_id:
+                return capa.get("tile_metadata") or {}
+        # Ni está en el mapa ni el usuario la ve en él. La API no da 404 por la
+        # capa en /layer-attributes/ (devuelve una lista vacía), así que este es
+        # el sitio donde se sabe que ya no existe.
+        raise NotFoundError(404, f"La capa {layer_id} no está en el mapa {map_id}", b"", "")
 
     def layer_attributes(self, layer_id):
         """Definiciones de atributos (LAD) de una capa, con su esquema.
@@ -181,13 +237,82 @@ class GeosianClient:
         La API ya resuelve aquí los ``allowed_values`` dinámicos, así que lo que
         llega son listas de valores listas para usar.
         """
-        return _as_list(
-            self._get(f"{API_PREFIX}/layer-attributes/", {"layer_id": layer_id})
+        guardado = self._lads.get(layer_id)
+        if guardado and time.monotonic() - guardado[0] < LAYERS_TTL:
+            return guardado[1]
+        definiciones = _as_list(
+            self._get(
+                f"{API_PREFIX}/layer-attributes/",
+                {"layer_id": layer_id},
+                timeout=DEFINITION_TIMEOUT,
+            )
         )
+        self._lads[layer_id] = (time.monotonic(), definiciones)
+        return definiciones
+
+    def forget_layer_attributes(self, layer_id):
+        """Olvida el esquema guardado de una capa: ha cambiado en GCC."""
+        self._lads.pop(layer_id, None)
+
+    def prefetch_layer_attributes(self, layer_ids):
+        """Pide a la vez los LAD de varias capas y los deja guardados.
+
+        La API los da capa a capa, porque comprueba los permisos de cada una.
+        Al abrir un mapa entero de cincuenta capas, pedirlos de uno en uno era
+        la mayor parte de la espera. Lo que falle se vuelve a pedir después,
+        suelto, al abrir la capa.
+        """
+        ahora = time.monotonic()
+        faltan = [
+            i for i in layer_ids
+            if not (i in self._lads and ahora - self._lads[i][0] < LAYERS_TTL)
+        ]
+        if not faltan:
+            return
+        urls = [self._url(f"{API_PREFIX}/layer-attributes/", {"layer_id": i}) for i in faltan]
+        respuestas = self.transport.get_many(urls, self._headers(), timeout=self.timeout)
+        for capa, url, respuesta in zip(faltan, urls, respuestas):
+            if not isinstance(respuesta, Response):
+                continue
+            try:
+                datos = self._check(respuesta, url).json()
+            except (GeosianError, ValueError):
+                continue
+            self._lads[capa] = (time.monotonic(), _as_list(datos))
 
     def layer_views(self, layer_id):
         """Vistas guardadas de una capa."""
         return _as_list(self._get(f"{API_PREFIX}/layers/{layer_id}/views/"))
+
+    def map_detail(self, map_id):
+        """El detalle de un mapa: centro, zoom y sus fondos propios (``basemaps``)."""
+        return self._get(f"{API_PREFIX}/maps/{int(map_id)}/") or {}
+
+    def map_settings(self, map_id):
+        """Preferencias del usuario en un mapa: orden, carpetas, vistas activas.
+
+        Es la respuesta de ``user-map-settings/by-map``, con la estructura
+        publicada en ``map_structure`` si la hay.
+        """
+        return self._get(f"{API_PREFIX}/user-map-settings/by-map/{map_id}/") or {}
+
+    def map_views(self, map_id):
+        """Vistas de las capas de un mapa: ``{layer_id: [vista, ...]}``.
+
+        El listado no trae el filtro ni el estilo de cada vista; para eso está
+        :meth:`layer_view`.
+        """
+        salida = {}
+        for bloque in _as_list(
+            self._get(f"{API_PREFIX}/layer-views/for-map/", {"map_id": map_id})
+        ):
+            if isinstance(bloque, dict) and bloque.get("layer_id") is not None:
+                salida[bloque["layer_id"]] = bloque.get("views") or []
+        return salida
+
+    def layer_view(self, view_id):
+        """Una vista completa, con ``filter_config`` y ``style_config``."""
+        return self._get(f"{API_PREFIX}/layer-views/{view_id}/", timeout=DEFINITION_TIMEOUT) or {}
 
     # ------------------------------------------------------------------
     # Datos
@@ -231,11 +356,18 @@ class GeosianClient:
         return self._get(f"{API_PREFIX}/geodata/", params)
 
     def geodata_paginated(self, layer_id, page=1, page_size=5000, data_type=None,
-                          extra=None):
+                          extra=None, area=None, ids=None):
         """Igual que :meth:`geodata` pero por páginas.
 
         La API rechaza el endpoint sin paginar por encima de 100.000 elementos,
         así que las capas grandes entran por aquí.
+
+        Args:
+            area: ``(oeste, sur, este, norte)`` en grados. Solo vuelve lo que
+                cae dentro. Va como ``lasso_geometry`` en un POST, que es como
+                lo acepta la API.
+            ids: identificadores concretos.
+            extra: más parámetros, por ejemplo los ``attr__`` de una vista.
         """
         params = {
             "layer_id": layer_id,
@@ -243,8 +375,76 @@ class GeosianClient:
             "page": page,
             "page_size": page_size,
         }
+        if ids:
+            params["ids"] = ",".join(str(i) for i in ids)
         params.update(extra or {})
-        return self._get(f"{API_PREFIX}/geodata/paginated/", params)
+        ruta = f"{API_PREFIX}/geodata/paginated/"
+        if area:
+            oeste, sur, este, norte = area
+            anillo = [[oeste, sur], [este, sur], [este, norte], [oeste, norte], [oeste, sur]]
+            return self._post(
+                ruta,
+                {"lasso_geometry": {"type": "Polygon", "coordinates": [anillo]}},
+                params,
+            )
+        return self._get(ruta, params)
+
+    def element_detail(self, element_id, data_type):
+        """Un elemento con sus fotos (en base64) y sus ficheros (``id`` y nombre).
+
+        Args:
+            data_type: el tipo de la URI (``points``, ``polygons``…).
+        """
+        # Con enlaces y no con las fotos en base64: varios megas por ficha que
+        # quizá nadie mire. Un servidor que no conozca el parámetro las manda
+        # enteras y también vale.
+        return self._get(
+            f"{API_PREFIX}/geodata/{int(element_id)}/",
+            {"geometry_type": data_type, "embed_images": "false"},
+        )
+
+    def tiles(self, urls):
+        """Los bytes de varias teselas de la API, en paralelo y con el token."""
+        respuestas = self.transport.get_many(urls, self._headers({"Accept": "*/*"}), timeout=self.timeout)
+        cuerpos = []
+        for respuesta, url in zip(respuestas, urls):
+            if isinstance(respuesta, Exception):
+                cuerpos.append(None)  # una tesela que no llega no tumba las demás
+                continue
+            cuerpos.append(self._check(respuesta, url).body)
+        return cuerpos
+
+    def download(self, path):
+        """Bytes de una foto o un fichero servidos por la API, con el token."""
+        url = self._url(path)
+        resp = self.transport.request("GET", url, self._headers({"Accept": "*/*"}), timeout=self.timeout)
+        return self._check(resp, url).body
+
+    def additional_information(self, layer_id, name, geometry_type, geodata_id=None,
+                               page=1, page_size=1000):
+        """Una página de partes (información adicional) de un tipo.
+
+        Con ``geodata_id``, los de ese elemento; sin él, los de toda la capa. La
+        API devuelve solo los tipos que los grupos del usuario pueden ver.
+
+        Args:
+            geometry_type: como en el esquema (``Point``, ``Polygon``…); sin él
+                la API no sabe en qué tabla buscar.
+        """
+        params = {
+            "layer_id": layer_id,
+            "name": name,
+            "geometry_type": geometry_type,
+            "page": page,
+            "page_size": page_size,
+        }
+        if geodata_id is not None:
+            # El orden del servidor, el más reciente primero: el de la web.
+            params["geodata_id"] = geodata_id
+        else:
+            # La capa entera va por páginas: hace falta un orden estable.
+            params.update({"sort_by": "id", "sort_order": "asc"})
+        return self._get(f"{API_PREFIX}/additional-information/", params)
 
     def chart_stats(self, layer_id, attributes=None):
         """Distribución de valores de atributos, calculada en el servidor.

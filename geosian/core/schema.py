@@ -175,8 +175,12 @@ def visible_if_to_expression(condition):
         return None
 
     ref = _quote_field(campo)
-    # El "tiene valor" que el frontend exige antes de evaluar nada.
-    tiene_valor = f"({ref} IS NOT NULL AND to_string({ref}) <> '')"
+    # El "tiene valor" que el frontend exige antes de evaluar nada. En QGIS,
+    # to_string de una lista da NULL: si es lista, cuenta su longitud.
+    tiene_valor = (
+        f"({ref} IS NOT NULL AND "
+        f"coalesce(try(array_length({ref}) > 0, NULL), to_string({ref}) <> ''))"
+    )
 
     expr = _operator_expression(ref, operador, valor, valores)
     if expr is None:
@@ -186,10 +190,11 @@ def visible_if_to_expression(condition):
 
 def _operator_expression(ref, operador, valor, valores):
     if operador == "equals":
-        return f"({_contains(ref, valor)} OR {ref} = {_quote_value(valor)})"
+        return f"({_contains(ref, valor)} OR coalesce({ref} = {_quote_value(valor)}, FALSE))"
 
     if operador == "not_equals":
-        return f"(NOT {_contains(ref, valor)} AND {ref} <> {_quote_value(valor)})"
+        # Con una lista, «<>» da NULL: manda la pertenencia.
+        return f"(NOT {_contains(ref, valor)} AND coalesce({ref} <> {_quote_value(valor)}, TRUE))"
 
     if operador == "contains":
         # Vale para lista (contiene el elemento) y para texto (subcadena).
@@ -203,7 +208,7 @@ def _operator_expression(ref, operador, valor, valores):
             return "FALSE"
         partes = [_contains(ref, v) for v in valores]
         lista = ", ".join(_quote_value(v) for v in valores)
-        return "(" + " OR ".join(partes) + f" OR {ref} IN ({lista}))"
+        return "(" + " OR ".join(partes) + f" OR coalesce({ref} IN ({lista}), FALSE))"
 
     if operador == "contains_all":
         if not isinstance(valores, list) or not valores:
@@ -230,10 +235,13 @@ def _operator_expression(ref, operador, valor, valores):
 
 
 def _contains(ref, valor):
-    """Comprobación de pertenencia que no revienta si el campo no es lista."""
-    return (
-        f"(is_array({ref}) AND array_contains({ref}, {_quote_value(valor)}))"
-    )
+    """Comprobación de pertenencia que no revienta si el campo no es lista.
+
+    QGIS no tiene ``is_array``: una expresión que lo use no compila y deja oculto
+    lo que dependa de ella. ``array_contains`` sobre un texto da error de
+    evaluación, y ``try`` lo convierte en FALSE.
+    """
+    return f"coalesce(try(array_contains({ref}, {_quote_value(valor)}), FALSE), FALSE)"
 
 
 def _quote_field(nombre):

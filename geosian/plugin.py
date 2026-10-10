@@ -1,10 +1,14 @@
 """Punto de entrada del complemento."""
 
-from qgis.PyQt.QtWidgets import QAction
+from qgis.core import QgsMapLayerType
 from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtWidgets import QAction
 
-from .gui.browser_dock import GeosianBrowserDock
+from .gui import celdas, leyendas, realtime_hub, sesion
+from .gui.browser_dock import GeosianBrowserDock, menu_de_etiquetas
 from .gui.connection_dialog import ConnectionDialog
+from .gui.filtro_partes import menu_de_filtros
+from .gui.media_widget import register_media_widget
 from .provider.metadata import register_provider
 
 MENU = "&Geosian"
@@ -29,6 +33,21 @@ class GeosianPlugin:
                 "Geosian no se podrán abrir en esta sesión.",
             )
 
+        # Igual con el panel de fotos de la ficha, que es un tipo de campo.
+        register_media_widget()
+        # Tiempo real para toda capa de Geosian del proyecto, también al reabrirlo.
+        realtime_hub.watch_project(
+            self.iface, lambda nombre: self.dock._pedir_reconexion(nombre)
+        )
+        # Las capas agregadas recuperan su leyenda al abrir un proyecto.
+        leyendas.vigilar_proyecto()
+        # Las celdas de hexágonos y H3 se piden según lo que muestra el lienzo.
+        celdas.vigilar(self.iface.mapCanvas())
+        # Un proyecto reabierto con la sesión caducada: ofrecer volver a entrar.
+        self.iface.projectRead.connect(self._tras_abrir_proyecto)
+        # Y si caduca a mitad de trabajo, lo mismo.
+        sesion.watch_expired(lambda _nombre: self._tras_abrir_proyecto())
+
         self.dock = GeosianBrowserDock(self.iface, self.iface.mainWindow())
         self.iface.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.dock)
         self.dock.hide()
@@ -39,6 +58,11 @@ class GeosianPlugin:
             checkable=True,
         )
         self._añadir_accion("Nueva conexión...", self._nueva_conexion)
+
+        # El selector de etiquetas de la web, en el menú contextual de la capa.
+        vista = self.iface.layerTreeView()
+        if vista is not None and hasattr(vista, "contextMenuAboutToShow"):
+            vista.contextMenuAboutToShow.connect(self._menu_de_capa)
 
     def _añadir_accion(self, texto, callback, checkable=False):
         accion = QAction(texto, self.iface.mainWindow())
@@ -59,7 +83,32 @@ class GeosianPlugin:
             self.dock.refrescar()
             self.dock.show()
 
+    def _tras_abrir_proyecto(self):
+        if self.dock is not None:
+            sesion.offer_reconnect(self.iface, self.dock._pedir_reconexion)
+
+    def _menu_de_capa(self, menu):
+        capa = self.iface.layerTreeView().currentLayer()
+        if capa is not None and capa.type() == QgsMapLayerType.VectorLayer:
+            menu_de_etiquetas(menu, capa)
+            menu_de_filtros(menu, capa)
+
     def unload(self):
+        realtime_hub.unwatch_project()
+        leyendas.dejar_de_vigilar()
+        celdas.dejar_de_vigilar()
+        sesion.unwatch_expired()
+        try:
+            self.iface.projectRead.disconnect(self._tras_abrir_proyecto)
+        except TypeError:
+            pass
+        realtime_hub.stop_all()
+        vista = self.iface.layerTreeView()
+        if vista is not None and hasattr(vista, "contextMenuAboutToShow"):
+            try:
+                vista.contextMenuAboutToShow.disconnect(self._menu_de_capa)
+            except TypeError:
+                pass
         for accion in self.acciones:
             self.iface.removePluginMenu(MENU, accion)
         self.acciones = []

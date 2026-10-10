@@ -5,7 +5,9 @@ verdad. Las respuestas imitan la forma real: GeoJSON en ``geodata``,
 ``tile_metadata`` en la capa y el esquema completo en ``layer-attributes``.
 """
 
+import base64
 import json
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -13,6 +15,7 @@ from urllib.parse import parse_qs, urlparse
 ESQUEMA_ARBOLADO = {
     "name": "arbolado",
     "title": "Arbolado",
+    "main_attributes": ["object_id", "especie", "codigo_migracion"],
     "attributes": [
         {"name": "codigo", "type": "string", "title": "Código", "required": True},
         {"name": "object_id", "type": "string", "title": "ID", "editable": False},
@@ -22,11 +25,15 @@ ESQUEMA_ARBOLADO = {
             "type": "select",
             "title": "Especie",
             "allowed_values": ["Platanus x hispanica", "Tilia platyphyllos"],
+            "label": True,
         },
         {"name": "altura", "type": "number", "title": "Altura (m)"},
         {"name": "fecha_plantacion", "type": "calendar", "title": "Plantación"},
         {"name": "observaciones", "type": "text", "title": "Observaciones"},
+        {"name": "codigo_migracion", "type": "string", "title": "Código de migración",
+         "visible": False},
         {"name": "pictures", "type": "images", "title": "Fotos"},
+        {"name": "files", "type": "files", "title": "Archivos"},
         {
             "name": "seccion_riesgo",
             "type": "section",
@@ -53,9 +60,39 @@ ESQUEMA_ARBOLADO = {
             ],
         },
     ],
+    # Los partes: tipos de información adicional, con su propio esquema.
+    "additional_information": [
+        {
+            "name": "parte_poda",
+            "title": "Parte de poda",
+            # Como los partes de palmeras: solo para los elementos de una especie.
+            "attribute_dependencies": [{"name": "especie", "value": "Platanus x hispanica"}],
+            "attributes": [
+                {"name": "labor", "type": "select", "title": "Labor",
+                 "allowed_values": ["Poda", "Aclareo"]},
+                {"name": "horas", "type": "number", "title": "Horas"},
+                {"name": "pictures", "type": "images", "title": "Fotos"},
+            ],
+        }
+    ],
+    # Como en los LAD reales: color por especie, gris para lo demás.
+    "styles": {
+        "colors": [
+            {
+                "attribute": "especie",
+                "priority": 1,
+                "default": "#808080",
+                "allowed_values": {"Tilia platyphyllos": "#00ff00"},
+            }
+        ]
+    },
 }
 
-MAPAS = [{"id": 4, "name": "Ciudad de Ejemplo: arbolado y zonas verdes"}]
+MAPAS = [
+    {"id": 4, "name": "Ciudad de Ejemplo: arbolado y zonas verdes", "workspace_name": "Ayuntamiento de Ejemplo"},
+    # Un mapa que el usuario ve pero sobre cuyas capas no tiene permiso.
+    {"id": 5, "name": "Mapa sin permiso", "workspace_name": "Otro Ayuntamiento"},
+]
 
 CAPAS = [
     {
@@ -119,8 +156,186 @@ ELEMENTOS = [
 ]
 
 
+# Partes de poda, con la forma de /additional-information/: los atributos
+# anidados, el autor como texto y el elemento en «geodata».
+PARTES = [
+    {"id": 501, "name": "parte_poda", "geodata": 1001, "user": "Técnica Uno",
+     "created_at": "2026-05-02T09:00:00+02:00", "updated_at": "2026-05-02T09:00:00+02:00",
+     "attributes": {"labor": "Poda", "horas": 2.5, "pictures": None},
+     "pictures": [{"id": 88, "url": "/api/v1/additional-information/image/88/", "main_image": True}],
+     "files": []},
+    {"id": 502, "name": "parte_poda", "geodata": 1001, "user": "Técnico Dos",
+     "created_at": "2026-06-10T12:00:00+02:00", "updated_at": "2026-06-11T08:00:00+02:00",
+     "attributes": {"labor": "Aclareo", "horas": 1.0}},
+    {"id": 503, "name": "parte_poda", "geodata": 1002, "user": "Técnica Uno",
+     "created_at": "2026-07-01T10:00:00+02:00", "updated_at": "2026-07-01T10:00:00+02:00",
+     "attributes": {"labor": "Poda", "horas": 4.0}},
+]
+
+
+# Una foto de verdad (PNG de 1×1) para que Qt la pueda leer.
+FOTO_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+FICHERO_PDF = b"%PDF-1.4 informe de prueba"
+# Otra imagen de 1×1, para distinguir la miniatura de la foto entera.
+MINIATURA_PNG = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+# El detalle de /geodata/<id>/: fotos en base64 y ficheros con id y nombre.
+DETALLES = {
+    1001: {
+        "pictures": [
+            {"id": 71, "data": "data:image/png;base64," + base64.b64encode(FOTO_PNG).decode(),
+             "created_at": "2026-05-02T09:00:00+02:00", "main_image": False, "field_name": "pictures"},
+            {"id": 72, "data": "data:image/png;base64," + base64.b64encode(FOTO_PNG).decode(),
+             "created_at": "2026-05-03T09:00:00+02:00", "main_image": True, "field_name": "pictures"},
+        ],
+        "files": [{"id": 31, "name": "informe.pdf", "field_name": "files"}],
+    },
+}
+
+
+def _pagina_de_partes(consulta):
+    """Lo que devolvería /additional-information/ con esos parámetros."""
+    partes = [p for p in PARTES if p["name"] == consulta.get("name", [""])[0]]
+    if consulta.get("geodata_id"):
+        partes = [p for p in partes if p["geodata"] == int(consulta["geodata_id"][0])]
+    tam = int(consulta.get("page_size", ["10"])[0])
+    pagina = int(consulta.get("page", ["1"])[0])
+    trozo = partes[(pagina - 1) * tam: pagina * tam]
+    return {
+        "results": trozo,
+        "pagination": {"total_items": len(partes), "current_page": pagina,
+                       "page_size": tam, "has_more": pagina * tam < len(partes)},
+    }
+
+
+# Vista 8: iconos por especie. Es una superposición: la base sigue debajo.
+VISTA_ICONOS = {
+    "id": 8,
+    "layer": 11,
+    "name": "Iconos",
+    "context_type": "elements",
+    "filter_config": {"query_groups": [], "global_operator": "and"},
+    "style_config": {"mode": "single", "visualization": "icon", "color": {"value": [0, 0, 255, 230]}},
+}
+
+# Vista 7 de la capa 11: solo los tilos, pintados de rojo.
+VISTA_HEXAGONOS = {
+    "id": 9,
+    "layer": 11,
+    "name": "Densidad",
+    "context_type": "elements",
+    "filter_config": {"query_groups": [{"operator": "and", "context": "elements", "rules": [
+        {"field": "especie", "operator": "equals", "value": "Tilia platyphyllos"}]}]},
+    "style_config": {"mode": "single", "visualization": "hexagon",
+                     "hexagon": {"radius": 200, "colorRamp": "viridis", "colorMax": 50},
+                     "point": {"opacity": 0.7}},
+}
+
+VISTA_CALOR = {
+    "id": 10,
+    "layer": 11,
+    "name": "Calor",
+    "context_type": "elements",
+    "filter_config": {"query_groups": []},
+    "style_config": {"mode": "single", "visualization": "heatmap",
+                     "heatmap": {"radiusPixels": 30, "intensity": 1, "threshold": 0.05,
+                                 "colorRamp": "inferno"}},
+}
+
+VISTA_CONTORNOS = {
+    "id": 11,
+    "layer": 11,
+    "name": "Contornos",
+    "context_type": "elements",
+    "filter_config": {"query_groups": []},
+    "style_config": {"mode": "single", "visualization": "contour", "point": {"opacity": 0.8},
+                     "contour": {"cellSize": 400, "aggregation": "SUM", "contours": [
+                         {"threshold": 1, "color": [255, 255, 178, 128], "strokeWidth": 1},
+                         {"threshold": 5, "color": [240, 59, 32, 200], "strokeWidth": 3}]}},
+}
+
+VISTA_POR_PARTES = {
+    "id": 12,
+    "layer": 11,
+    "name": "Por labor",
+    "context_type": "elements",
+    "filter_config": {"query_groups": []},
+    "style_config": {"visualization": "default", "color": {
+        "mode": "categorized", "attribute": "additional_info.parte_poda.labor",
+        "attributeSource": "additional_info",
+        "categories": {"Poda": {"color": [255, 0, 0, 230], "label": "Poda"},
+                       "Aclareo": {"color": [0, 0, 255, 230], "label": "Aclareo"}},
+        "default": {"color": [158, 158, 158, 230], "label": "Otros"}}},
+}
+
+VISTA_TILOS = {
+    "id": 7,
+    "layer": 11,
+    "name": "Tilos",
+    "context_type": "elements",
+    "filter_config": {
+        "query_groups": [
+            {
+                "context": "elements",
+                "operator": "and",
+                "rules": [
+                    {"field": "especie", "operator": "in", "value": ["Tilia platyphyllos"]}
+                ],
+            }
+        ],
+        "global_operator": "and",
+    },
+    "style_config": {"mode": "single", "color": {"value": [255, 0, 0, 230]}},
+}
+
+
+def _pagina_de_elementos(consulta, lasso=None):
+    """Lo que devolvería /geodata/paginated/ con esos parámetros."""
+    elementos = ELEMENTOS
+    ids = consulta.get("ids", [""])[0]
+    if ids:
+        pedidos = {int(i) for i in ids.split(",") if i}
+        elementos = [e for e in elementos if e["properties"]["id"] in pedidos]
+    # Los attr__ de igualdad, como el AttributeFilterMixin: varios valores, OR.
+    for clave, valores in consulta.items():
+        if clave.startswith("attr__") and "__" not in clave[len("attr__"):]:
+            campo = clave[len("attr__"):]
+            elementos = [e for e in elementos if e["properties"].get(campo) in valores]
+    if lasso:
+        xs = [p[0] for p in lasso["coordinates"][0]]
+        ys = [p[1] for p in lasso["coordinates"][0]]
+        elementos = [
+            e
+            for e in elementos
+            if e["geometry"]
+            and min(xs) <= e["geometry"]["coordinates"][0] <= max(xs)
+            and min(ys) <= e["geometry"]["coordinates"][1] <= max(ys)
+        ]
+    # include_ai_attr=<tipo>.<campo>: el valor del último parte de cada elemento, en
+    # properties.additional_info.<tipo>.<campo>, como el backend.
+    pedido = consulta.get("include_ai_attr", [""])[0]
+    if pedido == "parte_poda.labor":
+        # El 1003, como lista: en los datos reales hay selecciones con un valor de los dos modos.
+        valores = {1001: "Poda", 1002: "Aclareo", 1003: ["Poda"]}
+        elementos = [
+            {**e, "properties": {**e["properties"], "additional_info": {
+                "parte_poda": {"labor": valores[e["properties"]["id"]]}}}}
+            if e["properties"]["id"] in valores else e
+            for e in elementos
+        ]
+    if consulta.get("no_geometry") == ["true"]:
+        # Como la API desde el PR de no_geometry en /paginated/: los atributos, sin forma.
+        elementos = [{**e, "geometry": None} for e in elementos]
+    pagina = int(consulta.get("page", ["1"])[0])
+    return {"type": "FeatureCollection", "features": elementos if pagina == 1 else []}
+
+
 class Handler(BaseHTTPRequestHandler):
-    peticiones = []
+    peticiones = []  # noqa: RUF012 (la comparten el servidor y las pruebas)
 
     def log_message(self, *args):
         pass  # sin ruido en la salida de las pruebas
@@ -133,7 +348,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(cuerpo)
 
-    def do_GET(self):  # noqa: N802
+    def _bytes(self, cuerpo, tipo):
+        self.send_response(200)
+        self.send_header("Content-Type", tipo)
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.end_headers()
+        self.wfile.write(cuerpo)
+
+    def do_GET(self):
         partes = urlparse(self.path)
         consulta = parse_qs(partes.query)
         ruta = partes.path
@@ -143,17 +365,125 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"detail": "Credenciales no válidas"}, 401)
             return
 
+        if ruta.startswith("/api/v1/geodata/tiles/") and ruta.endswith(".mvt"):
+            # Celdas agregadas con su centroide, como el servidor con agg=hex&geom=centroid:
+            # una por elemento (y diez en la del primero, para que haya un grupo).
+            from geosian.core import aggregated
+            from tests.test_mvt import _tesela, _tesela_con_poligonos
+
+            z, x, y = (int(v) for v in ruta[len("/api/v1/geodata/tiles/"):-len(".mvt")].split("/"))
+            celdas, hexagonos = [], []
+            for e in ELEMENTOS:
+                if not e.get("geometry"):
+                    continue
+                lon, lat = e["geometry"]["coordinates"]
+                n = 10 if e["properties"]["id"] == 1001 else 1
+                celdas.append({"count": n, "lng": float(lon), "lat": float(lat)})
+                # Sin geom=centroid, el hexágono entero, solo en la tesela de su centro y sin
+                # recortar (puede salirse de [0, 4096]), como el servidor.
+                if aggregated._tesela(lon, lat, z) == (x, y):
+                    oeste, sur, este, norte = aggregated.tile_bounds(z, x, y)
+                    mx, my = aggregated.to_mercator(lon, lat)
+                    px = round((mx - oeste) / (este - oeste) * 4096)
+                    py = round((norte - my) / (norte - sur) * 4096)
+                    r = 3000
+                    anillo = [(px - r, py), (px - r // 2, py - r), (px + r // 2, py - r),
+                              (px + r, py), (px + r // 2, py + r), (px - r // 2, py + r)]
+                    hexagonos.append(({"count": n}, [anillo]))
+            if consulta.get("geom") == ["centroid"]:
+                cuerpo = _tesela("agg", celdas)
+            else:
+                cuerpo = _tesela_con_poligonos("agg", hexagonos)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/vnd.mapbox-vector-tile")
+            self.send_header("Content-Length", str(len(cuerpo)))
+            self.end_headers()
+            self.wfile.write(cuerpo)
+            return
+
         if ruta == "/api/v1/maps/":
             self._json(MAPAS)
 
+        elif ruta == "/api/v1/maps/4/":
+            # El detalle: lo que importa aquí son los fondos propios del mapa.
+            self._json({
+                **MAPAS[0],
+                "basemaps": [{"code": "ORTO", "name": "Ortofoto de ejemplo", "kind": "xyz",
+                              "min_zoom": 0, "max_zoom": 19,
+                              "tiles": ["https://teselas.ejemplo.org/orto/{z}/{x}/{y}.jpg"]}],
+            })
+
+        elif ruta == "/api/v1/maps/5/layers/":
+            self._json({"error": "No tiene permisos para acceder a estas capas."}, 403)
+
         elif ruta == "/api/v1/maps/4/layers/":
-            self._json(CAPAS)
+            capas = [dict(c) for c in CAPAS]
+            if not consulta.get("include_tile_metadata"):
+                for capa in capas:
+                    capa.pop("tile_metadata", None)
+            if consulta.get("include_tile_config") == ["true"] and self.server.tile_config:
+                # Como la API: con tile_config, las capas van envueltas.
+                self._json({"layers": capas, "tile_config": self.server.tile_config})
+            else:
+                self._json(capas)
 
         elif ruta == "/api/v1/layers/11/":
+            # Como el backend: el detalle nunca trae tile_metadata.
             datos = dict(CAPAS[0])
-            if not consulta.get("include_tile_metadata"):
-                datos.pop("tile_metadata", None)
+            datos.pop("tile_metadata", None)
             self._json(datos)
+
+        elif ruta == "/api/v1/layer-views/for-map/":
+            listado = {k: VISTA_TILOS[k] for k in ("id", "layer", "name", "context_type")}
+            iconos = {k: VISTA_ICONOS[k] for k in ("id", "layer", "name", "context_type")}
+            # Una vista marcada como de información adicional: la web la pinta igual.
+            partes = {"id": 9, "layer": 11, "name": "Con partes", "context_type": "additional_info"}
+            self._json(
+                [{"layer_id": 11, "layer_name": "Arbolado", "views": [listado, iconos, partes]}]
+            )
+
+        elif ruta == "/api/v1/user-map-settings/by-map/4/":
+            # El usuario tiene la capa en una carpeta, apagada y con la vista
+            # de tilos activa.
+            self._json(
+                {
+                    "settings": {
+                        "layer_order": ["group:g1"],
+                        "layer_groups": {
+                            "g1": {"name": "Arbolado urbano", "expanded": False, "children": [11]}
+                        },
+                        "visible_layers": {"11": False},
+                        "active_view_ids": [7],
+                    },
+                    "map_structure": None,
+                }
+            )
+
+        elif ruta == "/api/v1/layer-views/8/":
+            self._json(VISTA_ICONOS)
+        elif ruta == "/api/v1/layer-views/9/":
+            self._json(VISTA_HEXAGONOS)
+        elif ruta == "/api/v1/layer-views/10/":
+            self._json(VISTA_CALOR)
+        elif ruta == "/api/v1/layer-views/11/":
+            self._json(VISTA_CONTORNOS)
+        elif ruta == "/api/v1/layer-views/12/":
+            self._json(VISTA_POR_PARTES)
+
+        elif ruta == "/api/v1/layer-views/7/":
+            self._json(VISTA_TILOS)
+
+        elif ruta == "/api/v1/layer-attributes/" and consulta.get("layer_id") == ["999"]:
+            # Una capa borrada en GCC.
+            self._json({"detail": "No encontrado."}, 404)
+
+        elif ruta == "/api/v1/layer-attributes/" and consulta.get("layer_id") == ["51"]:
+            # Como devel con una capa de un mapa sin permiso: lista vacía, sin 403.
+            self._json([])
+
+        elif ruta == "/api/v1/layer-attributes/" and consulta.get("layer_id") == ["50"]:
+            # Una capa de un mapa sin permiso.
+            self._json({"detail": "No tiene permiso para ver esta capa."}, 403)
 
         elif ruta == "/api/v1/layer-attributes/":
             self._json(
@@ -168,9 +498,43 @@ class Handler(BaseHTTPRequestHandler):
             )
 
         elif ruta == "/api/v1/geodata/paginated/":
-            pagina = int(consulta.get("page", ["1"])[0])
-            elementos = ELEMENTOS if pagina == 1 else []
-            self._json({"type": "FeatureCollection", "features": elementos})
+            self._json(_pagina_de_elementos(consulta))
+
+        elif re.fullmatch(r"/api/v1/geodata/\d+/", ruta):
+            fid = int(ruta.split("/")[-2])
+            elemento = next((e for e in ELEMENTOS if e["properties"]["id"] == fid), None)
+            if elemento is None or consulta.get("geometry_type") != ["points"]:
+                self._json({"error": "no"}, 404)
+            else:
+                detalle = DETALLES.get(fid, {"pictures": [], "files": []})
+                if consulta.get("embed_images") == ["false"]:
+                    # Como el backend: enlaces a la API en vez de las fotos.
+                    detalle = {
+                        "pictures": [
+                            {k: v for k, v in f.items() if k != "data"}
+                            | {"url": f"/api/v1/geodata/image/{f['id']}/",
+                               "thumbnail_url": f"/api/v1/geodata/image/{f['id']}/?as_thumbnail=1"}
+                            for f in detalle["pictures"]
+                        ],
+                        "files": [f | {"url": f"/api/v1/geodata/file/{f['id']}/"} for f in detalle["files"]],
+                    }
+                self._json({**elemento, "id": fid, **detalle})
+
+        elif re.fullmatch(r"/api/v1/geodata/image/\d+/", ruta):
+            self._bytes(MINIATURA_PNG if consulta.get("as_thumbnail") == ["1"] else FOTO_PNG, "image/png")
+
+        elif ruta == "/api/v1/geodata/file/31/":
+            self._bytes(FICHERO_PDF, "application/pdf")
+
+        elif ruta.startswith("/api/v1/additional-information/image/"):
+            self._bytes(FOTO_PNG, "image/png")
+
+        elif ruta == "/api/v1/additional-information/":
+            # Sin el tipo de geometría la API no sabe en qué tabla buscar.
+            if consulta.get("geometry_type") != ["Point"]:
+                self._json({"results": [], "pagination": {"total_items": 0}})
+            else:
+                self._json(_pagina_de_partes(consulta))
 
         elif ruta == "/api/v1/geodata/":
             ids = consulta.get("ids", [""])[0]
@@ -186,8 +550,47 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json({"detail": "No existe"}, 404)
 
-    def do_POST(self):  # noqa: N802
+    def do_POST(self):
         partes = urlparse(self.path)
+        largo = int(self.headers.get("Content-Length") or 0)
+        datos = json.loads(self.rfile.read(largo) or b"{}")
+
+        # Como Django con APPEND_SLASH: sin la barra final no hay respuesta,
+        # hay una redirección relativa que QGIS no sabe seguir.
+        if not partes.path.endswith("/"):
+            self.send_response(301)
+            self.send_header("Location", partes.path + "/")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        if partes.path == "/api/v1/geodata/paginated/":
+            consulta = parse_qs(partes.query)
+            Handler.peticiones.append((partes.path, consulta))
+            if self.headers.get("Authorization") != "Token tok-de-prueba":
+                self._json({"detail": "Credenciales no válidas"}, 401)
+                return
+            self._json(_pagina_de_elementos(consulta, datos.get("lasso_geometry")))
+            return
+
+        if partes.path == "/users/login/" and datos.get("email") == "doble@ejemplo.com":
+            self._json({"mfa_required": True, "mfa_token": "mfa-de-prueba"}, 202)
+            return
+
+        if partes.path == "/users/login/verify-2fa/":
+            if datos.get("mfa_token") != "mfa-de-prueba" or datos.get("otp_code") != "123456":
+                self._json({"detail": "Código no válido"}, 401)
+                return
+            self._json(
+                {
+                    "api_token": "tok-de-prueba",
+                    "jwt_token": "jwt-de-prueba",
+                    "user": {"email": "doble@ejemplo.com"},
+                },
+                202,
+            )
+            return
+
         if partes.path == "/users/login/":
             self._json(
                 {
@@ -207,6 +610,8 @@ class FakeGeosian:
     def __init__(self):
         Handler.peticiones = []
         self._server = HTTPServer(("127.0.0.1", 0), Handler)
+        # El tile_config de /maps/<id>/layers/; None, el de un servidor que no lo da.
+        self._server.tile_config = None
         self._hilo = threading.Thread(target=self._server.serve_forever, daemon=True)
 
     def __enter__(self):
@@ -225,6 +630,9 @@ class FakeGeosian:
     @property
     def peticiones(self):
         return Handler.peticiones
+
+    def poner_tile_config(self, config):
+        self._server.tile_config = config
 
     def rutas_pedidas(self):
         return [ruta for ruta, _ in Handler.peticiones]

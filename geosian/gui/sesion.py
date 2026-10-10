@@ -1,0 +1,126 @@
+"""Sesiones caducadas: avisar y recuperar las capas al volver a entrar.
+
+Al reabrir un proyecto con la sesión caducada, sus capas de Geosian abren vacías
+con la definición guardada en este equipo (``core/definitions.py``) y basta con
+recargarlas al volver a entrar. Las que nunca se abrieron aquí quedan «no
+disponibles» y se vuelven a crear. En los dos casos ``provider.py`` lo anota en
+``connections.mark_expired`` y QGIS conserva su estilo, su formulario y su sitio
+en el árbol.
+"""
+
+from qgis.core import Qgis, QgsDataProvider, QgsProject
+from qgis.PyQt.QtCore import QObject, pyqtSignal
+from qgis.PyQt.QtWidgets import QPushButton
+
+from ..core import connections
+from ..provider.uri import parse_uri
+
+
+def expired():
+    return connections.expired()
+
+
+def clear_expired(nombre=None):
+    connections.clear_expired(nombre)
+
+
+def repair_layers(nombre, capas=None):
+    """Vuelve a abrir las capas de una conexión tras volver a entrar.
+
+    Las no disponibles se vuelven a crear; las que se abrieron bien pero se
+    quedaron sin datos al caducar la sesión, se recargan. Devuelve cuántas
+    quedaron disponibles.
+    """
+    if capas is None:
+        capas = list(QgsProject.instance().mapLayers().values())
+    reparadas = 0
+    pendientes = 0
+    for capa in capas:
+        if capa.providerType() != "geosian":
+            continue
+        try:
+            if parse_uri(capa.source()).connection != nombre:
+                continue
+        except ValueError:
+            continue
+        if capa.isValid():
+            capa.reload()
+            capa.triggerRepaint()
+            continue
+        capa.setDataSource(capa.source(), capa.name(), "geosian", QgsDataProvider.ProviderOptions())
+        if capa.isValid():
+            reparadas += 1
+        else:
+            pendientes += 1
+    if not pendientes:
+        connections.clear_expired(nombre)
+    return reparadas
+
+
+def offer_reconnect(iface, pedir):
+    """Un aviso con «Volver a entrar» por cada conexión con la sesión caducada.
+
+    Args:
+        pedir: lo que abre el diálogo de la conexión; recibe su nombre.
+    """
+    barra = iface.messageBar()
+    # Al abrir un proyecto avisan la primera caducidad y el «proyecto leído»; si
+    # el aviso de esa conexión sigue a la vista, no se repite.
+    a_la_vista = {
+        w.property(_PROPIEDAD) for w in getattr(barra, "items", list)() if w is not None
+    }
+    for nombre in sorted(connections.expired()):
+        if nombre in a_la_vista:
+            continue
+        aviso = barra.createMessage(
+            "Geosian",
+            f"La sesión de «{nombre}» ha caducado: sus capas no traen datos nuevos "
+            "hasta volver a entrar.",
+        )
+        aviso.setProperty(_PROPIEDAD, nombre)
+        boton = QPushButton("Volver a entrar")
+        boton.clicked.connect(lambda _=False, n=nombre: pedir(n))
+        aviso.layout().addWidget(boton)
+        barra.pushWidget(aviso, Qgis.Warning)
+
+
+_PROPIEDAD = "geosian_volver_a_entrar"
+
+
+def dismiss_reconnect(iface, nombre):
+    """Quita el aviso de «Volver a entrar» de esa conexión, si está a la vista."""
+    barra = iface.messageBar()
+    for aviso in list(getattr(barra, "items", list)()):
+        if aviso is not None and aviso.property(_PROPIEDAD) == nombre:
+            barra.popWidget(aviso)
+
+
+class _Avisador(QObject):
+    """Lleva el aviso al hilo de la interfaz: la sesión puede caducar al pintar."""
+
+    caducada = pyqtSignal(str)
+
+
+_avisador = {"objeto": None, "oyente": None}
+
+
+def watch_expired(funcion):
+    """Llama a ``funcion(nombre)`` la primera vez que caduca una conexión."""
+    unwatch_expired()
+    avisador = _Avisador()
+    avisador.caducada.connect(funcion)
+
+    def oyente(nombre):
+        avisador.caducada.emit(nombre)
+
+    # Se guarda la misma función que se registra: un «avisador.caducada.emit»
+    # nuevo no es igual al registrado, no se quitaría y quedaría llamando a un
+    # objeto de Qt ya destruido.
+    _avisador.update(objeto=avisador, oyente=oyente)
+    connections.add_expired_listener(oyente)
+
+
+def unwatch_expired():
+    if _avisador["oyente"] is not None:
+        connections.remove_expired_listener(_avisador["oyente"])
+    _avisador.update(objeto=None, oyente=None)
