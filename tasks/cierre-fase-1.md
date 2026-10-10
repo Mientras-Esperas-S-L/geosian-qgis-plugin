@@ -80,13 +80,27 @@ plugin y empezar la fase de escritura.
       fotos, filtros, etiquetas, fondo y estructura, con capturas lado a lado en el scratchpad.
 
 ### Para decidir (DECIDE: no se hacen sin el usuario)
-- [ ] DECIDE · Hexágonos, contornos y H3: teselas agregadas del servidor como capa de
+- [x] DECIDE · Hexágonos, contornos y H3: teselas agregadas del servidor como capa de
       teselas vectoriales, o se quedan pintadas con el color de la vista.
-- [ ] DECIDE · Vistas encima de todas las capas (como hoy la web) o en el sitio de su capa.
-- [ ] DECIDE · Que CT118 o el nginx de CT101 sirvan el `style.json` del fondo para no
+- [x] DECIDE · Vistas encima de todas las capas (como hoy la web) o en el sitio de su capa.
+- [x] DECIDE · Que CT118 o el nginx de CT101 sirvan el `style.json` del fondo para no
       copiarlo en el complemento.
-- [ ] DECIDE · Ficha de solo lectura que, como la web, oculte los campos vacíos.
-- [ ] DECIDE · Abrir el PR del plugin a `main` y empezar la fase de escritura.
+- [x] DECIDE · Ficha de solo lectura que, como la web, oculte los campos vacíos.
+- [x] DECIDE · Abrir el PR del plugin a `main` y empezar la fase de escritura.
+
+### Decidido el 10/10 (y lo que sale de ahí)
+- Hexágonos, contornos y H3: **con las teselas agregadas del servidor**, como la web.
+- Vistas: **encima de todas las capas**, como hoy la web (es lo que ya hace).
+- `style.json` del fondo: **se queda la copia** en el complemento (no lo descartó).
+- Ficha de solo lectura: **los campos vacíos se quedan a la vista**; servirá para editar.
+- **PR del plugin abierto a `main`, sin fusionar**, y la fase de escritura empieza
+  después de repasar juntos su diseño (borrado lógico, bloqueo optimista, permisos).
+- Espera de la definición de una capa: **15 s** (antes 30), propuesto y no descartado.
+- Satélite de Google en la web y origen del proxy de la ortofoto: aparte, fuera del
+  complemento.
+- [ ] Hexágonos, contornos y H3 con las teselas agregadas del servidor
+      (`/geodata/tiles/…mvt?agg=hex…`), como capa de teselas vectoriales autenticada y
+      coloreada por `count` con la escala de la web.
 
 ## Hecho
 
@@ -296,6 +310,11 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   (casilla 1). Diferencias que quedan, ya en «para decidir»: la web oculta los campos vacíos
   («Marcado como» sale en QGIS y no en la web) y el pie de la lista de partes de la web dice
   «1-10 de 10» con 2 (PR #202 sin fusionar).
+- 10/10 · Espera de la definición: 15 s para `layer-attributes`, el listado de capas y la
+  vista (`DEFINITION_TIMEOUT`); los datos siguen con 30 s. Prueba
+  `test_la_definicion_de_una_capa_espera_menos_que_los_datos` (fallaba). Comprobado contra
+  devel con el proxy mudo: abrir una capa falla a los 14,6 s con «GCC no ha respondido en
+  15 s» (antes 30,1 s); proxy quitado al acabar.
 
 ## Hallazgos para decidir
 

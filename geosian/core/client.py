@@ -26,6 +26,10 @@ API_PREFIX = "/api/v1"
 # listado completo se pedía una vez por capa. Es corto a propósito para que un
 # "Refrescar" del panel vea lo nuevo.
 LAYERS_TTL = 30
+# Lo que se espera a la definición de una capa (campos, metadatos, vista): QGIS la
+# pide al abrirla, en el hilo de la ventana, que no responde mientras tanto. Son
+# respuestas pequeñas; los datos van en los hilos de pintado y esperan DEFAULT_TIMEOUT.
+DEFINITION_TIMEOUT = 15
 
 
 class GeosianClient:
@@ -96,9 +100,11 @@ class GeosianClient:
             raise ConflictError(response.status, mensaje, response.body, url)
         raise ApiError(response.status, mensaje, response.body, url)
 
-    def _get(self, path, params=None):
+    def _get(self, path, params=None, timeout=None):
         url = self._url(path, params)
-        resp = self.transport.request("GET", url, self._headers(), timeout=self.timeout)
+        resp = self.transport.request(
+            "GET", url, self._headers(), timeout=timeout or self.timeout
+        )
         return self._check(resp, url).json()
 
     def _post(self, path, data=None, params=None):
@@ -184,6 +190,7 @@ class GeosianClient:
             self._get(
                 f"{API_PREFIX}/maps/{map_id}/layers/",
                 {"include_tile_metadata": "true"},
+                timeout=DEFINITION_TIMEOUT,
             )
         )
         self._capas[map_id] = (time.monotonic(), capas)
@@ -220,7 +227,11 @@ class GeosianClient:
         if guardado and time.monotonic() - guardado[0] < LAYERS_TTL:
             return guardado[1]
         definiciones = _as_list(
-            self._get(f"{API_PREFIX}/layer-attributes/", {"layer_id": layer_id})
+            self._get(
+                f"{API_PREFIX}/layer-attributes/",
+                {"layer_id": layer_id},
+                timeout=DEFINITION_TIMEOUT,
+            )
         )
         self._lads[layer_id] = (time.monotonic(), definiciones)
         return definiciones
@@ -287,7 +298,7 @@ class GeosianClient:
 
     def layer_view(self, view_id):
         """Una vista completa, con ``filter_config`` y ``style_config``."""
-        return self._get(f"{API_PREFIX}/layer-views/{view_id}/") or {}
+        return self._get(f"{API_PREFIX}/layer-views/{view_id}/", timeout=DEFINITION_TIMEOUT) or {}
 
     # ------------------------------------------------------------------
     # Datos

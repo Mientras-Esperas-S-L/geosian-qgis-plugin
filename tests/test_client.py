@@ -23,6 +23,7 @@ class TransporteFalso(Transport):
                 "url": url,
                 "headers": headers or {},
                 "body": json.loads(body) if body else None,
+                "timeout": timeout,
             }
         )
         for patron, respuesta in self.respuestas.items():
@@ -189,3 +190,20 @@ def test_el_token_no_viaja_en_la_url_del_websocket():
     cliente.jwt = "secreto"
     assert "secreto" not in cliente.websocket_url()
     assert "token.secreto" in cliente.websocket_subprotocols()
+
+
+def test_la_definicion_de_una_capa_espera_menos_que_los_datos():
+    """Abrir una capa pide su definición en el hilo de la ventana: con el servidor
+    mudo, QGIS se quedaba congelado los 30 s enteros. Los datos van en los hilos de
+    pintado y conservan los 30 s."""
+    t = TransporteFalso({"/layer-attributes/": respuesta([]), "/layers/": respuesta([])})
+    cliente = GeosianClient("https://geo.example.com", transport=t, token="x")
+    cliente.layer_attributes(11)
+    cliente.layers(4)
+    cliente.layer_view(3)
+    cliente.geodata_paginated(11)
+    tiempos = {c["url"].split("?")[0].rsplit("/api/v1/", 1)[1]: c["timeout"] for c in t.llamadas}
+    assert tiempos["layer-attributes/"] == 15
+    assert tiempos["maps/4/layers/"] == 15
+    assert tiempos["layer-views/3/"] == 15
+    assert tiempos["geodata/paginated/"] == 30
