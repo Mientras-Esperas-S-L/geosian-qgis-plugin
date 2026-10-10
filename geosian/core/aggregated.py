@@ -57,13 +57,22 @@ def count_bucket(count, color_max):
     return min(5, int(t * 6))
 
 
+def count_bucket_expression(color_max):
+    """La expresión de QGIS que da el tramo (0 a 5) de una celda por su ``count``."""
+    color_max = max(float(color_max or 100), 1.0)
+    return (
+        "min(5, floor(min(1, ln(1 + max(coalesce(\"count\", 0), 0))"
+        f" / ln(1 + {color_max:g})) * 6))"
+    )
+
+
 def count_color_expression(rampa, color_max):
     """La expresión de QGIS que da el color de una celda por su ``count``."""
-    color_max = max(float(color_max or 100), 1.0)
     casos = " ".join(
         f"WHEN @i = {i} THEN '{r},{g},{b},{a}'" for i, (r, g, b, a) in enumerate(rampa[:6])
     )
-    return (
-        "with_variable('i', min(5, floor(min(1, ln(1 + max(coalesce(\"count\", 0), 0))"
-        f" / ln(1 + {color_max:g})) * 6)), CASE {casos} END)"
-    )
+    return f"with_variable('i', {count_bucket_expression(color_max)}, CASE {casos} END)"
+
+
+# Las etiquetas de la leyenda de la web para las agregadas, en los extremos.
+LEYENDA = ("Baja densidad", "", "", "", "", "Alta densidad")

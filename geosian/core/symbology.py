@@ -339,27 +339,23 @@ def view_renderer(style_config, geometry_type, schema, resolver, iconos=None):
     return QgsSingleSymbolRenderer(make_symbol(familia, styles.FALLBACK_ANY)), avisos
 
 
-# El color de relleno definido por datos: ``Property.FillColor`` desde QGIS 3.36,
-# ``PropertyFillColor`` en la 3.34.
-FILL_COLOR = getattr(QgsSymbolLayer, "PropertyFillColor", None)
-if FILL_COLOR is None:
-    FILL_COLOR = QgsSymbolLayer.Property.FillColor
-
-
 def hexagon_renderer(vista):
     """Las celdas de las teselas agregadas, coloreadas por su número de puntos."""
     from . import aggregated
 
     rampa = [color[:3] + (200,) for color in styles.ramp_colors(vista["ramp"], 6)]
-    relleno = QgsFillSymbol.createSimple({"color": "0,0,0,0", "outline_style": "no"})
-    relleno.symbolLayer(0).setDataDefinedProperty(
-        FILL_COLOR,
-        QgsProperty.fromExpression(aggregated.count_color_expression(rampa, vista["color_max"])),
-    )
-    estilo = QgsVectorTileBasicRendererStyle("Celdas", aggregated.CAPA_MVT, Qgis.GeometryType.Polygon)
-    estilo.setSymbol(relleno)
+    tramo = aggregated.count_bucket_expression(vista["color_max"])
+    estilos = []
+    # Un estilo por tramo de la rampa: la leyenda de QGIS sale como el degradado de
+    # la web, con «Baja densidad» y «Alta densidad» en los extremos.
+    for i, ((r, g, b, a), etiqueta) in enumerate(zip(rampa, aggregated.LEYENDA)):
+        relleno = QgsFillSymbol.createSimple({"color": f"{r},{g},{b},{a}", "outline_style": "no"})
+        estilo = QgsVectorTileBasicRendererStyle(etiqueta, aggregated.CAPA_MVT, Qgis.GeometryType.Polygon)
+        estilo.setFilterExpression(f"{tramo} = {i}")
+        estilo.setSymbol(relleno)
+        estilos.append(estilo)
     renderizador = QgsVectorTileBasicRenderer()
-    renderizador.setStyles([estilo])
+    renderizador.setStyles(estilos)
     return renderizador
 
 

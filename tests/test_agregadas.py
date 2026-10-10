@@ -90,13 +90,16 @@ def test_una_vista_de_hexagonos_entra_como_teselas_del_servidor(app):
             # El filtro de la vista viaja a las teselas, como en la web.
             assert "attr__especie%3DTilia" in fuente
             assert abs(capa.opacity() - 0.7) < 1e-6
-            [estilo] = capa.renderer().styles()
-            assert estilo.layerName() == "agg"
-            relleno = estilo.symbol().symbolLayer(0)
-            from geosian.core.symbology import FILL_COLOR
-
-            propiedad = relleno.dataDefinedProperties().property(FILL_COLOR)
-            assert "ln(1 + 50)" in propiedad.expressionString()
+            # Un estilo por tramo de la rampa: la leyenda sale como el degradado de la
+            # web, con «Baja densidad» y «Alta densidad» en los extremos.
+            estilos = capa.renderer().styles()
+            assert len(estilos) == 6
+            assert {e.layerName() for e in estilos} == {"agg"}
+            assert [e.styleName() for e in estilos] == [
+                "Baja densidad", "", "", "", "", "Alta densidad",
+            ]
+            assert all("ln(1 + 50)" in e.filterExpression() for e in estilos)
+            assert estilos[0].filterExpression().endswith("= 0")
             assert capa in QgsProject.instance().mapLayers().values()
         finally:
             QgsProject.instance().clear()
@@ -113,3 +116,50 @@ def test_h3_va_por_los_hexagonos_del_servidor_como_la_web_en_capas_grandes():
     assert vista["ramp"] == "plasma"  # la de la web cuando la vista no dice otra
     assert vista["opacity"] == 0.85
     assert "h3hexagon" in aggregated.HEXAGONOS
+
+
+def test_la_leyenda_de_las_agregadas_es_el_degradado_de_la_web(app, tmp_path):
+    """Las capas de teselas no traen leyenda en QGIS: el degradado de la rampa con
+    «Baja densidad» y «Alta densidad», y vuelve al reabrir el proyecto."""
+    from qgis.core import (
+        QgsColorRampLegendNode,
+        QgsLayerTreeModel,
+        QgsProject,
+        QgsVectorTileLayer,
+    )
+
+    from geosian.gui import leyendas
+
+    proyecto = QgsProject.instance()
+    try:
+        capa = QgsVectorTileLayer("type=xyz&url=https://ejemplo.org/{z}/{x}/{y}.mvt&zmax=14", "Hex")
+        rampa = [(68, 1, 84, 200), (59, 82, 139, 200), (33, 145, 140, 200),
+                 (94, 201, 98, 200), (180, 220, 60, 200), (253, 231, 37, 200)]
+        leyendas.poner_leyenda_de_densidad(capa, rampa)
+        proyecto.addMapLayer(capa)
+
+        modelos = []  # el modelo dueño de los nodos tiene que seguir vivo
+
+        def nodos():
+            raiz = proyecto.layerTreeRoot()
+            modelos.append(QgsLayerTreeModel(raiz))
+            return modelos[-1].layerLegendNodes(raiz.findLayer(capa.id()))
+
+        [nodo] = nodos()
+        assert isinstance(nodo, QgsColorRampLegendNode)
+        assert nodo.ramp().color1().getRgb()[:3] == (68, 1, 84)
+        assert nodo.ramp().color2().getRgb()[:3] == (253, 231, 37)
+        assert nodo.settings().minimumLabel() == "Baja densidad"
+        assert nodo.settings().maximumLabel() == "Alta densidad"
+
+        ruta = str(tmp_path / "p.qgz")
+        assert proyecto.write(ruta)
+        proyecto.clear()
+        leyendas.vigilar_proyecto()
+        assert proyecto.read(ruta)
+        [capa] = proyecto.mapLayers().values()
+        [nodo] = nodos()
+        assert isinstance(nodo, QgsColorRampLegendNode)
+    finally:
+        leyendas.dejar_de_vigilar()
+        proyecto.clear()

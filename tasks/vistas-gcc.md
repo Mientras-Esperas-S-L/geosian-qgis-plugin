@@ -61,7 +61,7 @@ puntos con aviso.
       navegador; QGIS no trae H3 (habría que llevar la biblioteca `h3` o implementar la
       rejilla). Hoy van los hexágonos del servidor, como la web en capas grandes.
 
-- [ ] Leyenda de las agregadas: degradado de la rampa con «Baja densidad» y «Alta
+- [x] Leyenda de las agregadas: degradado de la rampa con «Baja densidad» y «Alta
       densidad», como la web (hoy la capa de teselas enseña una sola entrada, «Celdas»).
 - [ ] Tiempo real en las agregadas: un `layer_data_changed` de su capa tiene que repintar
       las teselas (hoy la capa de teselas no se entera).
@@ -117,6 +117,15 @@ _(cada vuelta añade una línea: fecha, casilla, prueba, commit y qué se compro
   (no falla sin arreglo: el arreglo es el de los hexágonos). Comprobado con una vista de
   prueba creada en la base local («Prueba QGIS · H3», id 119, en el arbolado de Cáceres):
   capa de teselas con opacidad 0,85 y rampa plasma (`scratchpad/vistas/h3-qgis.png`).
+- 10/10 · Leyenda de las agregadas. QGIS no da leyenda a las capas de teselas vectoriales:
+  `gui/leyendas.py` pone una propia, un degradado (`QgsColorRampLegendNode`) con la rampa de la
+  vista y «Baja densidad» / «Alta densidad», como la web; la rampa va en una propiedad de la
+  capa y la leyenda vuelve al abrir el proyecto. Las celdas se pintan ahora con un estilo por
+  tramo (seis, con el filtro del tramo) en vez de un color calculado. Trampa: el nodo de
+  leyenda creado en Python hay que cedérselo a QGIS (`sip.transferto`) o se cae. Prueba
+  `test_la_leyenda_de_las_agregadas_es_el_degradado_de_la_web` (fallaba; también reabre el
+  proyecto). Comprobado en la QGIS de pruebas: un nodo de leyenda bajo la capa, con el
+  degradado (`scratchpad/vistas/hexagonos-qgis.png`). Suite 223 en QGIS 4 y 220 (+3) en 3.34.
 
 ## Hallazgos para decidir
 

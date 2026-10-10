@@ -4,7 +4,7 @@ from qgis.core import QgsMapLayerType
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QAction
 
-from .gui import realtime_hub, sesion
+from .gui import leyendas, realtime_hub, sesion
 from .gui.browser_dock import GeosianBrowserDock, menu_de_etiquetas
 from .gui.connection_dialog import ConnectionDialog
 from .gui.filtro_partes import menu_de_filtros
@@ -39,6 +39,8 @@ class GeosianPlugin:
         realtime_hub.watch_project(
             self.iface, lambda nombre: self.dock._pedir_reconexion(nombre)
         )
+        # Las capas agregadas recuperan su leyenda al abrir un proyecto.
+        leyendas.vigilar_proyecto()
         # Un proyecto reabierto con la sesión caducada: ofrecer volver a entrar.
         self.iface.projectRead.connect(self._tras_abrir_proyecto)
         # Y si caduca a mitad de trabajo, lo mismo.
@@ -91,6 +93,7 @@ class GeosianPlugin:
 
     def unload(self):
         realtime_hub.unwatch_project()
+        leyendas.dejar_de_vigilar()
         sesion.unwatch_expired()
         try:
             self.iface.projectRead.disconnect(self._tras_abrir_proyecto)

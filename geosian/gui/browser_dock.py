@@ -50,7 +50,7 @@ from ..core import (
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri
-from . import formulario, realtime_hub, sesion
+from . import formulario, leyendas, realtime_hub, sesion
 from .connection_dialog import ConnectionDialog
 
 ROL_TIPO = Qt.ItemDataRole.UserRole
@@ -594,6 +594,7 @@ class GeosianBrowserDock(QDockWidget):
             return None
         capa.setRenderer(symbology.hexagon_renderer(estilo))
         capa.setOpacity(estilo["opacity"])
+        leyendas.poner_leyenda_de_densidad(capa, styles.ramp_colors(estilo["ramp"], 6))
         return capa
 
     def _aplicar_etiquetas(self, capa):
