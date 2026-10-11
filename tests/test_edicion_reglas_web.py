@@ -45,3 +45,14 @@ def test_si_el_servidor_rechaza_un_valor_de_lista_queda_pendiente(capa, servidor
 
     assert any("especie" in e and "lista" in e for e in capa.commitErrors())
     assert elemento(servidor, 1001)["especie"] == "Platanus x hispanica"
+
+
+def test_un_alta_sin_un_obligatorio_no_entra(capa, servidor):  # noqa: F811
+    from tests.test_edicion_altas import nuevo
+
+    nuevo(capa, -3.69, 40.41, especie="Tilia platyphyllos")
+
+    assert not capa.commitChanges()
+
+    assert any("codigo" in e and "obligatorio" in e for e in capa.commitErrors())
+    assert capa.isEditable()

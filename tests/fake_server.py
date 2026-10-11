@@ -775,6 +775,12 @@ def _reglas_de_la_web(antes, nuevos, alta):
         fuera = [v for v in como_lista(valor) if str(v) not in permitidos and str(v) not in ya]
         if permitidos and fuera:
             return {"campo": nombre, "error": f"«{nombre}»: «{fuera[0]}» no está en su lista de valores en Geosian"}
+
+    # Obligatorios, simplificado al esquema de aquí: en un alta, los de primer nivel.
+    if alta:
+        for attr in ESQUEMA_ARBOLADO.get("attributes") or []:
+            if attr.get("required") is True and attr.get("editable") is not False and nuevos.get(attr["name"]) in (None, ""):
+                return {"campo": attr["name"], "error": f"«{attr['name']}» es obligatorio en Geosian"}
     return None
 
 
