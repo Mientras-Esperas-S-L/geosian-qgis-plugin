@@ -112,3 +112,17 @@ def test_un_filtro_de_parte_mal_escrito_no_vale():
     for malo in ("sin_igual", "solo_info%3Dx", "%3Dvalor"):
         with pytest.raises(ValueError):
             parse_uri(f"geosian://Conn/map/3/layer/12?parte={malo}")
+
+
+@pytest.mark.parametrize("alias, tabla", [("lines", "multi_lines"), ("polygons", "multi_polygons")])
+def test_el_alias_de_lineas_y_poligonos_abre_su_tabla_multi(alias, tabla):
+    # La API sirve el alias desde la tabla multi, con geometrías multi: un proyecto
+    # antiguo o una URI escrita a mano declaraba la capa de un tipo simple.
+    uri = parse_uri(f"geosian://Prod/map/4/layer/11?geometry_type={alias}")
+
+    assert uri.geometry_type == tabla
+    assert str(uri).endswith(f"geometry_type={tabla}")
+
+
+def test_los_puntos_no_son_alias_de_los_multipuntos():
+    assert parse_uri("geosian://Prod/map/4/layer/11?geometry_type=points").geometry_type == "points"
