@@ -265,13 +265,22 @@ def test_campo_no_editable_del_esquema(capa):
 # Estado y errores
 # ----------------------------------------------------------------------
 
-def test_fase_1_es_solo_lectura(capa):
+def test_las_tablas_de_partes_son_de_solo_lectura(servidor):
+    """Aunque el usuario pueda editar la capa: los partes llegan en la fase 4.
+
+    Lo que se puede editar en una capa normal lo fija ``test_edicion_atributos.py``.
+    """
     from qgis.core import QgsVectorDataProvider
 
-    capacidades = capa.dataProvider().capabilities()
+    uri = f"geosian://{CONEXION}/map/4/layer/11/info/parte_poda?geometry_type=points"
+    partes = QgsVectorLayer(uri, "Partes", "geosian")
+    assert partes.isValid(), partes.dataProvider().error()
+
+    capacidades = partes.dataProvider().capabilities()
     assert not capacidades & QgsVectorDataProvider.AddFeatures
     assert not capacidades & QgsVectorDataProvider.ChangeAttributeValues
     assert not capacidades & QgsVectorDataProvider.DeleteFeatures
+    assert not partes.startEditing()
 
 
 def test_recargar_vacia_la_cache(capa, servidor):

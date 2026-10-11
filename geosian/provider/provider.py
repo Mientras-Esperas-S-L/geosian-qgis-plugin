@@ -4,9 +4,9 @@ Es la pieza que hace que una capa de QGIS sea una capa de Geosian. QGIS le
 pregunta por campos, extensión y elementos igual que a cualquier otro
 proveedor, y aquí se traduce a llamadas de la API.
 
-Fase 1: solo lectura. Las capacidades de edición se declaran en la fase 2, y
-hasta entonces la capa se abre en modo consulta, que es más honesto que
-aceptar cambios que no se van a poder guardar.
+Escribir (fase 2) está en ``edicion.py``: la capa solo es editable en lo que el
+servidor dice que el usuario puede hacer, y una confirmación entra entera o no
+entra.
 """
 
 import math
@@ -47,6 +47,7 @@ from ..core.errors import (
     NetworkError,
     NotFoundError,
 )
+from .edicion import Edicion
 from .feature_source import GeosianFeatureSource
 from .subset import parse as parse_subset
 from .subset import server_params
@@ -105,16 +106,18 @@ GEOMETRY_TYPES = {
 class CachedFeature:
     """Un elemento tal y como lo guarda el proveedor."""
 
-    __slots__ = ("attributes", "geometry", "object_id")
+    __slots__ = ("attributes", "geometry", "object_id", "version")
 
-    def __init__(self, geometry, attributes, object_id=None):
+    def __init__(self, geometry, attributes, object_id=None, version=None):
         self.geometry = geometry
         self.attributes = attributes
         self.object_id = object_id
+        # updated_at exacto (updated_at_iso): la versión para el bloqueo optimista.
+        self.version = version
 
 
-class GeosianProvider(QgsVectorDataProvider):
-    """Proveedor de solo lectura contra la API de Geosian."""
+class GeosianProvider(Edicion, QgsVectorDataProvider):
+    """Proveedor contra la API de Geosian."""
 
     # ------------------------------------------------------------------
     # Registro
@@ -181,6 +184,10 @@ class GeosianProvider(QgsVectorDataProvider):
         # cuando se abre sin sesión (``core/definitions.py``).
         self._respuestas = {}
         self._guardada = None
+        # Lo que el usuario puede escribir en la capa (maps/<id>/layers/); None si
+        # el servidor no lo dice, y entonces la capa es de solo lectura.
+        self._permisos = None
+        self._iniciar_edicion()
 
         try:
             self._uri = parse_uri(uri)
@@ -312,6 +319,14 @@ class GeosianProvider(QgsVectorDataProvider):
             # Sin metadatos se puede trabajar: el recuento y la extensión se
             # calculan al cargar los datos. No merece la pena fallar por esto.
             self.log_warning(f"Sin metadatos de la capa: {exc}")
+
+        # Lo que el usuario puede escribir. Sale del mismo listado que los metadatos;
+        # sin él (un Geosian sin actualizar), la capa se queda de solo lectura.
+        try:
+            self._permisos = self._client.layer_permissions(self._uri.layer_id, self._uri.map_id)
+        except GeosianError as exc:
+            self._permisos = None
+            self.log_warning(f"Sin permisos de escritura de la capa: {exc}")
 
         # El tipo antes que el esquema: sin geometry_type en la URI, lo fija
         # _resolve_wkb_type, y el esquema que toca es el de ese tipo.
@@ -641,11 +656,14 @@ class GeosianProvider(QgsVectorDataProvider):
         if geojson:
             geometria = compat.geometry_from_geojson(geojson)
 
+        version = propiedades.get("updated_at_iso")
         self._cache[fid] = CachedFeature(
             geometria,
             self._attributes_from(propiedades, fid),
             propiedades.get("object_id"),
+            version,
         )
+        self._anotar_version(fid, version)
         if geojson:
             self._sin_forma.discard(fid)
         return True
@@ -811,9 +829,11 @@ class GeosianProvider(QgsVectorDataProvider):
         return str(self._uri)
 
     def capabilities(self):
-        # Fase 1: solo lectura. La edición llega en la fase 2, junto con el
-        # bloqueo optimista que evita pisar el trabajo de otros.
-        return QgsVectorDataProvider.SelectAtId
+        # Escribir, solo lo que el servidor dice que el usuario puede (edicion.py).
+        capacidades = QgsVectorDataProvider.SelectAtId
+        for capacidad in self._capacidades_de_escritura():
+            capacidades |= capacidad
+        return capacidades
 
     def error(self):
         return self._error

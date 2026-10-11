@@ -189,7 +189,10 @@ class GeosianClient:
             return guardado[1]
         respuesta = self._get(
             f"{API_PREFIX}/maps/{map_id}/layers/",
-            {"include_tile_metadata": "true", "include_tile_config": "true"},
+            # include_permissions: lo que el usuario puede escribir en cada capa. Un
+            # servidor que no lo conoce no lo manda, y la capa abre en solo lectura.
+            {"include_tile_metadata": "true", "include_tile_config": "true",
+             "include_permissions": "true"},
             timeout=DEFINITION_TIMEOUT,
         )
         capas = _as_list(respuesta)
@@ -230,6 +233,35 @@ class GeosianClient:
         # capa en /layer-attributes/ (devuelve una lista vacía), así que este es
         # el sitio donde se sabe que ya no existe.
         raise NotFoundError(404, f"La capa {layer_id} no está en el mapa {map_id}", b"", "")
+
+    def layer_permissions(self, layer_id, map_id):
+        """Lo que el usuario puede escribir en la capa, o ``None`` si el servidor no lo dice.
+
+        ``{"can_create", "can_update", "can_retire", "update_restringido"}``. Sale
+        del listado de capas del mapa, como los metadatos.
+        """
+        for capa in self.layers(map_id):
+            if isinstance(capa, dict) and capa.get("id") == layer_id:
+                permisos = capa.get("permissions")
+                return permisos if isinstance(permisos, dict) else None
+        return None
+
+    def confirmar(self, layer_id, geometry_type, crear=(), cambiar=(), retirar=()):
+        """Manda lo confirmado de una capa en un lote: entra todo o nada.
+
+        ``POST /geodata/confirmar/``. Un 409 (:class:`ConflictError`) trae en su
+        cuerpo ``conflictos``: los elementos que alguien tocó después de leerlos.
+        """
+        return self._post(
+            f"{API_PREFIX}/geodata/confirmar/",
+            {
+                "layer_id": layer_id,
+                "geometry_type": geometry_type,
+                "crear": list(crear),
+                "cambiar": list(cambiar),
+                "retirar": list(retirar),
+            },
+        )
 
     def layer_attributes(self, layer_id):
         """Definiciones de atributos (LAD) de una capa, con su esquema.
@@ -374,6 +406,9 @@ class GeosianClient:
             "data_type": data_type,
             "page": page,
             "page_size": page_size,
+            # La versión exacta de cada elemento (updated_at_iso), para el bloqueo
+            # optimista al editar. Un servidor que no lo conoce no la manda.
+            "include_version": "true",
         }
         if ids:
             params["ids"] = ",".join(str(i) for i in ids)

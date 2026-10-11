@@ -6,6 +6,7 @@ verdad. Las respuestas imitan la forma real: GeoJSON en ``geodata``,
 """
 
 import base64
+import copy
 import json
 import re
 import threading
@@ -293,9 +294,9 @@ VISTA_TILOS = {
 }
 
 
-def _pagina_de_elementos(consulta, lasso=None):
+def _pagina_de_elementos(consulta, lasso=None, servidor=None):
     """Lo que devolvería /geodata/paginated/ con esos parámetros."""
-    elementos = ELEMENTOS
+    elementos = servidor.elementos if servidor is not None else ELEMENTOS
     ids = consulta.get("ids", [""])[0]
     if ids:
         pedidos = {int(i) for i in ids.split(",") if i}
@@ -330,6 +331,13 @@ def _pagina_de_elementos(consulta, lasso=None):
     if consulta.get("no_geometry") == ["true"]:
         # Como la API desde el PR de no_geometry en /paginated/: los atributos, sin forma.
         elementos = [{**e, "geometry": None} for e in elementos]
+    if servidor is not None and consulta.get("include_version") == ["true"]:
+        # Como la API con include_version: la versión exacta, aparte de updated_at.
+        elementos = [
+            {**e, "properties": {**e["properties"],
+                                 "updated_at_iso": servidor.versiones.get(e["properties"]["id"])}}
+            for e in elementos
+        ]
     pagina = int(consulta.get("page", ["1"])[0])
     return {"type": "FeatureCollection", "features": elementos if pagina == 1 else []}
 
@@ -418,6 +426,10 @@ class Handler(BaseHTTPRequestHandler):
 
         elif ruta == "/api/v1/maps/4/layers/":
             capas = [dict(c) for c in CAPAS + self.server.capas_extra]
+            if consulta.get("include_permissions") == ["true"]:
+                # Como la API con include_permissions; sin entrada, ningún permiso.
+                for capa in capas:
+                    capa["permissions"] = dict(self.server.permisos.get(capa["id"], SIN_PERMISOS))
             if not consulta.get("include_tile_metadata"):
                 for capa in capas:
                     capa.pop("tile_metadata", None)
@@ -501,7 +513,7 @@ class Handler(BaseHTTPRequestHandler):
             )
 
         elif ruta == "/api/v1/geodata/paginated/":
-            self._json(_pagina_de_elementos(consulta))
+            self._json(_pagina_de_elementos(consulta, servidor=self.server))
 
         elif re.fullmatch(r"/api/v1/geodata/\d+/", ruta):
             fid = int(ruta.split("/")[-2])
@@ -573,7 +585,16 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get("Authorization") != "Token tok-de-prueba":
                 self._json({"detail": "Credenciales no válidas"}, 401)
                 return
-            self._json(_pagina_de_elementos(consulta, datos.get("lasso_geometry")))
+            self._json(_pagina_de_elementos(consulta, datos.get("lasso_geometry"), servidor=self.server))
+            return
+
+        if partes.path == "/api/v1/geodata/confirmar/":
+            Handler.peticiones.append((partes.path, datos))
+            if self.headers.get("Authorization") != "Token tok-de-prueba":
+                self._json({"detail": "Credenciales no válidas"}, 401)
+                return
+            estado, cuerpo = self.server.confirmar(datos)
+            self._json(cuerpo, estado)
             return
 
         if partes.path == "/users/login/" and datos.get("email") == "doble@ejemplo.com":
@@ -607,12 +628,103 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"detail": "No existe"}, 404)
 
 
+TODOS_LOS_PERMISOS = {"can_create": True, "can_update": True, "can_retire": True, "update_restringido": False}
+SIN_PERMISOS = {"can_create": False, "can_update": False, "can_retire": False, "update_restringido": False}
+
+
+class _Servidor(HTTPServer):
+    """El servidor con su estado: los elementos, sus versiones y los permisos.
+
+    Cada prueba tiene los suyos (una copia de ``ELEMENTOS``), porque confirmar
+    los cambia.
+    """
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.elementos = copy.deepcopy(ELEMENTOS)
+        self.versiones = {
+            e["properties"]["id"]: f"2026-08-0{i + 1}T10:00:00.12345{i}+00:00"
+            for i, e in enumerate(self.elementos)
+        }
+        self.permisos = {11: dict(TODOS_LOS_PERMISOS)}
+        self.lotes = []
+        # (estado, cuerpo) que dará la próxima confirmación, sin aplicar nada.
+        self.forzar = None
+        self._siguiente_id = 2001
+        self._reloj = 0
+
+    def _version_nueva(self):
+        self._reloj += 1
+        return f"2026-10-11T12:00:{self._reloj:02d}.{self._reloj:06d}+00:00"
+
+    def tocar(self, fid, **atributos):
+        """Otro usuario cambia el elemento: nueva versión."""
+        elemento = next(e for e in self.elementos if e["properties"]["id"] == fid)
+        elemento["properties"].update(atributos)
+        self.versiones[fid] = self._version_nueva()
+
+    def confirmar(self, lote):
+        """Como POST /geodata/confirmar/: todo o nada, con el mismo cuerpo de respuesta."""
+        self.lotes.append(copy.deepcopy(lote))
+        if self.forzar is not None:
+            estado, cuerpo = self.forzar
+            self.forzar = None
+            return estado, cuerpo
+        permisos = self.permisos.get(lote.get("layer_id"), SIN_PERMISOS)
+        if (lote.get("crear") and not permisos["can_create"]) or (
+            lote.get("cambiar") and not permisos["can_update"]
+        ) or (lote.get("retirar") and not permisos["can_retire"]):
+            return 403, {"error": "No tiene permisos para update en esta capa"}
+
+        por_id = {e["properties"]["id"]: e for e in self.elementos}
+        errores, choques = [], []
+        for nombre in ("cambiar", "retirar"):
+            for op in lote.get(nombre, []):
+                if op["id"] not in por_id:
+                    errores.append({"op": nombre, "id": op["id"], "error": "El elemento no existe en esta capa"})
+                elif op.get("expected_updated_at") != self.versiones[op["id"]]:
+                    choques.append({
+                        "op": nombre, "id": op["id"], "updated_at": self.versiones[op["id"]],
+                        "object_status": "disponible",
+                        "updated_by": {"id": 7, "username": "otra", "nombre": "Otra Técnica"},
+                    })
+        if errores:
+            return 400, {"errores": errores}
+        if choques:
+            return 409, {"conflictos": choques}
+
+        resultado = {"creados": [], "cambiados": [], "retirados": []}
+        for op in lote.get("cambiar", []):
+            propiedades = por_id[op["id"]]["properties"]
+            propiedades.update(op.get("attributes") or {})
+            if "geometry" in op:
+                por_id[op["id"]]["geometry"] = op["geometry"]
+            self.versiones[op["id"]] = self._version_nueva()
+            resultado["cambiados"].append({"id": op["id"], "updated_at": self.versiones[op["id"]]})
+        for op in lote.get("retirar", []):
+            self.elementos.remove(por_id[op["id"]])
+            self.versiones[op["id"]] = self._version_nueva()
+            resultado["retirados"].append({"id": op["id"], "updated_at": self.versiones[op["id"]]})
+        for alta in lote.get("crear", []):
+            fid = self._siguiente_id
+            self._siguiente_id += 1
+            self.elementos.append({
+                "type": "Feature", "geometry": alta["geometry"],
+                "properties": {"id": fid, "object_id": f"OBJ-{fid}", **(alta.get("attributes") or {})},
+            })
+            self.versiones[fid] = self._version_nueva()
+            resultado["creados"].append({
+                "ref": alta["ref"], "id": fid, "object_id": f"OBJ-{fid}", "updated_at": self.versiones[fid],
+            })
+        return 200, resultado
+
+
 class FakeGeosian:
     """Servidor de usar y tirar, en un hilo aparte."""
 
     def __init__(self):
         Handler.peticiones = []
-        self._server = HTTPServer(("127.0.0.1", 0), Handler)
+        self._server = _Servidor(("127.0.0.1", 0), Handler)
         # El tile_config de /maps/<id>/layers/; None, el de un servidor que no lo da.
         self._server.tile_config = None
         # Capas que añade una prueba al mapa 4, con sus definiciones por id de capa.
@@ -643,6 +755,11 @@ class FakeGeosian:
     def poner_capa(self, capa, definiciones):
         self._server.capas_extra.append(capa)
         self._server.definiciones_extra[str(capa["id"])] = definiciones
+
+    @property
+    def estado(self):
+        """El estado del servidor: ``elementos``, ``versiones``, ``permisos``, ``lotes``…"""
+        return self._server
 
     def rutas_pedidas(self):
         return [ruta for ruta, _ in Handler.peticiones]
