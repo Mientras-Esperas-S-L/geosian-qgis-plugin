@@ -24,6 +24,16 @@ def test_sin_estilos_usa_el_color_de_la_geometria():
     assert styles.base_style({"styles": {"geometries": {}}}, "polygons")["default"] == (238, 130, 238, 128)
 
 
+def test_multipuntos_con_bloque_de_geometrias_sin_color_salen_como_los_puntos():
+    # getGeometryStyleColors: con el bloque, multi_points usa el color de punto
+    # (COLORS.points) aunque pointStyle no traiga fill-color.
+    for geometrias in ({}, {"polyStyle": {"fill-color": "#37935C"}}, {"pointStyle": {}}):
+        esquema = {"styles": {"geometries": geometrias}}
+        assert styles.base_style(esquema, "multi_points")["default"] == styles.FALLBACK_POINT
+    esquema = {"styles": {"geometries": {"pointStyle": {"fill-color": "#ff7300"}}}}
+    assert styles.base_style(esquema, "multi_points")["default"] == (255, 115, 0, 230)
+
+
 def test_una_capa_sin_esquema_sale_gris_como_en_la_web():
     # getFeatureColor: sin esquema, gris (128, 128, 128, 230) para cualquier geometría.
     for tipo in ("points", "multi_points", "lines", "polygons", "multi_polygons"):
