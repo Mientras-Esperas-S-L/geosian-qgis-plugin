@@ -78,6 +78,9 @@ class Edicion:
         capacidades = []
         if self._permisos.get("can_create"):
             capacidades.append(QgsVectorDataProvider.AddFeatures)
+        if self._permisos.get("can_retire"):
+            # Suprimir en QGIS es retirar en Geosian: pasa a «no disponible», no se borra.
+            capacidades.append(QgsVectorDataProvider.DeleteFeatures)
         if self._permisos.get("can_update"):
             capacidades += [
                 QgsVectorDataProvider.ChangeAttributeValues,
@@ -121,6 +124,11 @@ class Edicion:
     # El lote
     # ------------------------------------------------------------------
 
+    def cancelar_lote(self, motivo):
+        """La confirmación no sigue: la primera escritura lo dice sin llamar al servidor."""
+        self._hecho = None
+        self._foto = {"lote": None, "error": motivo}
+
     def preparar_lote(self, buffer):
         """La foto de lo pendiente, en ``beforeCommitChanges``.
 
@@ -139,7 +147,8 @@ class Edicion:
         atributos = {fid: v for fid, v in buffer.changedAttributeValues().items() if fid >= 0}
         geometrias = {fid: g for fid, g in buffer.changedGeometries().items() if fid >= 0}
         fids = sorted(set(atributos) | set(geometrias))
-        self._pedir_versiones_que_faltan(fids)
+        bajas = sorted(fid for fid in buffer.deletedFeatureIds() if fid >= 0)
+        self._pedir_versiones_que_faltan(fids + bajas)
         cambiar = []
         for fid in fids:
             version = self.version_base(fid)
@@ -157,8 +166,14 @@ class Edicion:
                 cambio["geometry"] = self._geojson(geometrias[fid], fid)
             if len(cambio) > 2:
                 cambiar.append(cambio)
+        retirar = []
+        for fid in bajas:
+            version = self.version_base(fid)
+            if not version:
+                raise _NoSePuede(f"No se sabe qué versión del elemento {fid} se quiere retirar.")
+            retirar.append({"id": fid, "expected_updated_at": version})
         crear = [self._alta_de(fid, f) for fid, f in sorted(buffer.addedFeatures().items())]
-        return {"crear": crear, "cambiar": cambiar, "retirar": []}
+        return {"crear": crear, "cambiar": cambiar, "retirar": retirar}
 
     def _alta_de(self, fid, feature):
         """Un elemento nuevo de QGIS como alta del lote. ``ref`` es su id provisional."""
@@ -268,9 +283,12 @@ class Edicion:
         return True
 
     def _aplicar_respuesta(self, lote, respuesta):
-        """Lo confirmado, a la caché: valores nuevos y versiones nuevas."""
+        """Lo confirmado, a la caché: valores nuevos, versiones nuevas y lo retirado fuera."""
         versiones = {c["id"]: c.get("updated_at") for c in respuesta.get("cambiados", [])}
         with self._lock:
+            for baja in lote["retirar"]:
+                if self._cache.pop(baja["id"], None) is not None:
+                    self._feature_count = max(self._feature_count - 1, 0)
             for cambio in lote["cambiar"]:
                 registro = self._cache.get(cambio["id"])
                 if registro is None:
@@ -334,6 +352,9 @@ class Edicion:
 
     def changeFeatures(self, attr_map, geometry_map):
         return self._escritura_de_qgis("changeFeatures")
+
+    def deleteFeatures(self, ids):
+        return self._escritura_de_qgis("deleteFeatures")
 
     def addFeatures(self, flist, flags=None):
         try:

@@ -11,6 +11,38 @@ from qgis.core import QgsProject
 _vigilando = {"activo": False}
 
 
+def preguntar_retirada(capa, cuantos):
+    """¿Seguir con una confirmación que retira ``cuantos`` elementos?
+
+    Suprimir en QGIS no borra en Geosian: retira. Se dice con esas palabras antes
+    de hacerlo. Las pruebas la sustituyen, porque el diálogo esperaría a alguien.
+    """
+    from qgis.PyQt.QtWidgets import QMessageBox
+
+    elementos = "un elemento" if cuantos == 1 else f"{cuantos} elementos"
+    respuesta = QMessageBox.question(
+        None,
+        "Retirar en Geosian",
+        f"Vas a retirar {elementos} de «{capa.name()}».\n\n"
+        "En Geosian no se borran: pasan a «no disponible», quedan en su historial y se "
+        "pueden recuperar desde la web.\n\n¿Seguir?",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.No,
+    )
+    return respuesta == QMessageBox.StandardButton.Yes
+
+
+def _antes_de_confirmar(capa, proveedor):
+    buffer = capa.editBuffer()
+    bajas = [fid for fid in buffer.deletedFeatureIds() if fid >= 0]
+    if bajas and not preguntar_retirada(capa, len(bajas)):
+        proveedor.cancelar_lote(
+            "No se ha guardado nada: has cancelado la retirada. Los cambios siguen pendientes."
+        )
+        return
+    proveedor.preparar_lote(buffer)
+
+
 def enganchar(capa):
     """Conecta las señales de edición de ``capa`` con su proveedor. Es idempotente."""
     if capa is None or capa.providerType() != "geosian" or not capa.isValid():
@@ -22,7 +54,7 @@ def enganchar(capa):
         return False
 
     capa.editingStarted.connect(proveedor.empezar_edicion)
-    capa.beforeCommitChanges.connect(lambda *_: proveedor.preparar_lote(capa.editBuffer()))
+    capa.beforeCommitChanges.connect(lambda *_: _antes_de_confirmar(capa, proveedor))
     capa.afterCommitChanges.connect(proveedor.olvidar_lote)
     capa.afterRollBack.connect(proveedor.olvidar_lote)
     capa.editingStopped.connect(proveedor.terminar_edicion)
