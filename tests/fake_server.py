@@ -694,6 +694,13 @@ class _Servidor(HTTPServer):
             return 400, {"errores": errores}
         if choques:
             return 409, {"conflictos": choques}
+        for op in lote.get("cambiar", []):
+            if "attributes" in op:
+                error = _reglas_de_la_web(por_id[op["id"]]["properties"], dict(op["attributes"]), False)
+                if error:
+                    return 400, {"errores": [{"op": "cambiar", "id": op["id"], **error}]}
+        for alta in lote.get("crear", []):
+            _reglas_de_la_web({}, alta.setdefault("attributes", {}), True)
 
         resultado = {"creados": [], "cambiados": [], "retirados": []}
         for op in lote.get("cambiar", []):
@@ -724,6 +731,32 @@ class _Servidor(HTTPServer):
                 "calculados": calculados,
             })
         return 200, resultado
+
+
+def _campos_del_esquema(atributos):
+    for attr in atributos or []:
+        if attr.get("type") in ("section", "section_decision", "page_section"):
+            yield from _campos_del_esquema(attr.get("contents"))
+        elif attr.get("name"):
+            yield attr
+
+
+def _reglas_de_la_web(antes, nuevos, alta):
+    """Como ``reglas_de_la_web`` del backend: lo que la web no deja, en el lote.
+
+    Devuelve el error (o None); las altas se corrigen en ``nuevos``.
+    """
+    nodos = {}
+    for attr in _campos_del_esquema(ESQUEMA_ARBOLADO.get("attributes")):
+        nodos.setdefault(attr["name"], []).append(attr)
+    for nombre, lista in nodos.items():
+        if not all(a.get("editable") is False or a.get("visible") is False for a in lista):
+            continue
+        if alta:
+            nuevos.pop(nombre, None)
+        elif nombre in nuevos and nuevos[nombre] != antes.get(nombre):
+            return {"campo": nombre, "error": f"«{nombre}» es de solo lectura en Geosian: no se cambia"}
+    return None
 
 
 class FakeGeosian:
