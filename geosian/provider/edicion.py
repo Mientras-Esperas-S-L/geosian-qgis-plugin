@@ -201,7 +201,9 @@ class Edicion:
                     f"«{campo.displayName()}» es de solo lectura en Geosian: un elemento nuevo "
                     "no puede traerlo relleno."
                 )
-            atributos[attr["name"]] = valor_para_api(valor, campo.type())
+            nuevo = valor_para_api(valor, campo.type())
+            _comprobar_lista(attr, campo, nuevo, None)
+            atributos[attr["name"]] = nuevo
         return {"ref": str(fid), "geometry": self._geojson(feature.geometry(), "nuevo"), "attributes": atributos}
 
     def _geojson(self, geometria, fid):
@@ -262,7 +264,10 @@ class Edicion:
                 )
             if not S.is_editable(attr):
                 raise _NoSePuede(f"«{campo.displayName()}» es de solo lectura en Geosian.")
-            salida[attr["name"]] = valor_para_api(valor, campo.type())
+            nuevo = valor_para_api(valor, campo.type())
+            viejo = _sin_nulo(registro.attributes[indice]) if registro is not None and indice < len(registro.attributes) else None
+            _comprobar_lista(attr, campo, nuevo, viejo)
+            salida[attr["name"]] = nuevo
         return salida
 
     def _enviar(self, quien):
@@ -429,6 +434,28 @@ class Edicion:
         except Exception as exc:  # una excepción en un método virtual tumba QGIS
             self.pushError(f"Geosian: {exc}")
             return False
+
+
+def _comprobar_lista(attr, campo, nuevo, viejo):
+    """Una lista cerrada solo admite sus valores, como el formulario de la web.
+
+    Lo que ya estaba guardado fuera de la lista se conserva (la web también), pero no
+    se puede poner de nuevo. Sin lista conocida (las que dependen de otro campo), no
+    se comprueba nada: se deja en lo más permisivo, como el resto del esquema.
+    """
+    if attr.get("type") not in S.CHOICE_TYPES or S.is_boolean(attr) or nuevo is None:
+        return
+    permitidos = {str(v) for v in S.allowed_values(attr)}
+    if not permitidos:
+        return
+    ya = {str(v) for v in (viejo if isinstance(viejo, list) else [viejo]) if v is not None}
+    valores = nuevo if isinstance(nuevo, list) else [nuevo]
+    fuera = [str(v) for v in valores if str(v) not in permitidos and str(v) not in ya]
+    if fuera:
+        raise _NoSePuede(
+            f"«{campo.displayName()}»: {', '.join(f'«{v}»' for v in fuera)} no está en su lista de "
+            "valores en Geosian."
+        )
 
 
 def _misma_geometria(una, otra):
