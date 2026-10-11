@@ -32,6 +32,157 @@ def preguntar_retirada(capa, cuantos):
     return respuesta == QMessageBox.StandardButton.Yes
 
 
+MIO = "mio"
+GEOSIAN = "geosian"
+
+
+def preguntar_conflictos(capa, conflictos):
+    """Qué hacer con cada elemento que otro tocó: ``{id: MIO | GEOSIAN}`` o ``None``.
+
+    Las pruebas la sustituyen, porque el diálogo esperaría a alguien.
+    """
+    dialogo = dialogo_de_conflictos(capa, conflictos)
+    if not dialogo.exec():
+        return None
+    return dialogo.decisiones()
+
+
+def resolver_conflictos(capa, proveedor, conflictos, decisiones):
+    """Aplica lo elegido. Lo pendiente sigue pendiente: hay que volver a guardar.
+
+    - Lo mío: la próxima confirmación se da por enterada de la versión de Geosian
+      y la pisa. No se puede con un elemento que otro ha retirado.
+    - Lo de Geosian: lo que hay ahora en Geosian vuelve a la capa y mis cambios de
+      ese elemento se quedan sin efecto (no se mandan). Una retirada mía de ese
+      elemento no se puede deshacer desde aquí: se deshace con «Deshacer».
+
+    Devuelve lo que no se pudo aplicar, para decirlo.
+    """
+    buffer = capa.editBuffer()
+    por_id = {c["id"]: c for c in conflictos}
+    avisos = []
+    a_geosian = []
+    for fid, decision in decisiones.items():
+        choque = por_id.get(fid)
+        if choque is None:
+            continue
+        retirado = choque.get("object_status") not in (None, "disponible")
+        if decision == MIO:
+            if retirado:
+                avisos.append(f"{fid}: lo han retirado; no se puede guardar encima")
+                continue
+            proveedor.sobrescribir(fid, choque.get("updated_at"))
+        elif decision == GEOSIAN:
+            a_geosian.append(fid)
+
+    if a_geosian:
+        traidos = proveedor.traer_de_geosian(a_geosian)
+        cambios = buffer.changedAttributeValues()
+        geometrias = buffer.changedGeometries()
+        for fid in a_geosian:
+            registro = traidos.get(fid) or proveedor.get_cached(fid)
+            if fid in buffer.deletedFeatureIds():
+                avisos.append(f"{fid}: tu retirada sigue pendiente; deshazla con «Deshacer»")
+            if registro is None:
+                continue
+            for indice in cambios.get(fid, {}):
+                capa.changeAttributeValue(fid, indice, registro.attributes[indice])
+            if fid in geometrias and registro.geometry is not None:
+                capa.changeGeometry(fid, registro.geometry)
+    return avisos
+
+
+def _al_conflicto(capa, proveedor, conflictos):
+    """Tras un 409: el diálogo, cuando QGIS haya terminado de confirmar."""
+    from qgis.PyQt.QtCore import QTimer
+
+    def mostrar():
+        from qgis.PyQt import sip
+
+        if sip.isdeleted(capa) or not capa.isEditable():
+            return
+        decisiones = preguntar_conflictos(capa, conflictos)
+        if not decisiones:
+            return
+        avisos = resolver_conflictos(capa, proveedor, conflictos, decisiones)
+        _avisar(capa, avisos)
+
+    QTimer.singleShot(0, mostrar)
+
+
+def _avisar(capa, avisos):
+    try:
+        from qgis.utils import iface
+    except ImportError:
+        iface = None
+    if iface is None:
+        return
+    texto = f"Conflictos resueltos: vuelve a guardar «{capa.name()}»."
+    if avisos:
+        texto += " " + "; ".join(avisos) + "."
+    iface.messageBar().pushInfo("Geosian", texto)
+
+
+def dialogo_de_conflictos(capa, conflictos):
+    """Una fila por elemento que otro tocó: quién, cuándo y qué hacer con él.
+
+    El ``QDialog`` lleva ``decisiones()`` (``{id: MIO | GEOSIAN}``) y ``combos``.
+    """
+    from qgis.PyQt.QtWidgets import (
+        QComboBox,
+        QDialog,
+        QDialogButtonBox,
+        QLabel,
+        QTableWidget,
+        QTableWidgetItem,
+        QVBoxLayout,
+    )
+
+    dialogo = QDialog()
+    dialogo.setWindowTitle("Otros han cambiado elementos que estás editando")
+    caja = QVBoxLayout(dialogo)
+    caja.addWidget(QLabel(
+        f"En «{capa.name()}» no se ha guardado nada. Alguien cambió estos elementos "
+        "después de que los leyeras. Elige qué hacer con cada uno y vuelve a guardar."
+    ))
+    tabla = QTableWidget(len(conflictos), 4)
+    tabla.setHorizontalHeaderLabels(["Elemento", "Quién", "Cuándo", "Qué hacer"])
+    combos = {}
+    for fila, choque in enumerate(conflictos):
+        quien = choque.get("updated_by") or {}
+        retirado = choque.get("object_status") not in (None, "disponible")
+        tabla.setItem(fila, 0, QTableWidgetItem(str(choque["id"]) + (" (retirado)" if retirado else "")))
+        tabla.setItem(fila, 1, QTableWidgetItem(quien.get("nombre") or quien.get("username") or "—"))
+        tabla.setItem(fila, 2, QTableWidgetItem(_cuando(choque.get("updated_at"))))
+        combo = QComboBox()
+        combo.addItem("Quedarme con lo de Geosian (descartar lo mío)", GEOSIAN)
+        if not retirado:
+            combo.addItem("Sobrescribir con lo mío", MIO)
+        tabla.setCellWidget(fila, 3, combo)
+        combos[choque["id"]] = combo
+    tabla.resizeColumnsToContents()
+    caja.addWidget(tabla)
+    botones = QDialogButtonBox(
+        QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+    )
+    botones.accepted.connect(dialogo.accept)
+    botones.rejected.connect(dialogo.reject)
+    caja.addWidget(botones)
+    dialogo.decisiones = lambda: {fid: combo.currentData() for fid, combo in combos.items()}
+    dialogo.combos = combos
+    return dialogo
+
+
+def _cuando(iso):
+    """La hora de un ``updated_at`` (ISO con zona) en la hora del equipo."""
+    from qgis.PyQt.QtCore import QDateTime, Qt
+
+    fecha = QDateTime.fromString(str(iso or ""), Qt.DateFormat.ISODateWithMs)
+    if not fecha.isValid():
+        return str(iso or "")
+    return fecha.toLocalTime().toString("dd/MM/yyyy HH:mm")
+
+
 def _antes_de_confirmar(capa, proveedor):
     buffer = capa.editBuffer()
     bajas = [fid for fid in buffer.deletedFeatureIds() if fid >= 0]
@@ -58,6 +209,7 @@ def enganchar(capa):
     capa.afterCommitChanges.connect(proveedor.olvidar_lote)
     capa.afterRollBack.connect(proveedor.olvidar_lote)
     capa.editingStopped.connect(proveedor.terminar_edicion)
+    proveedor.al_conflicto = lambda conflictos: _al_conflicto(capa, proveedor, conflictos)
     capa.setProperty("geosian_edicion", True)
     return True
 

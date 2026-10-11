@@ -62,6 +62,9 @@ class Edicion:
         # La foto de lo pendiente y lo que respondió el servidor a ese lote.
         self._foto = None
         self._hecho = None
+        # Los choques del último 409 y a quién avisar (gui/edicion.py abre el diálogo).
+        self.conflictos = []
+        self.al_conflicto = None
 
     # ------------------------------------------------------------------
     # Lo que se puede hacer
@@ -158,11 +161,15 @@ class Edicion:
                     "da (¿Geosian sin actualizar?). Recarga la capa y vuelve a editar."
                 )
             cambio = {"id": fid, "expected_updated_at": version}
+            registro = self._cache.get(fid)
             if fid in atributos:
-                valores = self._atributos_para_api(atributos[fid])
+                valores = self._atributos_para_api(atributos[fid], registro)
                 if valores:
                     cambio["attributes"] = valores
-            if fid in geometrias:
+            if fid in geometrias and not (
+                registro is not None and registro.geometry is not None
+                and _misma_geometria(registro.geometry, geometrias[fid])
+            ):
                 cambio["geometry"] = self._geojson(geometrias[fid], fid)
             if len(cambio) > 2:
                 cambiar.append(cambio)
@@ -232,10 +239,21 @@ class Edicion:
             for elemento in _features_from(datos):
                 self._store(elemento)
 
-    def _atributos_para_api(self, valores):
-        """``{índice: valor}`` de QGIS como ``{nombre: valor}`` de la API."""
+    def _atributos_para_api(self, valores, registro=None):
+        """``{índice: valor}`` de QGIS como ``{nombre: valor}`` de la API.
+
+        Con ``registro`` (lo que hay en la caché), lo que no cambia no se manda: QGIS
+        apunta un cambio aunque se vuelva a poner el mismo valor, y quedarse con lo
+        de Geosian ante un conflicto es justo eso.
+        """
         salida = {}
         for indice, valor in valores.items():
+            if (
+                registro is not None
+                and indice < len(registro.attributes)
+                and valor_para_api(valor, self._fields.at(indice).type()) == _sin_nulo(registro.attributes[indice])
+            ):
+                continue
             campo = self._fields.at(indice)
             attr = self._attr_map.get(campo.name())
             if attr is None or campo.name() in DE_GEOSIAN:
@@ -262,6 +280,10 @@ class Edicion:
             self._foto = None
             return False
         lote = self._foto["lote"]
+        if not (lote["crear"] or lote["cambiar"] or lote["retirar"]):
+            # Todo lo pendiente era volver a poner lo que ya había.
+            self._hecho = {}
+            return True
         try:
             respuesta = self._client.confirmar(
                 self._uri.layer_id, self._uri.geometry_type, **lote
@@ -269,6 +291,9 @@ class Edicion:
         except ConflictError as exc:
             self.pushError(texto_de_conflicto(exc))
             self._foto = None
+            self.conflictos = conflictos_de(exc)
+            if self.al_conflicto is not None:
+                self.al_conflicto(list(self.conflictos))
             return False
         except (ForbiddenError, HttpError, NetworkError, GeosianError) as exc:
             self.pushError(f"Geosian no ha guardado nada: {texto_de_error(exc)}")
@@ -308,6 +333,39 @@ class Edicion:
                     registro.version = version
                     if self._base is not None:
                         self._base[cambio["id"]] = version
+
+    # ------------------------------------------------------------------
+    # Resolver un conflicto, elemento a elemento (decisión 3)
+    # ------------------------------------------------------------------
+
+    def sobrescribir(self, fid, version):
+        """Quedarse con lo mío: la próxima confirmación se da por enterada de ``version``."""
+        if self._base is not None:
+            self._base[fid] = version
+        registro = self._cache.get(fid)
+        if registro is not None:
+            registro.version = version
+
+    def traer_de_geosian(self, fids):
+        """Lo que hay ahora en Geosian de ``fids``, a la caché y como versión base.
+
+        Devuelve los registros; los que ya no están (retirados) no vuelven.
+        """
+        from .provider import _features_from
+
+        datos = self._client.geodata_paginated(
+            self._uri.layer_id, page_size=max(len(fids), 1), data_type=self._uri.geometry_type, ids=list(fids)
+        )
+        traidos = {}
+        with self._lock:
+            for elemento in _features_from(datos):
+                if self._store(elemento):
+                    fid = int((elemento.get("properties") or {}).get("id"))
+                    registro = self._cache[fid]
+                    if self._base is not None:
+                        self._base[fid] = registro.version
+                    traidos[fid] = registro
+        return traidos
 
     def _guardar_altas(self, flist):
         """Las altas confirmadas, con su id real, a la caché. Devuelve la lista para QGIS."""
@@ -371,6 +429,28 @@ class Edicion:
         except Exception as exc:  # una excepción en un método virtual tumba QGIS
             self.pushError(f"Geosian: {exc}")
             return False
+
+
+def _misma_geometria(una, otra):
+    """Coordenada a coordenada. ``equals`` está en desuso desde QGIS 4.2."""
+    exacta = getattr(una, "isExactlyEqual", None)
+    return bool(exacta(otra)) if exacta is not None else una.equals(otra)
+
+
+def _sin_nulo(valor):
+    if isinstance(valor, QVariant) and valor.isNull():
+        return None
+    return valor
+
+
+def conflictos_de(exc):
+    """Los choques del cuerpo de un 409 de ``/geodata/confirmar/``."""
+    try:
+        cuerpo = json.loads(exc.body or b"{}")
+    except (TypeError, ValueError):
+        return []
+    choques = cuerpo.get("conflictos") if isinstance(cuerpo, dict) else None
+    return [c for c in choques or [] if isinstance(c, dict) and "id" in c]
 
 
 class _NoSePuede(Exception):

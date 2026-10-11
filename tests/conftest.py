@@ -50,6 +50,25 @@ def app_gui(app):
 
 
 @pytest.fixture(autouse=True)
+def sin_dialogos(monkeypatch):
+    """Ninguna prueba abre un diálogo de verdad: esperaría a alguien y colgaría la batería.
+
+    Un 409 programa el de conflictos para después de confirmar, y saltaría en la
+    prueba siguiente que procese eventos. Las que los prueban los sustituyen.
+    """
+    from geosian.gui import edicion
+
+    monkeypatch.setattr(edicion, "preguntar_conflictos", lambda capa, conflictos: None)
+    monkeypatch.setattr(edicion, "preguntar_retirada", lambda capa, cuantos: True)
+    yield
+    # Lo que quedó programado (el diálogo tras un 409) salta aquí, aún sustituido,
+    # y no en la prueba siguiente.
+    from qgis.PyQt.QtCore import QCoreApplication
+
+    QCoreApplication.processEvents()
+
+
+@pytest.fixture(autouse=True)
 def estado_aparte(tmp_path, monkeypatch):
     """Las definiciones guardadas, en una carpeta de la prueba y no en el perfil.
 
