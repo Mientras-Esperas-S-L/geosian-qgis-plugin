@@ -18,7 +18,15 @@ edición traería la versión nueva y el conflicto no saltaría.
 Lo comprobó ``tests/test_lote_qgis.py`` en QGIS 3.34 y 4.
 """
 
-from qgis.core import QgsVectorDataProvider
+import json
+
+from qgis.core import (
+    QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform,
+    QgsGeometry,
+    QgsProject,
+    QgsVectorDataProvider,
+)
 from qgis.PyQt.QtCore import QDate, QDateTime, QTime, QVariant
 
 from ..core import schema as S
@@ -34,8 +42,8 @@ from ..core.errors import (
 class Edicion:
     """Lo que el proveedor necesita para escribir. Se mezcla en ``GeosianProvider``.
 
-    Usa del proveedor: ``_cache``, ``_fields``, ``_attr_map``, ``_uri``,
-    ``_client``, ``_permisos`` y ``_lock``.
+    Usa del proveedor: ``_cache``, ``_fields``, ``_attr_map``, ``_uri``, ``_crs``,
+    ``_client``, ``_permisos``, ``_lock`` y ``_store``.
     """
 
     def _iniciar_edicion(self):
@@ -59,7 +67,12 @@ class Edicion:
             return []
         capacidades = []
         if self._permisos.get("can_update"):
-            capacidades.append(QgsVectorDataProvider.ChangeAttributeValues)
+            capacidades += [
+                QgsVectorDataProvider.ChangeAttributeValues,
+                QgsVectorDataProvider.ChangeGeometries,
+                # Atributos y geometría del mismo elemento en una llamada.
+                QgsVectorDataProvider.ChangeFeatures,
+            ]
         return capacidades
 
     # ------------------------------------------------------------------
@@ -110,20 +123,39 @@ class Edicion:
             self._foto = {"lote": None, "error": str(exc)}
 
     def _lote_de(self, buffer):
-        cambios = {fid: v for fid, v in buffer.changedAttributeValues().items() if fid >= 0}
-        self._pedir_versiones_que_faltan(list(cambios))
+        # Un alta editada antes de confirmar (id negativo) va con el alta.
+        atributos = {fid: v for fid, v in buffer.changedAttributeValues().items() if fid >= 0}
+        geometrias = {fid: g for fid, g in buffer.changedGeometries().items() if fid >= 0}
+        fids = sorted(set(atributos) | set(geometrias))
+        self._pedir_versiones_que_faltan(fids)
         cambiar = []
-        for fid, valores in sorted(cambios.items()):
+        for fid in fids:
             version = self.version_base(fid)
             if not version:
                 raise _NoSePuede(
                     f"No se sabe qué versión del elemento {fid} se editó: el servidor no la "
                     "da (¿Geosian sin actualizar?). Recarga la capa y vuelve a editar."
                 )
-            atributos = self._atributos_para_api(valores)
-            if atributos:
-                cambiar.append({"id": fid, "expected_updated_at": version, "attributes": atributos})
+            cambio = {"id": fid, "expected_updated_at": version}
+            if fid in atributos:
+                valores = self._atributos_para_api(atributos[fid])
+                if valores:
+                    cambio["attributes"] = valores
+            if fid in geometrias:
+                cambio["geometry"] = self._geojson(geometrias[fid], fid)
+            if len(cambio) > 2:
+                cambiar.append(cambio)
         return {"crear": [], "cambiar": cambiar, "retirar": []}
+
+    def _geojson(self, geometria, fid):
+        """Una geometría de la capa como GeoJSON en 4326, que es como la guarda Geosian."""
+        if geometria is None or geometria.isNull() or geometria.isEmpty():
+            raise _NoSePuede(f"El elemento {fid} se ha quedado sin geometría; Geosian no lo admite.")
+        geometria = QgsGeometry(geometria)
+        wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+        if self._crs.isValid() and self._crs != wgs84:
+            geometria.transform(QgsCoordinateTransform(self._crs, wgs84, QgsProject.instance()))
+        return json.loads(geometria.asJson())
 
     def _pedir_versiones_que_faltan(self, fids):
         """La versión de lo que se editó sin que el proveedor lo hubiera descargado.
@@ -208,6 +240,12 @@ class Edicion:
                 registro = self._cache.get(cambio["id"])
                 if registro is None:
                     continue
+                if "geometry" in cambio:
+                    from ..core import compat
+
+                    nueva = compat.geometry_from_geojson(cambio["geometry"])
+                    if nueva is not None:
+                        registro.geometry = nueva
                 for nombre, valor in (cambio.get("attributes") or {}).items():
                     indice = self._indice_de(nombre)
                     if indice >= 0:
@@ -229,8 +267,17 @@ class Edicion:
     # ------------------------------------------------------------------
 
     def changeAttributeValues(self, attr_map):
+        return self._escritura_de_qgis("changeAttributeValues")
+
+    def changeGeometryValues(self, geometry_map):
+        return self._escritura_de_qgis("changeGeometryValues")
+
+    def changeFeatures(self, attr_map, geometry_map):
+        return self._escritura_de_qgis("changeFeatures")
+
+    def _escritura_de_qgis(self, quien):
         try:
-            return self._enviar("changeAttributeValues")
+            return self._enviar(quien)
         except Exception as exc:  # una excepción en un método virtual tumba QGIS
             self.pushError(f"Geosian: {exc}")
             return False

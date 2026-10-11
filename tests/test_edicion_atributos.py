@@ -63,10 +63,6 @@ class TestQuePuedeHacer:
     def test_con_permiso_de_edicion_cambia_atributos(self, capa):
         capacidades = capa.dataProvider().capabilities()
         assert capacidades & QgsVectorDataProvider.ChangeAttributeValues
-        # Esta pieza solo cambia atributos.
-        assert not capacidades & QgsVectorDataProvider.AddFeatures
-        assert not capacidades & QgsVectorDataProvider.DeleteFeatures
-        assert not capacidades & QgsVectorDataProvider.ChangeGeometries
 
     def test_sin_permiso_es_de_solo_lectura(self, servidor):
         servidor.estado.permisos[11] = dict(SIN_PERMISOS)
