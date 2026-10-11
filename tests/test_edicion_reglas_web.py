@@ -32,3 +32,16 @@ def test_un_campo_oculto_en_la_web_no_se_cambia(capa, servidor):  # noqa: F811
     assert 1001 in capa.editBuffer().changedAttributeValues()
     assert any("codigo_migracion" in e and "solo lectura" in e for e in capa.commitErrors())
     assert elemento(servidor, 1001)["altura"] != 1.0
+
+
+def test_si_el_servidor_rechaza_un_valor_de_lista_queda_pendiente(capa, servidor, monkeypatch):  # noqa: F811
+    # El complemento ya lo para antes; aquí, como si su lista local estuviera vieja.
+    from geosian.provider import edicion
+
+    monkeypatch.setattr(edicion, "_comprobar_lista", lambda *a: None)
+    editar(capa, 1001, especie="Quercus robur")
+
+    assert not capa.commitChanges()
+
+    assert any("especie" in e and "lista" in e for e in capa.commitErrors())
+    assert elemento(servidor, 1001)["especie"] == "Platanus x hispanica"

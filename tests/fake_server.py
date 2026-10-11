@@ -700,7 +700,9 @@ class _Servidor(HTTPServer):
                 if error:
                     return 400, {"errores": [{"op": "cambiar", "id": op["id"], **error}]}
         for alta in lote.get("crear", []):
-            _reglas_de_la_web({}, alta.setdefault("attributes", {}), True)
+            error = _reglas_de_la_web({}, alta.setdefault("attributes", {}), True)
+            if error:
+                return 400, {"errores": [{"op": "crear", "ref": alta.get("ref"), **error}]}
 
         resultado = {"creados": [], "cambiados": [], "retirados": []}
         for op in lote.get("cambiar", []):
@@ -756,6 +758,23 @@ def _reglas_de_la_web(antes, nuevos, alta):
             nuevos.pop(nombre, None)
         elif nombre in nuevos and nuevos[nombre] != antes.get(nombre):
             return {"campo": nombre, "error": f"«{nombre}» es de solo lectura en Geosian: no se cambia"}
+
+    def como_lista(valor):
+        return [] if valor in (None, "") else valor if isinstance(valor, list) else [valor]
+
+    for nombre, valor in nuevos.items():
+        lista = nodos.get(nombre) or []
+        if not lista or any(
+            a.get("type") not in ("select", "radio", "checkbox", "autocomplete")
+            or not isinstance(a.get("allowed_values"), list)
+            for a in lista
+        ):
+            continue
+        permitidos = {str(v) for a in lista for v in a["allowed_values"]}
+        ya = set() if alta else {str(v) for v in como_lista(antes.get(nombre))}
+        fuera = [v for v in como_lista(valor) if str(v) not in permitidos and str(v) not in ya]
+        if permitidos and fuera:
+            return {"campo": nombre, "error": f"«{nombre}»: «{fuera[0]}» no está en su lista de valores en Geosian"}
     return None
 
 
