@@ -38,6 +38,16 @@ from ..core.errors import (
     NetworkError,
 )
 
+# Lo que en las propiedades de un elemento pone siempre Geosian (sus claves
+# reservadas), aunque el esquema declare un atributo con ese nombre: el valor que
+# ve QGIS es el del sistema, y el servidor no deja escribirlo. «id» no está porque
+# el esquema que lo declara sale en QGIS como «attr__id».
+DE_GEOSIAN = frozenset({
+    "id", "object_id", "object_status", "geometry_type", "created_at", "updated_at",
+    "updated_at_iso", "longitud", "latitud", "in_succession_group", "additional_info",
+    "_thumbnail", "nfc_uuid", "spatial_history_active_id",
+})
+
 
 class Edicion:
     """Lo que el proveedor necesita para escribir. Se mezcla en ``GeosianProvider``.
@@ -66,6 +76,8 @@ class Edicion:
         if not self._valid or self._uri.info_name or not isinstance(self._permisos, dict):
             return []
         capacidades = []
+        if self._permisos.get("can_create"):
+            capacidades.append(QgsVectorDataProvider.AddFeatures)
         if self._permisos.get("can_update"):
             capacidades += [
                 QgsVectorDataProvider.ChangeAttributeValues,
@@ -145,7 +157,30 @@ class Edicion:
                 cambio["geometry"] = self._geojson(geometrias[fid], fid)
             if len(cambio) > 2:
                 cambiar.append(cambio)
-        return {"crear": [], "cambiar": cambiar, "retirar": []}
+        crear = [self._alta_de(fid, f) for fid, f in sorted(buffer.addedFeatures().items())]
+        return {"crear": crear, "cambiar": cambiar, "retirar": []}
+
+    def _alta_de(self, fid, feature):
+        """Un elemento nuevo de QGIS como alta del lote. ``ref`` es su id provisional."""
+        atributos = {}
+        for indice, valor in enumerate(feature.attributes()):
+            if indice >= self._fields.count():
+                break
+            if valor is None or (isinstance(valor, QVariant) and valor.isNull()):
+                continue
+            campo = self._fields.at(indice)
+            attr = self._attr_map.get(campo.name())
+            if attr is None or campo.name() in DE_GEOSIAN:
+                # id, object_id, updated_at…: los pone Geosian. Llegan, por ejemplo, al
+                # pegar elementos copiados de otra capa.
+                continue
+            if not S.is_editable(attr):
+                raise _NoSePuede(
+                    f"«{campo.displayName()}» es de solo lectura en Geosian: un elemento nuevo "
+                    "no puede traerlo relleno."
+                )
+            atributos[attr["name"]] = valor_para_api(valor, campo.type())
+        return {"ref": str(fid), "geometry": self._geojson(feature.geometry(), "nuevo"), "attributes": atributos}
 
     def _geojson(self, geometria, fid):
         """Una geometría de la capa como GeoJSON en 4326, que es como la guarda Geosian."""
@@ -188,7 +223,7 @@ class Edicion:
         for indice, valor in valores.items():
             campo = self._fields.at(indice)
             attr = self._attr_map.get(campo.name())
-            if attr is None:
+            if attr is None or campo.name() in DE_GEOSIAN:
                 raise _NoSePuede(
                     f"«{campo.displayName()}» no se puede cambiar desde QGIS: lo pone Geosian."
                 )
@@ -256,6 +291,31 @@ class Edicion:
                     if self._base is not None:
                         self._base[cambio["id"]] = version
 
+    def _guardar_altas(self, flist):
+        """Las altas confirmadas, con su id real, a la caché. Devuelve la lista para QGIS."""
+        from .provider import CachedFeature
+
+        creados = {c["ref"]: c for c in (self._hecho or {}).get("creados", [])}
+        with self._lock:
+            for feature in flist:
+                creado = creados.get(str(feature.id()))
+                if creado is None:
+                    continue
+                feature.setId(creado["id"])
+                valores = list(feature.attributes())[: self._fields.count()]
+                for nombre, valor in (("id", creado["id"]), ("object_id", creado.get("object_id"))):
+                    indice = self._fields.indexOf(nombre)
+                    if indice >= 0:
+                        valores[indice] = valor
+                        feature.setAttribute(indice, valor)
+                self._cache[creado["id"]] = CachedFeature(
+                    QgsGeometry(feature.geometry()), valores, creado.get("object_id"), creado.get("updated_at")
+                )
+                if self._base is not None:
+                    self._base[creado["id"]] = creado.get("updated_at")
+                self._feature_count += 1
+        return flist
+
     def _indice_de(self, nombre_api):
         for nombre, attr in self._attr_map.items():
             if attr.get("name") == nombre_api:
@@ -274,6 +334,15 @@ class Edicion:
 
     def changeFeatures(self, attr_map, geometry_map):
         return self._escritura_de_qgis("changeFeatures")
+
+    def addFeatures(self, flist, flags=None):
+        try:
+            if not self._enviar("addFeatures"):
+                return False, flist
+            return True, self._guardar_altas(flist)
+        except Exception as exc:  # una excepción en un método virtual tumba QGIS
+            self.pushError(f"Geosian: {exc}")
+            return False, flist
 
     def _escritura_de_qgis(self, quien):
         try:
