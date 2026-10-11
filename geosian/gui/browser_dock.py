@@ -49,7 +49,7 @@ from ..core import (
 )
 from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
-from ..provider.uri import build_uri
+from ..provider.uri import build_uri, tipo_de_tabla
 from . import celdas, contornos, formulario, leyendas, realtime_hub, sesion
 from .connection_dialog import ConnectionDialog
 
@@ -722,6 +722,8 @@ def _tipos_de_geometria(capa):
     tipos = metadatos.get("geometry_types") or []
     if isinstance(tipos, dict):
         tipos = list(tipos.keys())
+    # El alias y su tabla multi son la misma capa: abrirla dos veces repetiría los elementos.
+    tipos = dict.fromkeys(tipo_de_tabla(t) for t in tipos)
     return [t for t in tipos if t in GEOMETRY_TYPES]
 
 

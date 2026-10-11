@@ -21,6 +21,16 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 
 SCHEME = "geosian"
 
+# Desde junio de 2026 las líneas y los polígonos viven en las tablas multi: «lines» y
+# «polygons» son alias que la API sirve desde ellas, con geometrías multi. Una capa
+# abierta con el alias se declaraba de líneas o polígonos simples y recibía multis.
+ALIAS_DE_TIPO = {"lines": "multi_lines", "polygons": "multi_polygons"}
+
+
+def tipo_de_tabla(tipo):
+    """La clave de la tabla que sirve ese tipo: el alias, a su tabla multi."""
+    return ALIAS_DE_TIPO.get(tipo, tipo)
+
 
 class LayerUri:
     """Partes de una URI del proveedor."""
@@ -31,7 +41,7 @@ class LayerUri:
         self.connection = connection
         self.map_id = int(map_id)
         self.layer_id = int(layer_id)
-        self.geometry_type = geometry_type
+        self.geometry_type = tipo_de_tabla(geometry_type)
         self.view_id = int(view_id) if view_id else None
         self.crs = crs
         self.info_name = info_name or None
