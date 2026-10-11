@@ -192,15 +192,10 @@ class Edicion:
                 continue
             campo = self._fields.at(indice)
             attr = self._attr_map.get(campo.name())
-            if attr is None or campo.name() in DE_GEOSIAN or S.is_computed(attr):
-                # id, object_id, updated_at… y los calculados: los pone Geosian. Llegan,
-                # por ejemplo, al pegar elementos copiados de otra capa.
+            if attr is None or campo.name() in DE_GEOSIAN or S.is_computed(attr) or not S.is_editable(attr):
+                # id, object_id, updated_at…, los calculados y lo de solo lectura: los pone
+                # Geosian. Llegan, por ejemplo, al pegar elementos copiados de otra capa.
                 continue
-            if not S.is_editable(attr):
-                raise _NoSePuede(
-                    f"«{campo.displayName()}» es de solo lectura en Geosian: un elemento nuevo "
-                    "no puede traerlo relleno."
-                )
             nuevo = valor_para_api(valor, campo.type())
             _comprobar_lista(attr, campo, nuevo, None)
             atributos[attr["name"]] = nuevo
@@ -396,16 +391,18 @@ class Edicion:
                     if indice >= 0:
                         valores[indice] = valor
                         feature.setAttribute(indice, valor)
-                # Lo que puso Geosian al guardar (calculados, REFER, disparadores). Un
-                # calculado pegado no se mandó: si Geosian no le puso nada, queda vacío.
+                # Lo que puso Geosian al guardar (calculados, REFER, valores por defecto,
+                # disparadores). Un calculado o un campo de solo lectura pegados no se
+                # mandaron: si Geosian no les puso nada, quedan vacíos.
                 calculados = creado.get("calculados") or {}
                 for nombre, attr in self._attr_map.items():
                     indice = self._fields.indexOf(nombre)
-                    if indice < 0:
+                    if indice < 0 or nombre in DE_GEOSIAN:
+                        # id y object_id ya están puestos arriba.
                         continue
                     if attr["name"] in calculados:
                         valores[indice] = calculados[attr["name"]]
-                    elif S.is_computed(attr):
+                    elif S.is_computed(attr) or not S.is_editable(attr):
                         valores[indice] = None
                     else:
                         continue
@@ -562,8 +559,12 @@ def texto_de_error(exc):
     if errores:
         textos = []
         for error in errores[:3]:
-            donde = error.get("id") or error.get("ref")
-            textos.append(f"{donde}: {error.get('error')}" if donde is not None else str(error.get("error")))
+            if error.get("id") is not None:
+                textos.append(f"elemento {error['id']}: {error.get('error')}")
+            elif error.get("ref") is not None:
+                textos.append(f"elemento nuevo: {error.get('error')}")
+            else:
+                textos.append(str(error.get("error")))
         return "; ".join(textos)
     if isinstance(cuerpo, dict) and cuerpo.get("error"):
         return str(cuerpo["error"])

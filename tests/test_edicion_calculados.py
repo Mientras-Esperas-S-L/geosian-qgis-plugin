@@ -102,3 +102,16 @@ def test_lo_demas_que_pone_geosian_tambien_se_ve(capa, servidor):  # noqa: F811
 
     assert capa.getFeature(1001)["observaciones"] == "puesto por Geosian"
     assert capa.getFeature(2001)["observaciones"] == "puesto por Geosian"
+
+
+def test_la_superficie_automatica_es_como_un_calculado(servidor, monkeypatch):  # noqa: F811
+    esquema = copy.deepcopy(fake_server.ESQUEMA_ARBOLADO)
+    esquema["attributes"].append({"name": "copa", "type": "number", "title": "Copa", "autocalculed-surface": True})
+    monkeypatch.setattr(fake_server, "ESQUEMA_ARBOLADO", esquema)
+    capa = abrir(servidor)
+    lad.apply_editor_config(capa, capa.dataProvider().schema)
+
+    assert capa.editFormConfig().readOnly(indice(capa, "copa"))
+    editar(capa, 1001, copa=3.0)
+    assert not capa.commitChanges()
+    assert any("campo calculado" in e for e in capa.commitErrors())

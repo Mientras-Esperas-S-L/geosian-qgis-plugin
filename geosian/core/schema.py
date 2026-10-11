@@ -157,12 +157,18 @@ def field_title(attr):
 
 
 def is_editable(attr):
-    return attr.get("editable", True) is not False
+    """Si la web deja cambiarlo: ni ``editable: false`` ni ``visible: false``, que no pinta."""
+    return attr.get("editable", True) is not False and attr.get("visible", True) is not False
 
 
 def is_computed(attr):
-    """Un campo calculado (``computed_value``): lo rellena Geosian, no se teclea."""
-    return attr.get("computed_value") not in (None, False, 0, "")
+    """Lo rellena Geosian al guardar: un ``computed_value``, o la superficie o el
+    perímetro automáticos (``autocalculed-surface`` y ``autocalculed-perimeter``)."""
+    return (
+        attr.get("computed_value") not in (None, False, 0, "")
+        or "autocalculed-surface" in attr
+        or "autocalculed-perimeter" in attr
+    )
 
 
 def is_visible(attr):

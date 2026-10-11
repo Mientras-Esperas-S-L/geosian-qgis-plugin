@@ -24,14 +24,48 @@ def capa(servidor):  # noqa: F811
 
 
 def test_un_campo_oculto_en_la_web_no_se_cambia(capa, servidor):  # noqa: F811
+    # Lo para ya el complemento, sin llamar al servidor.
     editar(capa, 1001, codigo_migracion="OTRO", altura=1.0)
 
     assert not capa.commitChanges()
 
     assert capa.isEditable()
     assert 1001 in capa.editBuffer().changedAttributeValues()
-    assert any("codigo_migracion" in e and "solo lectura" in e for e in capa.commitErrors())
+    assert any("Código de migración" in e and "solo lectura" in e for e in capa.commitErrors())
+    assert lotes(servidor) == []
+
+
+def test_si_el_servidor_lo_para_tambien_queda_pendiente(capa, servidor, monkeypatch):  # noqa: F811
+    from geosian.core import schema
+
+    monkeypatch.setattr(schema, "is_editable", lambda attr: True)
+    editar(capa, 1001, codigo_migracion="OTRO", altura=1.0)
+
+    assert not capa.commitChanges()
+
+    assert any("elemento 1001" in e and "codigo_migracion" in e for e in capa.commitErrors())
     assert elemento(servidor, 1001)["altura"] != 1.0
+
+
+def test_lo_oculto_en_la_web_es_de_solo_lectura_en_la_ficha(capa):
+    from geosian.core import lad
+
+    lad.apply_editor_config(capa, capa.dataProvider().schema)
+
+    assert capa.editFormConfig().readOnly(indice(capa, "codigo_migracion"))
+
+
+def test_un_alta_pegada_no_manda_lo_de_solo_lectura(capa, servidor):  # noqa: F811
+    from tests.test_edicion_altas import nuevo
+
+    nuevo(capa, -3.69, 40.41, codigo="N-9", codigo_migracion="PEGADO")
+
+    assert capa.commitChanges(), capa.commitErrors()
+
+    assert "codigo_migracion" not in lotes(servidor)[0]["crear"][0]["attributes"]
+    assert capa.getFeature(2001)["codigo_migracion"] in (None, "") or capa.getFeature(2001).isNull(
+        indice(capa, "codigo_migracion")
+    )
 
 
 def test_si_el_servidor_rechaza_un_valor_de_lista_queda_pendiente(capa, servidor, monkeypatch):  # noqa: F811
@@ -54,5 +88,5 @@ def test_un_alta_sin_un_obligatorio_no_entra(capa, servidor):  # noqa: F811
 
     assert not capa.commitChanges()
 
-    assert any("codigo" in e and "obligatorio" in e for e in capa.commitErrors())
+    assert any("elemento nuevo" in e and "codigo" in e and "obligatorio" in e for e in capa.commitErrors())
     assert capa.isEditable()
