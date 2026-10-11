@@ -192,9 +192,9 @@ class Edicion:
                 continue
             campo = self._fields.at(indice)
             attr = self._attr_map.get(campo.name())
-            if attr is None or campo.name() in DE_GEOSIAN:
-                # id, object_id, updated_at…: los pone Geosian. Llegan, por ejemplo, al
-                # pegar elementos copiados de otra capa.
+            if attr is None or campo.name() in DE_GEOSIAN or S.is_computed(attr):
+                # id, object_id, updated_at… y los calculados: los pone Geosian. Llegan,
+                # por ejemplo, al pegar elementos copiados de otra capa.
                 continue
             if not S.is_editable(attr):
                 raise _NoSePuede(
@@ -264,6 +264,10 @@ class Edicion:
                 )
             if not S.is_editable(attr):
                 raise _NoSePuede(f"«{campo.displayName()}» es de solo lectura en Geosian.")
+            if S.is_computed(attr):
+                raise _NoSePuede(
+                    f"«{campo.displayName()}» es un campo calculado: lo rellena Geosian al guardar."
+                )
             nuevo = valor_para_api(valor, campo.type())
             viejo = _sin_nulo(registro.attributes[indice]) if registro is not None and indice < len(registro.attributes) else None
             _comprobar_lista(attr, campo, nuevo, viejo)
@@ -315,6 +319,8 @@ class Edicion:
     def _aplicar_respuesta(self, lote, respuesta):
         """Lo confirmado, a la caché: valores nuevos, versiones nuevas y lo retirado fuera."""
         versiones = {c["id"]: c.get("updated_at") for c in respuesta.get("cambiados", [])}
+        # Lo que puso Geosian al guardar: calculados, REFER, disparadores...
+        calculados = {c["id"]: c.get("calculados") or {} for c in respuesta.get("cambiados", [])}
         with self._lock:
             for baja in lote["retirar"]:
                 if self._cache.pop(baja["id"], None) is not None:
@@ -329,7 +335,8 @@ class Edicion:
                     nueva = compat.geometry_from_geojson(cambio["geometry"])
                     if nueva is not None:
                         registro.geometry = nueva
-                for nombre, valor in (cambio.get("attributes") or {}).items():
+                atributos = {**(cambio.get("attributes") or {}), **calculados.get(cambio["id"], {})}
+                for nombre, valor in atributos.items():
                     indice = self._indice_de(nombre)
                     if indice >= 0:
                         registro.attributes[indice] = valor
@@ -389,6 +396,20 @@ class Edicion:
                     if indice >= 0:
                         valores[indice] = valor
                         feature.setAttribute(indice, valor)
+                # Lo que puso Geosian al guardar (calculados, REFER, disparadores). Un
+                # calculado pegado no se mandó: si Geosian no le puso nada, queda vacío.
+                calculados = creado.get("calculados") or {}
+                for nombre, attr in self._attr_map.items():
+                    indice = self._fields.indexOf(nombre)
+                    if indice < 0:
+                        continue
+                    if attr["name"] in calculados:
+                        valores[indice] = calculados[attr["name"]]
+                    elif S.is_computed(attr):
+                        valores[indice] = None
+                    else:
+                        continue
+                    feature.setAttribute(indice, valores[indice])
                 self._cache[creado["id"]] = CachedFeature(
                     QgsGeometry(feature.geometry()), valores, creado.get("object_id"), creado.get("updated_at")
                 )

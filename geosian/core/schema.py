@@ -160,6 +160,11 @@ def is_editable(attr):
     return attr.get("editable", True) is not False
 
 
+def is_computed(attr):
+    """Un campo calculado (``computed_value``): lo rellena Geosian, no se teclea."""
+    return attr.get("computed_value") not in (None, False, 0, "")
+
+
 def is_visible(attr):
     return attr.get("visible", True) is not False
 

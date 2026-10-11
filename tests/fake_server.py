@@ -650,6 +650,8 @@ class _Servidor(HTTPServer):
         self.lotes = []
         # (estado, cuerpo) que dará la próxima confirmación, sin aplicar nada.
         self.forzar = None
+        # Los campos calculados que pone el servidor: (antes, nuevos) → {campo: valor}.
+        self.calcular = lambda antes, nuevos: {}
         self._siguiente_id = 2001
         self._reloj = 0
 
@@ -696,11 +698,14 @@ class _Servidor(HTTPServer):
         resultado = {"creados": [], "cambiados": [], "retirados": []}
         for op in lote.get("cambiar", []):
             propiedades = por_id[op["id"]]["properties"]
-            propiedades.update(op.get("attributes") or {})
+            calculados = self.calcular(dict(propiedades), op["attributes"]) if "attributes" in op else {}
+            propiedades.update({**(op.get("attributes") or {}), **calculados})
             if "geometry" in op:
                 por_id[op["id"]]["geometry"] = op["geometry"]
             self.versiones[op["id"]] = self._version_nueva()
-            resultado["cambiados"].append({"id": op["id"], "updated_at": self.versiones[op["id"]]})
+            resultado["cambiados"].append({
+                "id": op["id"], "updated_at": self.versiones[op["id"]], "calculados": calculados,
+            })
         for op in lote.get("retirar", []):
             self.elementos.remove(por_id[op["id"]])
             self.versiones[op["id"]] = self._version_nueva()
@@ -708,13 +713,15 @@ class _Servidor(HTTPServer):
         for alta in lote.get("crear", []):
             fid = self._siguiente_id
             self._siguiente_id += 1
+            calculados = self.calcular({}, alta.get("attributes") or {})
             self.elementos.append({
                 "type": "Feature", "geometry": alta["geometry"],
-                "properties": {"id": fid, "object_id": f"OBJ-{fid}", **(alta.get("attributes") or {})},
+                "properties": {"id": fid, "object_id": f"OBJ-{fid}", **(alta.get("attributes") or {}), **calculados},
             })
             self.versiones[fid] = self._version_nueva()
             resultado["creados"].append({
                 "ref": alta["ref"], "id": fid, "object_id": f"OBJ-{fid}", "updated_at": self.versiones[fid],
+                "calculados": calculados,
             })
         return 200, resultado
 

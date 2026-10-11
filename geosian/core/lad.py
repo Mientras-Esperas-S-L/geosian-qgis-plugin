@@ -169,7 +169,7 @@ def apply_editor_config(layer, schema):
         if setup is not None:
             layer.setEditorWidgetSetup(idx, setup)
 
-        if not S.is_editable(attr):
+        if not S.is_editable(attr) or S.is_computed(attr):
             form.setReadOnly(idx, True)
 
         if S.is_required(attr):
