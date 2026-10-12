@@ -1209,3 +1209,51 @@ def test_el_punto_de_una_vista_tiene_el_tamaño_de_la_web(app):
     simbolos = renderizador.symbols(QgsRenderContext())
     assert len(simbolos) > 1
     assert {s.symbolLayer(0).size() for s in simbolos} == {12}
+
+
+# ----------------------------------------------------------------------
+# Líneas y polígonos: las tablas multi
+# ----------------------------------------------------------------------
+
+def _poner_capa_mixta(servidor, tipos):
+    """Una capa con un esquema de puntos y otro de polígonos multi."""
+    servidor.poner_capa(
+        {"id": 12, "name": "Mobiliario", "map": 4,
+         "tile_metadata": {"feature_count": 0, "geometry_types": tipos}},
+        [
+            {"id": 3, "layer": 12, "geometry_type": "Point",
+             "schema": {"title": "Bancos", "attributes": [{"name": "banco", "type": "string"}]}},
+            {"id": 4, "layer": 12, "geometry_type": "MultiPolygon",
+             "schema": {"title": "Parterres", "attributes": [{"name": "parterre", "type": "string"}]}},
+        ],
+    )
+
+
+def test_una_uri_con_el_alias_polygons_abre_la_capa_como_multipoligonos(servidor):
+    _poner_capa_mixta(servidor, ["multi_polygons"])
+
+    capa = QgsVectorLayer(f"geosian://{CONEXION}/map/4/layer/12?geometry_type=polygons", "x", "geosian")
+
+    assert capa.isValid(), capa.dataProvider().error()
+    assert capa.wkbType() == QgsWkbTypes.MultiPolygon
+    assert "parterre" in capa.fields().names()
+
+
+def test_sin_tipo_en_la_uri_el_esquema_es_el_del_tipo_que_se_abre(servidor):
+    # Antes se elegía el esquema antes de saber el tipo, y salía el primero (Bancos).
+    _poner_capa_mixta(servidor, ["multi_polygons"])
+
+    capa = QgsVectorLayer(f"geosian://{CONEXION}/map/4/layer/12", "x", "geosian")
+
+    assert capa.isValid(), capa.dataProvider().error()
+    assert capa.wkbType() == QgsWkbTypes.MultiPolygon
+    assert "parterre" in capa.fields().names()
+    assert "banco" not in capa.fields().names()
+
+
+def test_metadatos_con_el_alias_no_abren_una_capa_de_poligonos_simples(servidor):
+    _poner_capa_mixta(servidor, ["polygons"])
+
+    capa = QgsVectorLayer(f"geosian://{CONEXION}/map/4/layer/12", "x", "geosian")
+
+    assert capa.wkbType() == QgsWkbTypes.MultiPolygon

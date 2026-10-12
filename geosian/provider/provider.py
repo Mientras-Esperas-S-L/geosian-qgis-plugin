@@ -50,7 +50,7 @@ from ..core.errors import (
 from .feature_source import GeosianFeatureSource
 from .subset import parse as parse_subset
 from .subset import server_params
-from .uri import parse_uri
+from .uri import parse_uri, tipo_de_tabla
 
 PROVIDER_KEY = "geosian"
 PROVIDER_DESCRIPTION = "Geosian API"
@@ -96,9 +96,7 @@ _FILTRO_ELEMENTO = re.compile(r'"geodata_id"\s*(?:=\s*\'?(\d+)|IN\s*\(([^)]*)\))
 GEOMETRY_TYPES = {
     "points": QgsWkbTypes.Point,
     "multi_points": QgsWkbTypes.MultiPoint,
-    "lines": QgsWkbTypes.LineString,
     "multi_lines": QgsWkbTypes.MultiLineString,
-    "polygons": QgsWkbTypes.Polygon,
     "multi_polygons": QgsWkbTypes.MultiPolygon,
     "geometry_collections": QgsWkbTypes.GeometryCollection,
 }
@@ -294,10 +292,6 @@ class GeosianProvider(QgsVectorDataProvider):
         definiciones = self._pedir(
             "definiciones", self._client.layer_attributes, self._uri.layer_id
         )
-        self._schema = self._pick_schema(definiciones)
-        self._fields, self._attr_map = lad.build_fields(self._schema)
-        self._filtros_uri = self._filtros_de_partes()
-        self._campo_de_partes()
 
         metadatos = {}
         try:
@@ -319,8 +313,15 @@ class GeosianProvider(QgsVectorDataProvider):
             # calculan al cargar los datos. No merece la pena fallar por esto.
             self.log_warning(f"Sin metadatos de la capa: {exc}")
 
-        self._layer_name = metadatos.get("name") or self._schema.get("title") or ""
+        # El tipo antes que el esquema: sin geometry_type en la URI, lo fija
+        # _resolve_wkb_type, y el esquema que toca es el de ese tipo.
         self._wkb_type = self._resolve_wkb_type(metadatos)
+        self._schema = self._pick_schema(definiciones)
+        self._fields, self._attr_map = lad.build_fields(self._schema)
+        self._filtros_uri = self._filtros_de_partes()
+        self._campo_de_partes()
+
+        self._layer_name = metadatos.get("name") or self._schema.get("title") or ""
         self._feature_count = int(metadatos.get("feature_count") or 0)
         self._by_zone = self._feature_count > LARGE_LAYER
         if (self._uri.view_id or self._filtros_uri) and not self._by_zone:
@@ -425,6 +426,7 @@ class GeosianProvider(QgsVectorDataProvider):
         tipos = metadatos.get("geometry_types") or []
         if isinstance(tipos, dict):
             tipos = list(tipos.keys())
+        tipos = list(dict.fromkeys(tipo_de_tabla(t) for t in tipos))
         tipos = [t for t in tipos if t in GEOMETRY_TYPES]
 
         if len(tipos) > 1:

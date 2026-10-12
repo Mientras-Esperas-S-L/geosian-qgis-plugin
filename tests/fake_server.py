@@ -417,7 +417,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "No tiene permisos para acceder a estas capas."}, 403)
 
         elif ruta == "/api/v1/maps/4/layers/":
-            capas = [dict(c) for c in CAPAS]
+            capas = [dict(c) for c in CAPAS + self.server.capas_extra]
             if not consulta.get("include_tile_metadata"):
                 for capa in capas:
                     capa.pop("tile_metadata", None)
@@ -484,6 +484,9 @@ class Handler(BaseHTTPRequestHandler):
         elif ruta == "/api/v1/layer-attributes/" and consulta.get("layer_id") == ["50"]:
             # Una capa de un mapa sin permiso.
             self._json({"detail": "No tiene permiso para ver esta capa."}, 403)
+
+        elif ruta == "/api/v1/layer-attributes/" and consulta.get("layer_id", [""])[0] in self.server.definiciones_extra:
+            self._json(self.server.definiciones_extra[consulta["layer_id"][0]])
 
         elif ruta == "/api/v1/layer-attributes/":
             self._json(
@@ -612,6 +615,9 @@ class FakeGeosian:
         self._server = HTTPServer(("127.0.0.1", 0), Handler)
         # El tile_config de /maps/<id>/layers/; None, el de un servidor que no lo da.
         self._server.tile_config = None
+        # Capas que añade una prueba al mapa 4, con sus definiciones por id de capa.
+        self._server.capas_extra = []
+        self._server.definiciones_extra = {}
         self._hilo = threading.Thread(target=self._server.serve_forever, daemon=True)
 
     def __enter__(self):
@@ -633,6 +639,10 @@ class FakeGeosian:
 
     def poner_tile_config(self, config):
         self._server.tile_config = config
+
+    def poner_capa(self, capa, definiciones):
+        self._server.capas_extra.append(capa)
+        self._server.definiciones_extra[str(capa["id"])] = definiciones
 
     def rutas_pedidas(self):
         return [ruta for ruta, _ in Handler.peticiones]
