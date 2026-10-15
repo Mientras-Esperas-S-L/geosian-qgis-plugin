@@ -320,18 +320,30 @@ def add_relations_tab(layer, partes):
 def add_media_tab(layer, schema, widget_type):
     """Pestaña «Fotos y archivos» si el esquema tiene campos de fotos o archivos.
 
-    Lleva el campo ``id`` con el tipo de campo del complemento que enseña las
-    fotos y archivos del elemento (``gui/media_widget.py``).
+    Lleva el campo ``adjuntos_nuevos`` (o, si la capa no lo tiene, ``id``) con el tipo
+    de campo del complemento que enseña las fotos y archivos del elemento y deja
+    añadirlos a uno nuevo (``gui/media_widget.py``). En la tabla de atributos esa
+    columna no se ve: es texto interno.
     """
     if not any(S.is_attachment(a) for a in S.flatten_attributes(schema)):
         return False
-    idx = layer.fields().indexOf("id")
+    nombre = S.CAMPO_ADJUNTOS if layer.fields().indexOf(S.CAMPO_ADJUNTOS) >= 0 else "id"
+    idx = layer.fields().indexOf(nombre)
     if idx < 0:
         return False
     layer.setEditorWidgetSetup(idx, QgsEditorWidgetSetup(widget_type, {}))
+    if nombre == S.CAMPO_ADJUNTOS:
+        tabla = layer.attributeTableConfig()
+        tabla.update(layer.fields())
+        columnas = tabla.columns()
+        for columna in columnas:
+            if columna.name == nombre:
+                columna.hidden = True
+        tabla.setColumns(columnas)
+        layer.setAttributeTableConfig(tabla)
     form = layer.editFormConfig()
     pestaña = _pestaña("Fotos y archivos")
-    campo = QgsAttributeEditorField("id", idx, pestaña)
+    campo = QgsAttributeEditorField(nombre, idx, pestaña)
     campo.setShowLabel(False)
     pestaña.addChildElement(campo)
     _add_tab(form, pestaña)

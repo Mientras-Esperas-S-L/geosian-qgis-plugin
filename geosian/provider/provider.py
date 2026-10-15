@@ -333,6 +333,11 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
         self._wkb_type = self._resolve_wkb_type(metadatos)
         self._schema = self._pick_schema(definiciones)
         self._fields, self._attr_map = lad.build_fields(self._schema)
+        if any(S.is_attachment(a) for a in S.flatten_attributes(self._schema)):
+            # Las fotos y los ficheros de un alta, subidos ya (core/adjuntos.py).
+            adjuntos = QgsField(S.CAMPO_ADJUNTOS, QVariant.String)
+            adjuntos.setAlias("Fotos y archivos nuevos")
+            self._fields.append(adjuntos)
         self._filtros_uri = self._filtros_de_partes()
         self._campo_de_partes()
 
@@ -691,6 +696,11 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
             nombre = campo.name()
             if nombre == "id":
                 valores.append(fid)
+                continue
+
+            if nombre == S.CAMPO_ADJUNTOS:
+                # Solo lo tiene un elemento nuevo mientras no se guarda.
+                valores.append(None)
                 continue
 
             if nombre.startswith(views.PREFIJO_PARTES):

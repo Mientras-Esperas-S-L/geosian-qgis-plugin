@@ -588,6 +588,15 @@ class Handler(BaseHTTPRequestHandler):
             self._json(_pagina_de_elementos(consulta, datos.get("lasso_geometry"), servidor=self.server))
             return
 
+        if partes.path == "/api/v1/geodata/adjuntos/":
+            Handler.peticiones.append((partes.path, {k: v for k, v in datos.items() if k != "datos"}))
+            if self.headers.get("Authorization") != "Token tok-de-prueba":
+                self._json({"detail": "Credenciales no válidas"}, 401)
+                return
+            estado, cuerpo = self.server.subir_adjunto(datos)
+            self._json(cuerpo, estado)
+            return
+
         if partes.path == "/api/v1/geodata/confirmar/":
             Handler.peticiones.append((partes.path, datos))
             if self.headers.get("Authorization") != "Token tok-de-prueba":
@@ -654,6 +663,10 @@ class _Servidor(HTTPServer):
         self.calcular = lambda antes, nuevos: {}
         self._siguiente_id = 2001
         self._reloj = 0
+        # Las fotos y los ficheros subidos sueltos para un alta: ref → datos.
+        self.adjuntos = {}
+        # Lo que cada alta se quedó: id → {campo: [(nombre, bytes)]}.
+        self.adjuntos_de = {}
 
     def _version_nueva(self):
         self._reloj += 1
@@ -664,6 +677,41 @@ class _Servidor(HTTPServer):
         elemento = next(e for e in self.elementos if e["properties"]["id"] == fid)
         elemento["properties"].update(atributos)
         self.versiones[fid] = self._version_nueva()
+
+    def subir_adjunto(self, datos):
+        """Como POST /geodata/adjuntos/: campo de fotos o ficheros del esquema y permiso de alta."""
+        if not self.permisos.get(datos.get("layer_id"), SIN_PERMISOS)["can_create"]:
+            return 403, {"error": "No tiene permisos para create en esta capa"}
+        tipos = {a["name"]: a["type"] for a in _campos_del_esquema(ESQUEMA_ARBOLADO.get("attributes"))}
+        campo = datos.get("campo")
+        if tipos.get(campo) not in ("images", "files"):
+            return 400, {"error": f"«{campo}» no es un campo de fotos ni de ficheros de la capa", "campo": campo}
+        nombre = datos.get("nombre") or ""
+        if nombre.lower().endswith(".exe"):
+            return 400, {"error": f"«{nombre}»: el tipo de archivo .exe no está permitido"}
+        ref = f"00000000-0000-0000-0000-{len(self.adjuntos) + 1:012d}"
+        self.adjuntos[ref] = {
+            "campo": campo, "nombre": nombre, "contenido": base64.b64decode(datos.get("datos") or ""),
+            "tipo": "foto" if tipos[campo] == "images" else "fichero",
+        }
+        return 201, {
+            "adjunto": ref, "campo": campo, "tipo": self.adjuntos[ref]["tipo"], "nombre": nombre,
+            "tamano": len(self.adjuntos[ref]["contenido"]), "caduca": "2026-10-16T12:00:00+00:00",
+        }
+
+    def _resolver_adjuntos(self, atributos):
+        """Como ``adjuntos_pendientes.resolver``: las referencias, por su contenido."""
+        usados = {}
+        for campo, valor in list(atributos.items()):
+            if not isinstance(valor, list) or not any(isinstance(v, dict) and "adjunto" in v for v in valor):
+                continue
+            for v in valor:
+                adjunto = self.adjuntos.get(v.get("adjunto")) if isinstance(v, dict) else None
+                if adjunto is None or adjunto["campo"] != campo:
+                    return None, {"campo": campo, "error": f"«{campo}»: un adjunto ya no está en Geosian"}
+                usados.setdefault(campo, []).append((v["adjunto"], adjunto["nombre"], adjunto["contenido"]))
+            del atributos[campo]
+        return usados, None
 
     def confirmar(self, lote):
         """Como POST /geodata/confirmar/: todo o nada, con el mismo cuerpo de respuesta."""
@@ -699,8 +747,13 @@ class _Servidor(HTTPServer):
                 error = _reglas_de_la_web(por_id[op["id"]]["properties"], dict(op["attributes"]), False)
                 if error:
                     return 400, {"errores": [{"op": "cambiar", "id": op["id"], **error}]}
+        medios = {}
         for alta in lote.get("crear", []):
-            error = _reglas_de_la_web({}, alta.setdefault("attributes", {}), True)
+            usados, error = self._resolver_adjuntos(alta.setdefault("attributes", {}))
+            if error:
+                return 400, {"errores": [{"op": "crear", "ref": alta.get("ref"), **error}]}
+            medios[alta.get("ref")] = usados
+            error = _reglas_de_la_web({}, alta["attributes"], True)
             if error:
                 return 400, {"errores": [{"op": "crear", "ref": alta.get("ref"), **error}]}
 
@@ -728,6 +781,14 @@ class _Servidor(HTTPServer):
                 "properties": {"id": fid, "object_id": f"OBJ-{fid}", **(alta.get("attributes") or {}), **calculados},
             })
             self.versiones[fid] = self._version_nueva()
+            if medios.get(alta["ref"]):
+                self.adjuntos_de[fid] = {
+                    campo: [(nombre, contenido) for _, nombre, contenido in lista]
+                    for campo, lista in medios[alta["ref"]].items()
+                }
+                for lista in medios[alta["ref"]].values():
+                    for ref, _, _ in lista:
+                        self.adjuntos.pop(ref, None)
             resultado["creados"].append({
                 "ref": alta["ref"], "id": fid, "object_id": f"OBJ-{fid}", "updated_at": self.versiones[fid],
                 "calculados": calculados,

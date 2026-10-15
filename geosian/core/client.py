@@ -5,6 +5,7 @@ error a las excepciones de ``errors.py``. No depende de QGIS: el transporte se
 inyecta, así que se puede usar y probar por separado.
 """
 
+import base64
 import json
 import time
 from urllib.parse import urlencode
@@ -20,6 +21,8 @@ from .errors import (
 from .http import DEFAULT_TIMEOUT, Response, default_transport
 
 API_PREFIX = "/api/v1"
+# Lo que se espera a que suba una foto o un fichero (hasta 30 MB).
+PLAZO_DE_SUBIDA = 300
 
 # Cuánto se reutiliza el listado de capas de un mapa. Abrir un mapa entero son
 # decenas de capas seguidas y cada una pregunta por sus metadatos: sin esto, el
@@ -262,6 +265,30 @@ class GeosianClient:
                 "retirar": list(retirar),
             },
         )
+
+    def subir_adjunto(self, layer_id, geometry_type, campo, nombre, contenido):
+        """Sube una foto o un fichero de un elemento nuevo y devuelve su referencia.
+
+        ``POST /geodata/adjuntos/``. El alta la lleva luego en su campo como
+        ``{"adjunto": ref}`` (``core/adjuntos.py``). Puede tardar: el plazo es el
+        de una descarga grande, no el de una consulta.
+        """
+        url = self._url(f"{API_PREFIX}/geodata/adjuntos/")
+        cuerpo = {
+            "layer_id": layer_id,
+            "geometry_type": geometry_type,
+            "campo": campo,
+            "nombre": nombre,
+            "datos": base64.b64encode(contenido).decode("ascii"),
+        }
+        resp = self.transport.request(
+            "POST",
+            url,
+            self._headers({"Content-Type": "application/json"}),
+            json.dumps(cuerpo).encode("utf-8"),
+            timeout=max(self.timeout, PLAZO_DE_SUBIDA),
+        )
+        return self._check(resp, url).json()
 
     def layer_attributes(self, layer_id):
         """Definiciones de atributos (LAD) de una capa, con su esquema.

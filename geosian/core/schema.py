@@ -25,7 +25,10 @@ DATE_TYPES = {"calendar"}
 # Nombres que el proveedor reserva para sus propios campos. Un atributo del LAD
 # que se llame igual se renombra con el prefijo, que es la misma convención que
 # ya usa la plataforma para las colisiones de nombres reservados.
-RESERVED_NAMES = {"id", "geometry", "geom"}
+# Campo propio del proveedor: las fotos y los ficheros de un elemento nuevo, ya subidos
+# a Geosian y a la espera de su alta (``core/adjuntos.py``).
+CAMPO_ADJUNTOS = "adjuntos_nuevos"
+RESERVED_NAMES = {"id", "geometry", "geom", CAMPO_ADJUNTOS}
 RESERVED_PREFIX = "attr__"
 
 

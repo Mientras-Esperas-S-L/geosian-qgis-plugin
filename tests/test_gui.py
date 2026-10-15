@@ -436,8 +436,12 @@ def test_la_ficha_tiene_una_pestana_de_fotos_y_archivos(app_gui):
                 t for t in capa.editFormConfig().tabs() if t.name() == "Fotos y archivos"
             )
             [campo] = pestaña.children()
-            assert campo.name() == "id"
-            assert capa.editorWidgetSetup(capa.fields().indexOf("id")).type() == WIDGET_TYPE
+            # En el campo de las fotos nuevas, que no se ve en la tabla de atributos.
+            assert campo.name() == "adjuntos_nuevos"
+            assert capa.editorWidgetSetup(capa.fields().indexOf("adjuntos_nuevos")).type() == WIDGET_TYPE
+            columnas = {c.name: c.hidden for c in capa.attributeTableConfig().columns()}
+            assert columnas["adjuntos_nuevos"] is True
+            assert columnas["especie"] is False
             # Y las fichas de los partes también, que tienen sus fotos.
             [tabla] = [c for c in QgsProject.instance().mapLayers().values() if not c.isSpatial()]
             assert "Fotos y archivos" in [t.name() for t in tabla.editFormConfig().tabs()]

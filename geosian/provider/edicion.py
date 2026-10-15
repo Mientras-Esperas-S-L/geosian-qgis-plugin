@@ -29,6 +29,7 @@ from qgis.core import (
 )
 from qgis.PyQt.QtCore import QDate, QDateTime, QTime, QVariant
 
+from ..core import adjuntos as A
 from ..core import schema as S
 from ..core.errors import (
     ConflictError,
@@ -191,6 +192,9 @@ class Edicion:
             if valor is None or (isinstance(valor, QVariant) and valor.isNull()):
                 continue
             campo = self._fields.at(indice)
+            if campo.name() == S.CAMPO_ADJUNTOS:
+                atributos.update(A.para_el_alta(A.leer(valor)))
+                continue
             attr = self._attr_map.get(campo.name())
             if attr is None or campo.name() in DE_GEOSIAN or S.is_computed(attr) or not S.is_editable(attr):
                 # id, object_id, updated_at…, los calculados y lo de solo lectura: los pone
@@ -252,6 +256,13 @@ class Edicion:
             ):
                 continue
             campo = self._fields.at(indice)
+            if campo.name() == S.CAMPO_ADJUNTOS:
+                if A.leer(valor):
+                    raise _NoSePuede(
+                        "Desde QGIS solo se añaden fotos y archivos a elementos nuevos; a uno "
+                        "ya guardado, desde la web."
+                    )
+                continue
             attr = self._attr_map.get(campo.name())
             if attr is None or campo.name() in DE_GEOSIAN:
                 raise _NoSePuede(
@@ -386,7 +397,10 @@ class Edicion:
                     continue
                 feature.setId(creado["id"])
                 valores = list(feature.attributes())[: self._fields.count()]
-                for nombre, valor in (("id", creado["id"]), ("object_id", creado.get("object_id"))):
+                # Las fotos y los ficheros ya son del elemento en Geosian: el campo se vacía.
+                for nombre, valor in (
+                    ("id", creado["id"]), ("object_id", creado.get("object_id")), (S.CAMPO_ADJUNTOS, None),
+                ):
                     indice = self._fields.indexOf(nombre)
                     if indice >= 0:
                         valores[indice] = valor
@@ -414,6 +428,25 @@ class Edicion:
                     self._base[creado["id"]] = creado.get("updated_at")
                 self._feature_count += 1
         return flist
+
+    def subir_adjunto(self, campo, nombre, contenido):
+        """Sube una foto o un fichero para un alta de esta capa. Devuelve la respuesta
+        de Geosian, con la referencia en ``adjunto``. Lanza ``GeosianError``."""
+        return self._client.subir_adjunto(
+            self._uri.layer_id, self._uri.geometry_type, campo, nombre, contenido
+        )
+
+    def campos_de_adjuntos(self):
+        """``[(nombre, título, tipo)]`` de los campos de fotos y ficheros del LAD, en su
+        orden; ``tipo`` es ``foto`` o ``fichero``."""
+        return [
+            (a["name"], S.field_title(a) or a["name"], "foto" if a.get("type") == "images" else "fichero")
+            for a in S.flatten_attributes(getattr(self, "_schema", None) or {})
+            if S.is_attachment(a) and a.get("name")
+        ]
+
+    def puede_dar_altas(self):
+        return bool((self._permisos or {}).get("can_create"))
 
     def _indice_de(self, nombre_api):
         for nombre, attr in self._attr_map.items():
