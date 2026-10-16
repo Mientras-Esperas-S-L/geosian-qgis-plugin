@@ -373,6 +373,17 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"detail": "Credenciales no válidas"}, 401)
             return
 
+        if ruta.startswith("/api/v1/geodata/confirmar/") and ruta != "/api/v1/geodata/confirmar/":
+            # Como GET /geodata/confirmar/<lote_id>/: cómo acabó un lote.
+            visto = self.server.lotes_vistos.get(ruta.rstrip("/").rsplit("/", 1)[1])
+            if isinstance(visto, dict):
+                self._json({"estado": "entro", "respuesta": visto})
+            elif isinstance(visto, str) and self.server.tareas[visto][2] is None:
+                self._json({"estado": "en_curso", "task_id": visto})
+            else:
+                self._json({"estado": "no_consta"})
+            return
+
         if ruta.startswith("/api/v1/tasks/") and ruta.endswith("/status/"):
             # Como el estado de una tarea de Celery: en curso unas vueltas y luego el
             # lote se aplica de una vez, con la respuesta del síncrono en result_data.
@@ -386,6 +397,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if tarea[2] is None:
                 tarea[2] = self.server.confirmar(tarea[0])
+                if tarea[0].get("lote_id") and tarea[2][0] == 200:
+                    self.server.lotes_vistos[tarea[0]["lote_id"]] = tarea[2][1]
             estado, cuerpo = tarea[2]
             self._json({
                 "status": "SUCCESS" if estado == 200 else "FAILURE",
@@ -623,17 +636,35 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get("Authorization") != "Token tok-de-prueba":
                 self._json({"detail": "Credenciales no válidas"}, 401)
                 return
+            lote_id = datos.get("lote_id")
+            visto = self.server.lotes_vistos.get(lote_id) if lote_id else None
+            if isinstance(visto, dict):
+                self._json(visto)
+                return
+            if isinstance(visto, str) and self.server.tareas[visto][2] is None:
+                self._json({"task_id": visto, "status_url": f"/api/v1/tasks/{visto}/status/"}, 202)
+                return
             total = sum(len(datos.get(k) or []) for k in ("crear", "cambiar", "retirar"))
             sincrono = self.server.lote_sincrono
             if sincrono is not None and total > sincrono:
                 tarea = f"tarea-{len(self.server.tareas) + 1}"
                 self.server.tareas[tarea] = [datos, self.server.vueltas_de_tarea, None]
+                if lote_id:
+                    self.server.lotes_vistos[lote_id] = tarea
                 self._json({
                     "method": "celery", "task_id": tarea,
                     "status_url": f"/api/v1/tasks/{tarea}/status/", "total": total,
                 }, 202)
                 return
             estado, cuerpo = self.server.confirmar(datos)
+            if lote_id and estado == 200:
+                self.server.lotes_vistos[lote_id] = cuerpo
+            if self.server.perder_respuesta:
+                # Entró, pero la conexión se cierra sin responder.
+                self.server.perder_respuesta = False
+                self.close_connection = True
+                self.connection.shutdown(2)
+                return
             self._json(cuerpo, estado)
             return
 
@@ -703,6 +734,10 @@ class _Servidor(HTTPServer):
         self.lote_sincrono = None
         self.vueltas_de_tarea = 2
         self.tareas = {}
+        # Como LoteDeQgis: lote_id → respuesta de los lotes que entraron, o la tarea en curso.
+        self.lotes_vistos = {}
+        # La próxima confirmación se aplica pero la respuesta no llega (un corte).
+        self.perder_respuesta = False
 
     def _version_nueva(self):
         self._reloj += 1

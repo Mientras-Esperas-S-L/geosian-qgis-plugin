@@ -19,6 +19,8 @@ Lo comprobó ``tests/test_lote_qgis.py`` en QGIS 3.34 y 4.
 """
 
 import json
+import time
+import uuid
 
 from qgis.core import (
     QgsCoordinateReferenceSystem,
@@ -30,6 +32,7 @@ from qgis.core import (
 from qgis.PyQt.QtCore import QDate, QDateTime, QEventLoop, QTime, QTimer, QVariant
 
 from ..core import adjuntos as A
+from ..core import lotes_sin_respuesta as pendientes
 from ..core import schema as S
 from ..core.errors import (
     ConflictError,
@@ -69,6 +72,9 @@ class Edicion:
         self.al_conflicto = None
         # A quién decir que el lote va a segundo plano en Geosian (gui/edicion.py).
         self.al_encolar = None
+        # (huella, lote_id) del último lote del que no se supo si entró: si se vuelve
+        # a guardar lo mismo, va con el mismo identificador y Geosian no lo repite.
+        self._incierto = None
 
     # ------------------------------------------------------------------
     # Lo que se puede hacer
@@ -302,33 +308,106 @@ class Edicion:
             # Todo lo pendiente era volver a poner lo que ya había.
             self._hecho = {}
             return True
+        huella = json.dumps(lote, sort_keys=True, default=str)
+        donde = (self._uri.connection, self._uri.layer_id, self._uri.geometry_type)
         try:
-            respuesta = self._client.confirmar(
-                self._uri.layer_id, self._uri.geometry_type, **lote,
-                esperar=_esperar_pintando, al_encolar=self.al_encolar,
-            )
-        except LoteIncierto as exc:
+            lote_id = self._identificador_de_lote(huella)
+            pendientes.apuntar(*donde, lote_id)
+        except _NoSePuede as exc:
             self.pushError(f"Geosian: {exc}")
-            self._foto = None
-            return False
-        except ConflictError as exc:
-            self.pushError(texto_de_conflicto(exc))
-            self._foto = None
-            self.conflictos = conflictos_de(exc)
-            if self.al_conflicto is not None:
-                self.al_conflicto(list(self.conflictos))
-            return False
-        except (ForbiddenError, HttpError, NetworkError, GeosianError) as exc:
-            self.pushError(f"Geosian no ha guardado nada: {texto_de_error(exc)}")
             self._foto = None
             return False
         except Exception as exc:  # una excepción aquí tumbaría QGIS
             self.pushError(f"Geosian no ha guardado nada: {exc}")
             self._foto = None
             return False
+        try:
+            respuesta = self._client.confirmar(
+                self._uri.layer_id, self._uri.geometry_type, **lote,
+                esperar=_esperar_pintando, al_encolar=self.al_encolar, lote_id=lote_id,
+            )
+        except LoteIncierto as exc:
+            # El apunte se queda: al reabrir o al volver a guardar se pregunta cómo acabó.
+            self._incierto = (huella, lote_id)
+            self.pushError(f"Geosian: {exc}")
+            self._foto = None
+            return False
+        except Exception as exc:  # una excepción aquí tumbaría QGIS
+            # Cualquier otra respuesta es segura: el lote no entró.
+            pendientes.olvidar(*donde)
+            self._incierto = None
+            return self._fallo_de_confirmar(exc)
+        pendientes.olvidar(*donde)
+        self._incierto = None
         self._hecho = respuesta or {}
         self._aplicar_respuesta(lote, self._hecho)
         return True
+
+    def _identificador_de_lote(self, huella):
+        """El ``lote_id`` con el que se manda: el mismo si se reenvía lo que no se supo.
+
+        Si quedó un lote sin respuesta y lo que se guarda ahora es otra cosa, antes se
+        pregunta a Geosian cómo acabó aquel: si entró, o aún se está aplicando, mandar
+        esto podría repetir sus altas (``_NoSePuede``).
+        """
+        apunte = pendientes.apuntado(self._uri.connection, self._uri.layer_id, self._uri.geometry_type)
+        if apunte is None:
+            return str(uuid.uuid4())
+        if self._incierto == (huella, apunte["lote_id"]):
+            return apunte["lote_id"]
+        estado = self.revisar_lote_sin_respuesta()
+        if estado is None:
+            raise _NoSePuede(
+                "no se ha podido preguntar cómo acabó el guardado anterior de esta capa. "
+                "Vuelve a intentarlo cuando haya conexión."
+            )
+        if estado[0] == "entro":
+            raise _NoSePuede(
+                f"el guardado anterior de esta capa ({estado[1]}) sí entró. Descarta estos "
+                "cambios y recarga la capa para ver lo que hay antes de repetir nada."
+            )
+        if estado[0] == "en_curso":
+            raise _NoSePuede(
+                f"el guardado anterior de esta capa ({estado[1]}) aún se está aplicando. "
+                "Espera a que acabe y recarga la capa."
+            )
+        return str(uuid.uuid4())
+
+    def revisar_lote_sin_respuesta(self):
+        """Cómo acabó el lote que quedó sin respuesta: ``(estado, hora)`` o ``None``.
+
+        ``estado`` es ``entro``, ``en_curso`` o ``no_consta``; con los dos que cierran
+        el asunto, el apunte se borra. ``None`` si no hay apunte o no se pudo preguntar.
+        """
+        if self._uri is None or self._client is None:
+            return None
+        donde = (self._uri.connection, self._uri.layer_id, self._uri.geometry_type)
+        apunte = pendientes.apuntado(*donde)
+        if apunte is None:
+            return None
+        try:
+            estado = (self._client.estado_de_lote(apunte["lote_id"]) or {}).get("estado")
+        except Exception:  # sin red: se volverá a preguntar
+            return None
+        if estado in ("entro", "no_consta"):
+            pendientes.olvidar(*donde)
+            self._incierto = None
+        hora = time.strftime("%d/%m %H:%M", time.localtime(apunte.get("cuando") or 0))
+        return estado, hora
+
+    def _fallo_de_confirmar(self, exc):
+        """El lote no entró: dice por qué y devuelve ``False`` para que QGIS lo deje pendiente."""
+        self._foto = None
+        if isinstance(exc, ConflictError):
+            self.pushError(texto_de_conflicto(exc))
+            self.conflictos = conflictos_de(exc)
+            if self.al_conflicto is not None:
+                self.al_conflicto(list(self.conflictos))
+        elif isinstance(exc, (ForbiddenError, HttpError, NetworkError, GeosianError)):
+            self.pushError(f"Geosian no ha guardado nada: {texto_de_error(exc)}")
+        else:
+            self.pushError(f"Geosian no ha guardado nada: {exc}")
+        return False
 
     def _aplicar_respuesta(self, lote, respuesta):
         """Lo confirmado, a la caché: valores nuevos, versiones nuevas y lo retirado fuera."""

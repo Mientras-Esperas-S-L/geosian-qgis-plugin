@@ -35,8 +35,8 @@ ESPERA_DE_LOTE = 27 * 60
 ESPERA_EN_COLA = 30 * 60
 # Al cabo de esto, «no se sabe»: puede entrar todavía.
 INCIERTO = (
-    "No se sabe si Geosian ha guardado los cambios: {motivo}. No vuelvas a guardar: "
-    "las altas se crearían dos veces. Descarta los cambios pendientes y recarga la capa."
+    "No se sabe si Geosian ha guardado los cambios: {motivo}. Vuelve a guardar sin "
+    "tocar nada: si ya entraron, Geosian lo sabe y no los repite."
 )
 
 # Cuánto se reutiliza el listado de capas de un mapa. Abrir un mapa entero son
@@ -266,7 +266,7 @@ class GeosianClient:
 
     def confirmar(
         self, layer_id, geometry_type, crear=(), cambiar=(), retirar=(),
-        esperar=time.sleep, al_encolar=None,
+        esperar=time.sleep, al_encolar=None, lote_id=None,
     ):
         """Manda lo confirmado de una capa en un lote: entra todo o nada.
 
@@ -276,6 +276,9 @@ class GeosianClient:
         Un lote grande Geosian lo aplica en segundo plano (202): se llama a
         ``al_encolar(total)``, se pregunta por la tarea con ``esperar(segundos)``
         entre vuelta y vuelta, y se devuelve o se lanza lo mismo que sin esperar.
+
+        Con ``lote_id``, reenviar el mismo lote no lo aplica dos veces: si ya entró,
+        Geosian responde lo de entonces.
         """
         url = self._url(f"{API_PREFIX}/geodata/confirmar/")
         cuerpo = {
@@ -285,6 +288,8 @@ class GeosianClient:
             "cambiar": list(cambiar),
             "retirar": list(retirar),
         }
+        if lote_id:
+            cuerpo["lote_id"] = lote_id
         try:
             resp = self.transport.request(
                 "POST",
@@ -304,6 +309,13 @@ class GeosianClient:
         if al_encolar is not None:
             al_encolar(encolado.get("total"))
         return self._esperar_lote(encolado["task_id"], esperar)
+
+    def estado_de_lote(self, lote_id):
+        """Cómo acabó un lote propio: ``{"estado": "entro"|"en_curso"|"no_consta", ...}``.
+
+        ``GET /geodata/confirmar/<lote_id>/``.
+        """
+        return self._get(f"{API_PREFIX}/geodata/confirmar/{lote_id}/") or {}
 
     def _esperar_lote(self, task_id, esperar):
         """Pregunta por el lote en segundo plano hasta que acaba y da su respuesta."""
