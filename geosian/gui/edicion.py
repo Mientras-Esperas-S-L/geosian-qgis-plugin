@@ -110,6 +110,21 @@ def _al_conflicto(capa, proveedor, conflictos):
     QTimer.singleShot(0, mostrar)
 
 
+def _al_encolar(capa, total):
+    try:
+        from qgis.utils import iface
+    except ImportError:
+        iface = None
+    if iface is None:
+        return
+    cuantos = f"los {total:,} cambios".replace(",", ".") if total else "los cambios"
+    iface.messageBar().pushInfo(
+        "Geosian",
+        f"«{capa.name()}»: Geosian aplica {cuantos} en segundo plano, todos o ninguno. "
+        "Puede tardar unos minutos.",
+    )
+
+
 def _avisar(capa, avisos):
     try:
         from qgis.utils import iface
@@ -210,6 +225,7 @@ def enganchar(capa):
     capa.afterRollBack.connect(proveedor.olvidar_lote)
     capa.editingStopped.connect(proveedor.terminar_edicion)
     proveedor.al_conflicto = lambda conflictos: _al_conflicto(capa, proveedor, conflictos)
+    proveedor.al_encolar = lambda total: _al_encolar(capa, total)
     capa.setProperty("geosian_edicion", True)
     return True
 

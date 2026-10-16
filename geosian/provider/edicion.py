@@ -27,7 +27,7 @@ from qgis.core import (
     QgsProject,
     QgsVectorDataProvider,
 )
-from qgis.PyQt.QtCore import QDate, QDateTime, QTime, QVariant
+from qgis.PyQt.QtCore import QDate, QDateTime, QEventLoop, QTime, QTimer, QVariant
 
 from ..core import adjuntos as A
 from ..core import schema as S
@@ -66,6 +66,8 @@ class Edicion:
         # Los choques del último 409 y a quién avisar (gui/edicion.py abre el diálogo).
         self.conflictos = []
         self.al_conflicto = None
+        # A quién decir que el lote va a segundo plano en Geosian (gui/edicion.py).
+        self.al_encolar = None
 
     # ------------------------------------------------------------------
     # Lo que se puede hacer
@@ -301,7 +303,8 @@ class Edicion:
             return True
         try:
             respuesta = self._client.confirmar(
-                self._uri.layer_id, self._uri.geometry_type, **lote
+                self._uri.layer_id, self._uri.geometry_type, **lote,
+                esperar=_esperar_pintando, al_encolar=self.al_encolar,
             )
         except ConflictError as exc:
             self.pushError(texto_de_conflicto(exc))
@@ -485,6 +488,16 @@ class Edicion:
         except Exception as exc:  # una excepción en un método virtual tumba QGIS
             self.pushError(f"Geosian: {exc}")
             return False
+
+
+def _esperar_pintando(segundos):
+    """Espera sin congelar la ventana: QGIS se pinta, pero no atiende ratón ni teclado.
+
+    Mientras Geosian aplica un lote grande, QGIS está a mitad de confirmar la capa.
+    """
+    bucle = QEventLoop()
+    QTimer.singleShot(int(segundos * 1000), bucle.quit)
+    bucle.exec(QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents)
 
 
 def _comprobar_lista(attr, campo, nuevo, viejo):

@@ -16,6 +16,7 @@ from .errors import (
     ConflictError,
     ForbiddenError,
     GeosianError,
+    NetworkError,
     NotFoundError,
 )
 from .http import DEFAULT_TIMEOUT, Response, default_transport
@@ -23,6 +24,11 @@ from .http import DEFAULT_TIMEOUT, Response, default_transport
 API_PREFIX = "/api/v1"
 # Lo que se espera a que suba una foto o un fichero (hasta 30 MB).
 PLAZO_DE_SUBIDA = 300
+# Un lote grande lo aplica Geosian en segundo plano (202): se pregunta cada
+# PAUSA_DE_LOTE segundos. Allí no puede pasar de 25 minutos (el límite blando de
+# Celery); ESPERA_DE_LOTE deja un margen antes de rendirse.
+PAUSA_DE_LOTE = 2
+ESPERA_DE_LOTE = 27 * 60
 
 # Cuánto se reutiliza el listado de capas de un mapa. Abrir un mapa entero son
 # decenas de capas seguidas y cada una pregunta por sus metadatos: sin esto, el
@@ -249,22 +255,71 @@ class GeosianClient:
                 return permisos if isinstance(permisos, dict) else None
         return None
 
-    def confirmar(self, layer_id, geometry_type, crear=(), cambiar=(), retirar=()):
+    def confirmar(
+        self, layer_id, geometry_type, crear=(), cambiar=(), retirar=(),
+        esperar=time.sleep, al_encolar=None,
+    ):
         """Manda lo confirmado de una capa en un lote: entra todo o nada.
 
         ``POST /geodata/confirmar/``. Un 409 (:class:`ConflictError`) trae en su
         cuerpo ``conflictos``: los elementos que alguien tocó después de leerlos.
+
+        Un lote grande Geosian lo aplica en segundo plano (202): se llama a
+        ``al_encolar(total)``, se pregunta por la tarea con ``esperar(segundos)``
+        entre vuelta y vuelta, y se devuelve o se lanza lo mismo que sin esperar.
         """
-        return self._post(
-            f"{API_PREFIX}/geodata/confirmar/",
-            {
-                "layer_id": layer_id,
-                "geometry_type": geometry_type,
-                "crear": list(crear),
-                "cambiar": list(cambiar),
-                "retirar": list(retirar),
-            },
+        url = self._url(f"{API_PREFIX}/geodata/confirmar/")
+        cuerpo = {
+            "layer_id": layer_id,
+            "geometry_type": geometry_type,
+            "crear": list(crear),
+            "cambiar": list(cambiar),
+            "retirar": list(retirar),
+        }
+        resp = self.transport.request(
+            "POST",
+            url,
+            self._headers({"Content-Type": "application/json"}),
+            json.dumps(cuerpo).encode("utf-8"),
+            # Un lote grande pesa varios megas: el plazo es el de una subida.
+            timeout=max(self.timeout, PLAZO_DE_SUBIDA),
         )
+        resp = self._check(resp, url)
+        if resp.status != 202:
+            return resp.json()
+        encolado = resp.json() or {}
+        if al_encolar is not None:
+            al_encolar(encolado.get("total"))
+        return self._esperar_lote(encolado["task_id"], esperar)
+
+    def _esperar_lote(self, task_id, esperar):
+        """Pregunta por el lote en segundo plano hasta que acaba y da su respuesta."""
+        ruta = f"{API_PREFIX}/tasks/{task_id}/status/"
+        limite = time.monotonic() + ESPERA_DE_LOTE
+        while True:
+            esperar(PAUSA_DE_LOTE)
+            try:
+                tarea = self._get(ruta)
+            except NetworkError:
+                # Un corte al preguntar no dice nada del lote: se sigue preguntando.
+                tarea = None
+            if tarea and tarea.get("status") in ("SUCCESS", "FAILURE", "REVOKED"):
+                break
+            if time.monotonic() > limite:
+                raise NetworkError(
+                    "Geosian no ha terminado de aplicar el lote y puede que aún entre. "
+                    "Recarga la capa antes de volver a confirmar."
+                )
+        resultado = tarea.get("result_data") or {}
+        cuerpo = resultado.get("cuerpo") or {
+            "error": tarea.get("error_message") or "Geosian no ha aplicado el lote."
+        }
+        # Lo mismo que habría respondido el lote sin esperar: mismos errores.
+        self._check(
+            Response(resultado.get("estado") or 500, json.dumps(cuerpo).encode("utf-8")),
+            self._url(ruta),
+        )
+        return cuerpo
 
     def subir_adjunto(self, layer_id, geometry_type, campo, nombre, contenido):
         """Sube una foto o un fichero de un elemento nuevo y devuelve su referencia.

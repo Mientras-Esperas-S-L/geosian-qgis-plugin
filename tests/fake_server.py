@@ -373,6 +373,27 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"detail": "Credenciales no válidas"}, 401)
             return
 
+        if ruta.startswith("/api/v1/tasks/") and ruta.endswith("/status/"):
+            # Como el estado de una tarea de Celery: en curso unas vueltas y luego el
+            # lote se aplica de una vez, con la respuesta del síncrono en result_data.
+            tarea = self.server.tareas.get(ruta[len("/api/v1/tasks/"):-len("/status/")])
+            if tarea is None:
+                self._json({"error": "Tarea no encontrada"}, 404)
+                return
+            if tarea[1] > 0:
+                tarea[1] -= 1
+                self._json({"status": "STARTED", "result_data": None, "error_message": ""})
+                return
+            if tarea[2] is None:
+                tarea[2] = self.server.confirmar(tarea[0])
+            estado, cuerpo = tarea[2]
+            self._json({
+                "status": "SUCCESS" if estado == 200 else "FAILURE",
+                "result_data": {"estado": estado, "cuerpo": cuerpo},
+                "error_message": "",
+            })
+            return
+
         if ruta.startswith("/api/v1/geodata/tiles/") and ruta.endswith(".mvt"):
             # Celdas agregadas con su centroide, como el servidor con agg=hex&geom=centroid:
             # una por elemento (y diez en la del primero, para que haya un grupo).
@@ -602,6 +623,16 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get("Authorization") != "Token tok-de-prueba":
                 self._json({"detail": "Credenciales no válidas"}, 401)
                 return
+            total = sum(len(datos.get(k) or []) for k in ("crear", "cambiar", "retirar"))
+            sincrono = self.server.lote_sincrono
+            if sincrono is not None and total > sincrono:
+                tarea = f"tarea-{len(self.server.tareas) + 1}"
+                self.server.tareas[tarea] = [datos, self.server.vueltas_de_tarea, None]
+                self._json({
+                    "method": "celery", "task_id": tarea,
+                    "status_url": f"/api/v1/tasks/{tarea}/status/", "total": total,
+                }, 202)
+                return
             estado, cuerpo = self.server.confirmar(datos)
             self._json(cuerpo, estado)
             return
@@ -667,6 +698,11 @@ class _Servidor(HTTPServer):
         self.adjuntos = {}
         # Lo que cada alta se quedó: id → {campo: [(nombre, bytes)]}.
         self.adjuntos_de = {}
+        # Como LOTE_SINCRONO del backend: por encima, 202 y el lote en segundo plano.
+        # None: todo síncrono. Las tareas: id → [lote, vueltas que quedan, resultado].
+        self.lote_sincrono = None
+        self.vueltas_de_tarea = 2
+        self.tareas = {}
 
     def _version_nueva(self):
         self._reloj += 1
