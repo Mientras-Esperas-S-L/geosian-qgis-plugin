@@ -6,6 +6,7 @@ verdad. Las respuestas imitan la forma real: GeoJSON en ``geodata``,
 """
 
 import base64
+import copy
 import json
 import re
 import threading
@@ -293,9 +294,9 @@ VISTA_TILOS = {
 }
 
 
-def _pagina_de_elementos(consulta, lasso=None):
+def _pagina_de_elementos(consulta, lasso=None, servidor=None):
     """Lo que devolvería /geodata/paginated/ con esos parámetros."""
-    elementos = ELEMENTOS
+    elementos = servidor.elementos if servidor is not None else ELEMENTOS
     ids = consulta.get("ids", [""])[0]
     if ids:
         pedidos = {int(i) for i in ids.split(",") if i}
@@ -330,6 +331,13 @@ def _pagina_de_elementos(consulta, lasso=None):
     if consulta.get("no_geometry") == ["true"]:
         # Como la API desde el PR de no_geometry en /paginated/: los atributos, sin forma.
         elementos = [{**e, "geometry": None} for e in elementos]
+    if servidor is not None and consulta.get("include_version") == ["true"]:
+        # Como la API con include_version: la versión exacta, aparte de updated_at.
+        elementos = [
+            {**e, "properties": {**e["properties"],
+                                 "updated_at_iso": servidor.versiones.get(e["properties"]["id"])}}
+            for e in elementos
+        ]
     pagina = int(consulta.get("page", ["1"])[0])
     return {"type": "FeatureCollection", "features": elementos if pagina == 1 else []}
 
@@ -363,6 +371,27 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.headers.get("Authorization") != "Token tok-de-prueba":
             self._json({"detail": "Credenciales no válidas"}, 401)
+            return
+
+        if ruta.startswith("/api/v1/tasks/") and ruta.endswith("/status/"):
+            # Como el estado de una tarea de Celery: en curso unas vueltas y luego el
+            # lote se aplica de una vez, con la respuesta del síncrono en result_data.
+            tarea = self.server.tareas.get(ruta[len("/api/v1/tasks/"):-len("/status/")])
+            if tarea is None:
+                self._json({"error": "Tarea no encontrada"}, 404)
+                return
+            if tarea[1] > 0:
+                tarea[1] -= 1
+                self._json({"status": "STARTED", "result_data": None, "error_message": ""})
+                return
+            if tarea[2] is None:
+                tarea[2] = self.server.confirmar(tarea[0])
+            estado, cuerpo = tarea[2]
+            self._json({
+                "status": "SUCCESS" if estado == 200 else "FAILURE",
+                "result_data": {"estado": estado, "cuerpo": cuerpo},
+                "error_message": "",
+            })
             return
 
         if ruta.startswith("/api/v1/geodata/tiles/") and ruta.endswith(".mvt"):
@@ -418,6 +447,10 @@ class Handler(BaseHTTPRequestHandler):
 
         elif ruta == "/api/v1/maps/4/layers/":
             capas = [dict(c) for c in CAPAS + self.server.capas_extra]
+            if consulta.get("include_permissions") == ["true"]:
+                # Como la API con include_permissions; sin entrada, ningún permiso.
+                for capa in capas:
+                    capa["permissions"] = dict(self.server.permisos.get(capa["id"], SIN_PERMISOS))
             if not consulta.get("include_tile_metadata"):
                 for capa in capas:
                     capa.pop("tile_metadata", None)
@@ -501,7 +534,7 @@ class Handler(BaseHTTPRequestHandler):
             )
 
         elif ruta == "/api/v1/geodata/paginated/":
-            self._json(_pagina_de_elementos(consulta))
+            self._json(_pagina_de_elementos(consulta, servidor=self.server))
 
         elif re.fullmatch(r"/api/v1/geodata/\d+/", ruta):
             fid = int(ruta.split("/")[-2])
@@ -573,7 +606,35 @@ class Handler(BaseHTTPRequestHandler):
             if self.headers.get("Authorization") != "Token tok-de-prueba":
                 self._json({"detail": "Credenciales no válidas"}, 401)
                 return
-            self._json(_pagina_de_elementos(consulta, datos.get("lasso_geometry")))
+            self._json(_pagina_de_elementos(consulta, datos.get("lasso_geometry"), servidor=self.server))
+            return
+
+        if partes.path == "/api/v1/geodata/adjuntos/":
+            Handler.peticiones.append((partes.path, {k: v for k, v in datos.items() if k != "datos"}))
+            if self.headers.get("Authorization") != "Token tok-de-prueba":
+                self._json({"detail": "Credenciales no válidas"}, 401)
+                return
+            estado, cuerpo = self.server.subir_adjunto(datos)
+            self._json(cuerpo, estado)
+            return
+
+        if partes.path == "/api/v1/geodata/confirmar/":
+            Handler.peticiones.append((partes.path, datos))
+            if self.headers.get("Authorization") != "Token tok-de-prueba":
+                self._json({"detail": "Credenciales no válidas"}, 401)
+                return
+            total = sum(len(datos.get(k) or []) for k in ("crear", "cambiar", "retirar"))
+            sincrono = self.server.lote_sincrono
+            if sincrono is not None and total > sincrono:
+                tarea = f"tarea-{len(self.server.tareas) + 1}"
+                self.server.tareas[tarea] = [datos, self.server.vueltas_de_tarea, None]
+                self._json({
+                    "method": "celery", "task_id": tarea,
+                    "status_url": f"/api/v1/tasks/{tarea}/status/", "total": total,
+                }, 202)
+                return
+            estado, cuerpo = self.server.confirmar(datos)
+            self._json(cuerpo, estado)
             return
 
         if partes.path == "/users/login/" and datos.get("email") == "doble@ejemplo.com":
@@ -607,12 +668,225 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"detail": "No existe"}, 404)
 
 
+TODOS_LOS_PERMISOS = {"can_create": True, "can_update": True, "can_retire": True, "update_restringido": False}
+SIN_PERMISOS = {"can_create": False, "can_update": False, "can_retire": False, "update_restringido": False}
+
+
+class _Servidor(HTTPServer):
+    """El servidor con su estado: los elementos, sus versiones y los permisos.
+
+    Cada prueba tiene los suyos (una copia de ``ELEMENTOS``), porque confirmar
+    los cambia.
+    """
+
+    def __init__(self, *args):
+        super().__init__(*args)
+        self.elementos = copy.deepcopy(ELEMENTOS)
+        self.versiones = {
+            e["properties"]["id"]: f"2026-08-0{i + 1}T10:00:00.12345{i}+00:00"
+            for i, e in enumerate(self.elementos)
+        }
+        self.permisos = {11: dict(TODOS_LOS_PERMISOS)}
+        self.lotes = []
+        # (estado, cuerpo) que dará la próxima confirmación, sin aplicar nada.
+        self.forzar = None
+        # Los campos calculados que pone el servidor: (antes, nuevos) → {campo: valor}.
+        self.calcular = lambda antes, nuevos: {}
+        self._siguiente_id = 2001
+        self._reloj = 0
+        # Las fotos y los ficheros subidos sueltos para un alta: ref → datos.
+        self.adjuntos = {}
+        # Lo que cada alta se quedó: id → {campo: [(nombre, bytes)]}.
+        self.adjuntos_de = {}
+        # Como LOTE_SINCRONO del backend: por encima, 202 y el lote en segundo plano.
+        # None: todo síncrono. Las tareas: id → [lote, vueltas que quedan, resultado].
+        self.lote_sincrono = None
+        self.vueltas_de_tarea = 2
+        self.tareas = {}
+
+    def _version_nueva(self):
+        self._reloj += 1
+        return f"2026-10-11T12:00:{self._reloj:02d}.{self._reloj:06d}+00:00"
+
+    def tocar(self, fid, **atributos):
+        """Otro usuario cambia el elemento: nueva versión."""
+        elemento = next(e for e in self.elementos if e["properties"]["id"] == fid)
+        elemento["properties"].update(atributos)
+        self.versiones[fid] = self._version_nueva()
+
+    def subir_adjunto(self, datos):
+        """Como POST /geodata/adjuntos/: campo de fotos o ficheros del esquema y permiso de alta."""
+        if not self.permisos.get(datos.get("layer_id"), SIN_PERMISOS)["can_create"]:
+            return 403, {"error": "No tiene permisos para create en esta capa"}
+        tipos = {a["name"]: a["type"] for a in _campos_del_esquema(ESQUEMA_ARBOLADO.get("attributes"))}
+        campo = datos.get("campo")
+        if tipos.get(campo) not in ("images", "files"):
+            return 400, {"error": f"«{campo}» no es un campo de fotos ni de ficheros de la capa", "campo": campo}
+        nombre = datos.get("nombre") or ""
+        if nombre.lower().endswith(".exe"):
+            return 400, {"error": f"«{nombre}»: el tipo de archivo .exe no está permitido"}
+        ref = f"00000000-0000-0000-0000-{len(self.adjuntos) + 1:012d}"
+        self.adjuntos[ref] = {
+            "campo": campo, "nombre": nombre, "contenido": base64.b64decode(datos.get("datos") or ""),
+            "tipo": "foto" if tipos[campo] == "images" else "fichero",
+        }
+        return 201, {
+            "adjunto": ref, "campo": campo, "tipo": self.adjuntos[ref]["tipo"], "nombre": nombre,
+            "tamano": len(self.adjuntos[ref]["contenido"]), "caduca": "2026-10-16T12:00:00+00:00",
+        }
+
+    def _resolver_adjuntos(self, atributos):
+        """Como ``adjuntos_pendientes.resolver``: las referencias, por su contenido."""
+        usados = {}
+        for campo, valor in list(atributos.items()):
+            if not isinstance(valor, list) or not any(isinstance(v, dict) and "adjunto" in v for v in valor):
+                continue
+            for v in valor:
+                adjunto = self.adjuntos.get(v.get("adjunto")) if isinstance(v, dict) else None
+                if adjunto is None or adjunto["campo"] != campo:
+                    return None, {"campo": campo, "error": f"«{campo}»: un adjunto ya no está en Geosian"}
+                usados.setdefault(campo, []).append((v["adjunto"], adjunto["nombre"], adjunto["contenido"]))
+            del atributos[campo]
+        return usados, None
+
+    def confirmar(self, lote):
+        """Como POST /geodata/confirmar/: todo o nada, con el mismo cuerpo de respuesta."""
+        self.lotes.append(copy.deepcopy(lote))
+        if self.forzar is not None:
+            estado, cuerpo = self.forzar
+            self.forzar = None
+            return estado, cuerpo
+        permisos = self.permisos.get(lote.get("layer_id"), SIN_PERMISOS)
+        if (lote.get("crear") and not permisos["can_create"]) or (
+            lote.get("cambiar") and not permisos["can_update"]
+        ) or (lote.get("retirar") and not permisos["can_retire"]):
+            return 403, {"error": "No tiene permisos para update en esta capa"}
+
+        por_id = {e["properties"]["id"]: e for e in self.elementos}
+        errores, choques = [], []
+        for nombre in ("cambiar", "retirar"):
+            for op in lote.get(nombre, []):
+                if op["id"] not in por_id:
+                    errores.append({"op": nombre, "id": op["id"], "error": "El elemento no existe en esta capa"})
+                elif op.get("expected_updated_at") != self.versiones[op["id"]]:
+                    choques.append({
+                        "op": nombre, "id": op["id"], "updated_at": self.versiones[op["id"]],
+                        "object_status": "disponible",
+                        "updated_by": {"id": 7, "username": "otra", "nombre": "Otra Técnica"},
+                    })
+        if errores:
+            return 400, {"errores": errores}
+        if choques:
+            return 409, {"conflictos": choques}
+        for op in lote.get("cambiar", []):
+            if "attributes" in op:
+                error = _reglas_de_la_web(por_id[op["id"]]["properties"], dict(op["attributes"]), False)
+                if error:
+                    return 400, {"errores": [{"op": "cambiar", "id": op["id"], **error}]}
+        medios = {}
+        for alta in lote.get("crear", []):
+            usados, error = self._resolver_adjuntos(alta.setdefault("attributes", {}))
+            if error:
+                return 400, {"errores": [{"op": "crear", "ref": alta.get("ref"), **error}]}
+            medios[alta.get("ref")] = usados
+            error = _reglas_de_la_web({}, alta["attributes"], True)
+            if error:
+                return 400, {"errores": [{"op": "crear", "ref": alta.get("ref"), **error}]}
+
+        resultado = {"creados": [], "cambiados": [], "retirados": []}
+        for op in lote.get("cambiar", []):
+            propiedades = por_id[op["id"]]["properties"]
+            calculados = self.calcular(dict(propiedades), op["attributes"]) if "attributes" in op else {}
+            propiedades.update({**(op.get("attributes") or {}), **calculados})
+            if "geometry" in op:
+                por_id[op["id"]]["geometry"] = op["geometry"]
+            self.versiones[op["id"]] = self._version_nueva()
+            resultado["cambiados"].append({
+                "id": op["id"], "updated_at": self.versiones[op["id"]], "calculados": calculados,
+            })
+        for op in lote.get("retirar", []):
+            self.elementos.remove(por_id[op["id"]])
+            self.versiones[op["id"]] = self._version_nueva()
+            resultado["retirados"].append({"id": op["id"], "updated_at": self.versiones[op["id"]]})
+        for alta in lote.get("crear", []):
+            fid = self._siguiente_id
+            self._siguiente_id += 1
+            calculados = self.calcular({}, alta.get("attributes") or {})
+            self.elementos.append({
+                "type": "Feature", "geometry": alta["geometry"],
+                "properties": {"id": fid, "object_id": f"OBJ-{fid}", **(alta.get("attributes") or {}), **calculados},
+            })
+            self.versiones[fid] = self._version_nueva()
+            if medios.get(alta["ref"]):
+                self.adjuntos_de[fid] = {
+                    campo: [(nombre, contenido) for _, nombre, contenido in lista]
+                    for campo, lista in medios[alta["ref"]].items()
+                }
+                for lista in medios[alta["ref"]].values():
+                    for ref, _, _ in lista:
+                        self.adjuntos.pop(ref, None)
+            resultado["creados"].append({
+                "ref": alta["ref"], "id": fid, "object_id": f"OBJ-{fid}", "updated_at": self.versiones[fid],
+                "calculados": calculados,
+            })
+        return 200, resultado
+
+
+def _campos_del_esquema(atributos):
+    for attr in atributos or []:
+        if attr.get("type") in ("section", "section_decision", "page_section"):
+            yield from _campos_del_esquema(attr.get("contents"))
+        elif attr.get("name"):
+            yield attr
+
+
+def _reglas_de_la_web(antes, nuevos, alta):
+    """Como ``reglas_de_la_web`` del backend: lo que la web no deja, en el lote.
+
+    Devuelve el error (o None); las altas se corrigen en ``nuevos``.
+    """
+    nodos = {}
+    for attr in _campos_del_esquema(ESQUEMA_ARBOLADO.get("attributes")):
+        nodos.setdefault(attr["name"], []).append(attr)
+    for nombre, lista in nodos.items():
+        if not all(a.get("editable") is False or a.get("visible") is False for a in lista):
+            continue
+        if alta:
+            nuevos.pop(nombre, None)
+        elif nombre in nuevos and nuevos[nombre] != antes.get(nombre):
+            return {"campo": nombre, "error": f"«{nombre}» es de solo lectura en Geosian: no se cambia"}
+
+    def como_lista(valor):
+        return [] if valor in (None, "") else valor if isinstance(valor, list) else [valor]
+
+    for nombre, valor in nuevos.items():
+        lista = nodos.get(nombre) or []
+        if not lista or any(
+            a.get("type") not in ("select", "radio", "checkbox", "autocomplete")
+            or not isinstance(a.get("allowed_values"), list)
+            for a in lista
+        ):
+            continue
+        permitidos = {str(v) for a in lista for v in a["allowed_values"]}
+        ya = set() if alta else {str(v) for v in como_lista(antes.get(nombre))}
+        fuera = [v for v in como_lista(valor) if str(v) not in permitidos and str(v) not in ya]
+        if permitidos and fuera:
+            return {"campo": nombre, "error": f"«{nombre}»: «{fuera[0]}» no está en su lista de valores en Geosian"}
+
+    # Obligatorios, simplificado al esquema de aquí: en un alta, los de primer nivel.
+    if alta:
+        for attr in ESQUEMA_ARBOLADO.get("attributes") or []:
+            if attr.get("required") is True and attr.get("editable") is not False and nuevos.get(attr["name"]) in (None, ""):
+                return {"campo": attr["name"], "error": f"«{attr['name']}» es obligatorio en Geosian"}
+    return None
+
+
 class FakeGeosian:
     """Servidor de usar y tirar, en un hilo aparte."""
 
     def __init__(self):
         Handler.peticiones = []
-        self._server = HTTPServer(("127.0.0.1", 0), Handler)
+        self._server = _Servidor(("127.0.0.1", 0), Handler)
         # El tile_config de /maps/<id>/layers/; None, el de un servidor que no lo da.
         self._server.tile_config = None
         # Capas que añade una prueba al mapa 4, con sus definiciones por id de capa.
@@ -643,6 +917,11 @@ class FakeGeosian:
     def poner_capa(self, capa, definiciones):
         self._server.capas_extra.append(capa)
         self._server.definiciones_extra[str(capa["id"])] = definiciones
+
+    @property
+    def estado(self):
+        """El estado del servidor: ``elementos``, ``versiones``, ``permisos``, ``lotes``…"""
+        return self._server
 
     def rutas_pedidas(self):
         return [ruta for ruta, _ in Handler.peticiones]

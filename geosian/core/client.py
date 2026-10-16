@@ -5,6 +5,7 @@ error a las excepciones de ``errors.py``. No depende de QGIS: el transporte se
 inyecta, así que se puede usar y probar por separado.
 """
 
+import base64
 import json
 import time
 from urllib.parse import urlencode
@@ -15,11 +16,28 @@ from .errors import (
     ConflictError,
     ForbiddenError,
     GeosianError,
+    HttpError,
+    LoteIncierto,
+    NetworkError,
     NotFoundError,
 )
 from .http import DEFAULT_TIMEOUT, Response, default_transport
 
 API_PREFIX = "/api/v1"
+# Lo que se espera a que suba una foto o un fichero (hasta 30 MB).
+PLAZO_DE_SUBIDA = 300
+# Un lote grande lo aplica Geosian en segundo plano (202): se pregunta cada
+# PAUSA_DE_LOTE segundos. Una vez arrancado no puede pasar de 25 minutos (el límite
+# blando de Celery): ESPERA_DE_LOTE deja margen. Antes de arrancar puede esperar
+# en la cola, hasta ESPERA_EN_COLA.
+PAUSA_DE_LOTE = 2
+ESPERA_DE_LOTE = 27 * 60
+ESPERA_EN_COLA = 30 * 60
+# Al cabo de esto, «no se sabe»: puede entrar todavía.
+INCIERTO = (
+    "No se sabe si Geosian ha guardado los cambios: {motivo}. No vuelvas a guardar: "
+    "las altas se crearían dos veces. Descarta los cambios pendientes y recarga la capa."
+)
 
 # Cuánto se reutiliza el listado de capas de un mapa. Abrir un mapa entero son
 # decenas de capas seguidas y cada una pregunta por sus metadatos: sin esto, el
@@ -189,7 +207,10 @@ class GeosianClient:
             return guardado[1]
         respuesta = self._get(
             f"{API_PREFIX}/maps/{map_id}/layers/",
-            {"include_tile_metadata": "true", "include_tile_config": "true"},
+            # include_permissions: lo que el usuario puede escribir en cada capa. Un
+            # servidor que no lo conoce no lo manda, y la capa abre en solo lectura.
+            {"include_tile_metadata": "true", "include_tile_config": "true",
+             "include_permissions": "true"},
             timeout=DEFINITION_TIMEOUT,
         )
         capas = _as_list(respuesta)
@@ -230,6 +251,119 @@ class GeosianClient:
         # capa en /layer-attributes/ (devuelve una lista vacía), así que este es
         # el sitio donde se sabe que ya no existe.
         raise NotFoundError(404, f"La capa {layer_id} no está en el mapa {map_id}", b"", "")
+
+    def layer_permissions(self, layer_id, map_id):
+        """Lo que el usuario puede escribir en la capa, o ``None`` si el servidor no lo dice.
+
+        ``{"can_create", "can_update", "can_retire", "update_restringido"}``. Sale
+        del listado de capas del mapa, como los metadatos.
+        """
+        for capa in self.layers(map_id):
+            if isinstance(capa, dict) and capa.get("id") == layer_id:
+                permisos = capa.get("permissions")
+                return permisos if isinstance(permisos, dict) else None
+        return None
+
+    def confirmar(
+        self, layer_id, geometry_type, crear=(), cambiar=(), retirar=(),
+        esperar=time.sleep, al_encolar=None,
+    ):
+        """Manda lo confirmado de una capa en un lote: entra todo o nada.
+
+        ``POST /geodata/confirmar/``. Un 409 (:class:`ConflictError`) trae en su
+        cuerpo ``conflictos``: los elementos que alguien tocó después de leerlos.
+
+        Un lote grande Geosian lo aplica en segundo plano (202): se llama a
+        ``al_encolar(total)``, se pregunta por la tarea con ``esperar(segundos)``
+        entre vuelta y vuelta, y se devuelve o se lanza lo mismo que sin esperar.
+        """
+        url = self._url(f"{API_PREFIX}/geodata/confirmar/")
+        cuerpo = {
+            "layer_id": layer_id,
+            "geometry_type": geometry_type,
+            "crear": list(crear),
+            "cambiar": list(cambiar),
+            "retirar": list(retirar),
+        }
+        try:
+            resp = self.transport.request(
+                "POST",
+                url,
+                self._headers({"Content-Type": "application/json"}),
+                json.dumps(cuerpo).encode("utf-8"),
+                # Un lote grande pesa varios megas: el plazo es el de una subida.
+                timeout=max(self.timeout, PLAZO_DE_SUBIDA),
+            )
+        except NetworkError as exc:
+            # El lote salió y pudo entrar aunque la respuesta no llegue.
+            raise LoteIncierto(INCIERTO.format(motivo=f"se cortó la conexión ({exc})")) from exc
+        resp = self._check(resp, url)
+        if resp.status != 202:
+            return resp.json()
+        encolado = resp.json() or {}
+        if al_encolar is not None:
+            al_encolar(encolado.get("total"))
+        return self._esperar_lote(encolado["task_id"], esperar)
+
+    def _esperar_lote(self, task_id, esperar):
+        """Pregunta por el lote en segundo plano hasta que acaba y da su respuesta."""
+        ruta = f"{API_PREFIX}/tasks/{task_id}/status/"
+        inicio, arrancada = time.monotonic(), None
+        while True:
+            esperar(PAUSA_DE_LOTE)
+            try:
+                tarea = self._get(ruta)
+            except NetworkError:
+                # Un corte al preguntar no dice nada del lote: se sigue preguntando.
+                tarea = None
+            except HttpError as exc:
+                if exc.status < 500:
+                    # Sin credencial o sin la tarea no hay forma de saber cómo acabó.
+                    raise LoteIncierto(INCIERTO.format(motivo=str(exc))) from exc
+                # Un 502 o 503 al preguntar (un despliegue, un reinicio) es pasajero.
+                tarea = None
+            estado = (tarea or {}).get("status")
+            if estado in ("SUCCESS", "FAILURE", "REVOKED"):
+                break
+            if estado in ("STARTED", "PROGRESS") and arrancada is None:
+                arrancada = time.monotonic()
+            limite = arrancada + ESPERA_DE_LOTE if arrancada else inicio + ESPERA_EN_COLA
+            if time.monotonic() > limite:
+                raise LoteIncierto(INCIERTO.format(motivo="no ha terminado a tiempo"))
+        resultado = tarea.get("result_data") or {}
+        cuerpo = resultado.get("cuerpo") or {
+            "error": tarea.get("error_message") or "Geosian no ha aplicado el lote."
+        }
+        # Lo mismo que habría respondido el lote sin esperar: mismos errores.
+        self._check(
+            Response(resultado.get("estado") or 500, json.dumps(cuerpo).encode("utf-8")),
+            self._url(ruta),
+        )
+        return cuerpo
+
+    def subir_adjunto(self, layer_id, geometry_type, campo, nombre, contenido):
+        """Sube una foto o un fichero de un elemento nuevo y devuelve su referencia.
+
+        ``POST /geodata/adjuntos/``. El alta la lleva luego en su campo como
+        ``{"adjunto": ref}`` (``core/adjuntos.py``). Puede tardar: el plazo es el
+        de una descarga grande, no el de una consulta.
+        """
+        url = self._url(f"{API_PREFIX}/geodata/adjuntos/")
+        cuerpo = {
+            "layer_id": layer_id,
+            "geometry_type": geometry_type,
+            "campo": campo,
+            "nombre": nombre,
+            "datos": base64.b64encode(contenido).decode("ascii"),
+        }
+        resp = self.transport.request(
+            "POST",
+            url,
+            self._headers({"Content-Type": "application/json"}),
+            json.dumps(cuerpo).encode("utf-8"),
+            timeout=max(self.timeout, PLAZO_DE_SUBIDA),
+        )
+        return self._check(resp, url).json()
 
     def layer_attributes(self, layer_id):
         """Definiciones de atributos (LAD) de una capa, con su esquema.
@@ -374,6 +508,9 @@ class GeosianClient:
             "data_type": data_type,
             "page": page,
             "page_size": page_size,
+            # La versión exacta de cada elemento (updated_at_iso), para el bloqueo
+            # optimista al editar. Un servidor que no lo conoce no la manda.
+            "include_version": "true",
         }
         if ids:
             params["ids"] = ",".join(str(i) for i in ids)

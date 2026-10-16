@@ -25,7 +25,10 @@ DATE_TYPES = {"calendar"}
 # Nombres que el proveedor reserva para sus propios campos. Un atributo del LAD
 # que se llame igual se renombra con el prefijo, que es la misma convención que
 # ya usa la plataforma para las colisiones de nombres reservados.
-RESERVED_NAMES = {"id", "geometry", "geom"}
+# Campo propio del proveedor: las fotos y los ficheros de un elemento nuevo, ya subidos
+# a Geosian y a la espera de su alta (``core/adjuntos.py``).
+CAMPO_ADJUNTOS = "adjuntos_nuevos"
+RESERVED_NAMES = {"id", "geometry", "geom", CAMPO_ADJUNTOS}
 RESERVED_PREFIX = "attr__"
 
 
@@ -157,7 +160,18 @@ def field_title(attr):
 
 
 def is_editable(attr):
-    return attr.get("editable", True) is not False
+    """Si la web deja cambiarlo: ni ``editable: false`` ni ``visible: false``, que no pinta."""
+    return attr.get("editable", True) is not False and attr.get("visible", True) is not False
+
+
+def is_computed(attr):
+    """Lo rellena Geosian al guardar: un ``computed_value``, o la superficie o el
+    perímetro automáticos (``autocalculed-surface`` y ``autocalculed-perimeter``)."""
+    return (
+        attr.get("computed_value") not in (None, False, 0, "")
+        or "autocalculed-surface" in attr
+        or "autocalculed-perimeter" in attr
+    )
 
 
 def is_visible(attr):

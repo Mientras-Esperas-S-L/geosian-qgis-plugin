@@ -176,6 +176,64 @@ def _repedir_teselas(capa, version):
         leyendas.poner_leyenda_de_densidad(capa, json.loads(leyenda))
 
 
+_DIFERIDO = "geosian_recarga_diferida"
+
+
+def recargar_capa(capa):
+    """Vuelve a pedir una capa de Geosian, como la web al recibir un aviso.
+
+    Con cambios sin guardar, no: la recarga espera a que se guarden o se descarten
+    (lo pendiente se compara al confirmar con la versión que se editó, y recargar a
+    mitad solo movería lo que el técnico tiene delante). En edición sin cambios sí
+    se recarga, y lo que se ve pasa a ser la versión de partida.
+    """
+    if capa.isEditable() and capa.isModified():
+        _diferir(capa, "datos")
+        return False
+    # Vacía la caché del proveedor y avisa a la tabla de atributos.
+    capa.reload()
+    proveedor = capa.dataProvider()
+    if capa.isEditable() and hasattr(proveedor, "empezar_edicion"):
+        proveedor.empezar_edicion()
+    return True
+
+
+def _diferir(capa, que):
+    pendiente = set(filter(None, str(capa.property(_DIFERIDO) or "").split(",")))
+    pendiente.add(que)
+    capa.setProperty(_DIFERIDO, ",".join(sorted(pendiente)))
+    if not capa.property(_DIFERIDO + "_conectada"):
+        capa.afterCommitChanges.connect(lambda: _al_terminar(capa))
+        capa.afterRollBack.connect(lambda: _al_terminar(capa))
+        capa.setProperty(_DIFERIDO + "_conectada", True)
+
+
+def _al_terminar(capa):
+    """Tras guardar o descartar: lo que llegó mientras había cambios sin guardar."""
+    pendiente = str(capa.property(_DIFERIDO) or "")
+    if not pendiente or (capa.isEditable() and capa.isModified()):
+        return
+    capa.setProperty(_DIFERIDO, "")
+    if "esquema" in pendiente:
+        error = _rehacer_esquema(capa)
+        if error:
+            QgsMessageLog.logMessage(error, LOG_TAG, Qgis.Warning)
+    else:
+        recargar_capa(capa)
+    capa.triggerRepaint()
+
+
+def _rehacer_esquema(capa):
+    """Campos y ficha nuevos. Devuelve el error, si lo hubo."""
+    try:
+        capa.dataProvider().reload_definition()
+    except GeosianError as exc:
+        return f"No se pudieron leer los campos nuevos de «{capa.name()}»: {exc}"
+    capa.reload()
+    formulario.rehacer(capa)
+    return None
+
+
 def stop_all():
     for hub in list(_hubs.values()):
         hub.stop()
@@ -235,8 +293,7 @@ class RealtimeHub(QObject):
             if conexion != self._conexion or layer_id not in capas:
                 continue
             if capa.providerType() == "geosian":
-                # Vacía la caché del proveedor y avisa a la tabla de atributos.
-                capa.reload()
+                recargar_capa(capa)
             else:
                 _repedir_teselas(capa, capas[layer_id])
             capa.triggerRepaint()
@@ -250,13 +307,14 @@ class RealtimeHub(QObject):
             uri = getattr(proveedor, "layer_uri", None)
             if uri is None or uri.connection != self._conexion or uri.layer_id != layer_id:
                 continue
-            try:
-                proveedor.reload_definition()
-            except GeosianError as exc:
-                self._avisar(f"No se pudieron leer los campos nuevos de «{capa.name()}»: {exc}")
+            if capa.isEditable() and capa.isModified():
+                # Los campos nuevos moverían los de lo pendiente: al guardar o descartar.
+                _diferir(capa, "esquema")
                 continue
-            capa.reload()
-            formulario.rehacer(capa)
+            error = _rehacer_esquema(capa)
+            if error:
+                self._avisar(error)
+                continue
             capa.triggerRepaint()
 
     def _avisar(self, texto):
