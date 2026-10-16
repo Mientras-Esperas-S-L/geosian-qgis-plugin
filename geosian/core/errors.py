@@ -55,3 +55,11 @@ class NotFoundError(HttpError):
 
 class ApiError(HttpError):
     """Cualquier otra respuesta de error de la API."""
+
+
+class LoteIncierto(GeosianError):
+    """No se sabe si el lote ha entrado: se envió, pero no llegó la respuesta.
+
+    No es «no se ha guardado nada». Volver a confirmar lo mismo crearía dos veces
+    las altas, así que hay que descartar lo pendiente y recargar la capa.
+    """

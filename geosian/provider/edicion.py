@@ -36,6 +36,7 @@ from ..core.errors import (
     ForbiddenError,
     GeosianError,
     HttpError,
+    LoteIncierto,
     NetworkError,
 )
 
@@ -306,6 +307,10 @@ class Edicion:
                 self._uri.layer_id, self._uri.geometry_type, **lote,
                 esperar=_esperar_pintando, al_encolar=self.al_encolar,
             )
+        except LoteIncierto as exc:
+            self.pushError(f"Geosian: {exc}")
+            self._foto = None
+            return False
         except ConflictError as exc:
             self.pushError(texto_de_conflicto(exc))
             self._foto = None

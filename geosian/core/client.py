@@ -16,6 +16,8 @@ from .errors import (
     ConflictError,
     ForbiddenError,
     GeosianError,
+    HttpError,
+    LoteIncierto,
     NetworkError,
     NotFoundError,
 )
@@ -25,10 +27,17 @@ API_PREFIX = "/api/v1"
 # Lo que se espera a que suba una foto o un fichero (hasta 30 MB).
 PLAZO_DE_SUBIDA = 300
 # Un lote grande lo aplica Geosian en segundo plano (202): se pregunta cada
-# PAUSA_DE_LOTE segundos. Allí no puede pasar de 25 minutos (el límite blando de
-# Celery); ESPERA_DE_LOTE deja un margen antes de rendirse.
+# PAUSA_DE_LOTE segundos. Una vez arrancado no puede pasar de 25 minutos (el límite
+# blando de Celery): ESPERA_DE_LOTE deja margen. Antes de arrancar puede esperar
+# en la cola, hasta ESPERA_EN_COLA.
 PAUSA_DE_LOTE = 2
 ESPERA_DE_LOTE = 27 * 60
+ESPERA_EN_COLA = 30 * 60
+# Al cabo de esto, «no se sabe»: puede entrar todavía.
+INCIERTO = (
+    "No se sabe si Geosian ha guardado los cambios: {motivo}. No vuelvas a guardar: "
+    "las altas se crearían dos veces. Descarta los cambios pendientes y recarga la capa."
+)
 
 # Cuánto se reutiliza el listado de capas de un mapa. Abrir un mapa entero son
 # decenas de capas seguidas y cada una pregunta por sus metadatos: sin esto, el
@@ -276,14 +285,18 @@ class GeosianClient:
             "cambiar": list(cambiar),
             "retirar": list(retirar),
         }
-        resp = self.transport.request(
-            "POST",
-            url,
-            self._headers({"Content-Type": "application/json"}),
-            json.dumps(cuerpo).encode("utf-8"),
-            # Un lote grande pesa varios megas: el plazo es el de una subida.
-            timeout=max(self.timeout, PLAZO_DE_SUBIDA),
-        )
+        try:
+            resp = self.transport.request(
+                "POST",
+                url,
+                self._headers({"Content-Type": "application/json"}),
+                json.dumps(cuerpo).encode("utf-8"),
+                # Un lote grande pesa varios megas: el plazo es el de una subida.
+                timeout=max(self.timeout, PLAZO_DE_SUBIDA),
+            )
+        except NetworkError as exc:
+            # El lote salió y pudo entrar aunque la respuesta no llegue.
+            raise LoteIncierto(INCIERTO.format(motivo=f"se cortó la conexión ({exc})")) from exc
         resp = self._check(resp, url)
         if resp.status != 202:
             return resp.json()
@@ -295,7 +308,7 @@ class GeosianClient:
     def _esperar_lote(self, task_id, esperar):
         """Pregunta por el lote en segundo plano hasta que acaba y da su respuesta."""
         ruta = f"{API_PREFIX}/tasks/{task_id}/status/"
-        limite = time.monotonic() + ESPERA_DE_LOTE
+        inicio, arrancada = time.monotonic(), None
         while True:
             esperar(PAUSA_DE_LOTE)
             try:
@@ -303,13 +316,20 @@ class GeosianClient:
             except NetworkError:
                 # Un corte al preguntar no dice nada del lote: se sigue preguntando.
                 tarea = None
-            if tarea and tarea.get("status") in ("SUCCESS", "FAILURE", "REVOKED"):
+            except HttpError as exc:
+                if exc.status < 500:
+                    # Sin credencial o sin la tarea no hay forma de saber cómo acabó.
+                    raise LoteIncierto(INCIERTO.format(motivo=str(exc))) from exc
+                # Un 502 o 503 al preguntar (un despliegue, un reinicio) es pasajero.
+                tarea = None
+            estado = (tarea or {}).get("status")
+            if estado in ("SUCCESS", "FAILURE", "REVOKED"):
                 break
+            if estado in ("STARTED", "PROGRESS") and arrancada is None:
+                arrancada = time.monotonic()
+            limite = arrancada + ESPERA_DE_LOTE if arrancada else inicio + ESPERA_EN_COLA
             if time.monotonic() > limite:
-                raise NetworkError(
-                    "Geosian no ha terminado de aplicar el lote y puede que aún entre. "
-                    "Recarga la capa antes de volver a confirmar."
-                )
+                raise LoteIncierto(INCIERTO.format(motivo="no ha terminado a tiempo"))
         resultado = tarea.get("result_data") or {}
         cuerpo = resultado.get("cuerpo") or {
             "error": tarea.get("error_message") or "Geosian no ha aplicado el lote."

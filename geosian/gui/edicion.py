@@ -215,19 +215,29 @@ def enganchar(capa):
         return False
     if capa.property("geosian_edicion"):
         return True
-    proveedor = capa.dataProvider()
-    if not hasattr(proveedor, "preparar_lote"):
+    if not hasattr(capa.dataProvider(), "preparar_lote"):
         return False
 
-    capa.editingStarted.connect(proveedor.empezar_edicion)
-    capa.beforeCommitChanges.connect(lambda *_: _antes_de_confirmar(capa, proveedor))
-    capa.afterCommitChanges.connect(proveedor.olvidar_lote)
-    capa.afterRollBack.connect(proveedor.olvidar_lote)
-    capa.editingStopped.connect(proveedor.terminar_edicion)
-    proveedor.al_conflicto = lambda conflictos: _al_conflicto(capa, proveedor, conflictos)
-    proveedor.al_encolar = lambda total: _al_encolar(capa, total)
+    # El proveedor se busca en cada señal: al cambiar el origen de la capa (filtro de
+    # partes, reconexión) QGIS le pone uno nuevo y el de antes ya no confirma nada.
+    capa.editingStarted.connect(lambda: capa.dataProvider().empezar_edicion())
+    capa.beforeCommitChanges.connect(lambda *_: _antes_de_confirmar(capa, capa.dataProvider()))
+    capa.afterCommitChanges.connect(lambda: capa.dataProvider().olvidar_lote())
+    capa.afterRollBack.connect(lambda: capa.dataProvider().olvidar_lote())
+    capa.editingStopped.connect(lambda: capa.dataProvider().terminar_edicion())
+    capa.dataSourceChanged.connect(lambda *_: _avisos_del_proveedor(capa))
+    _avisos_del_proveedor(capa)
     capa.setProperty("geosian_edicion", True)
     return True
+
+
+def _avisos_del_proveedor(capa):
+    """A quién avisa el proveedor de la capa de un conflicto o de un lote en cola."""
+    proveedor = capa.dataProvider()
+    if not hasattr(proveedor, "preparar_lote"):
+        return
+    proveedor.al_conflicto = lambda conflictos: _al_conflicto(capa, proveedor, conflictos)
+    proveedor.al_encolar = lambda total: _al_encolar(capa, total)
 
 
 def _al_anadir(capas):

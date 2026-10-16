@@ -10,7 +10,7 @@ import pytest
 
 from geosian.core import client as C
 from geosian.core.client import GeosianClient
-from geosian.core.errors import ApiError, ConflictError, NetworkError
+from geosian.core.errors import ApiError, ConflictError, LoteIncierto, NetworkError
 from geosian.core.http import Response, Transport
 
 
@@ -32,6 +32,8 @@ class TransporteEnCola(Transport):
         siguiente = self.estados.pop(0)
         if isinstance(siguiente, Exception):
             raise siguiente
+        if isinstance(siguiente, tuple):
+            return respuesta(siguiente[1], siguiente[0])
         return respuesta(siguiente)
 
 
@@ -90,9 +92,49 @@ def test_un_fallo_sin_respuesta_es_un_error_de_la_api():
     assert "worker caído" in str(exc.value)
 
 
-def test_si_no_acaba_a_tiempo_avisa_de_que_puede_entrar(monkeypatch):
+def test_si_no_acaba_a_tiempo_no_se_sabe_si_entro(monkeypatch):
     monkeypatch.setattr(C, "ESPERA_DE_LOTE", -1)
     transporte = TransporteEnCola([en_curso()])
 
-    with pytest.raises(NetworkError, match="puede que aún entre"):
+    with pytest.raises(LoteIncierto, match="No se sabe si Geosian ha guardado"):
         confirmar(transporte)
+
+
+def test_un_502_al_preguntar_es_pasajero():
+    """Un despliegue recarga el servidor y da 502 unos segundos: el lote sigue."""
+    hecho = {"creados": [], "cambiados": [], "retirados": []}
+    transporte = TransporteEnCola([(502, {"detail": "Bad Gateway"}), (503, {}), acabada(200, hecho)])
+
+    assert confirmar(transporte) == hecho
+
+
+def test_sin_credencial_al_preguntar_no_se_sabe_si_entro():
+    transporte = TransporteEnCola([(401, {"detail": "Credenciales no válidas"})])
+
+    with pytest.raises(LoteIncierto, match="No vuelvas a guardar"):
+        confirmar(transporte)
+
+
+def test_un_corte_al_enviar_no_se_sabe_si_entro():
+    class SeCorta(TransporteEnCola):
+        def request(self, method, url, headers=None, body=None, timeout=30):
+            raise NetworkError("conexión cerrada")
+
+    with pytest.raises(LoteIncierto):
+        confirmar(SeCorta([]))
+
+
+def test_en_cola_espera_mas_que_arrancado(monkeypatch):
+    """El plazo de 27 minutos cuenta desde que arranca, no desde que se envía."""
+    reloj = [0.0]
+    monkeypatch.setattr(C.time, "monotonic", lambda: reloj[0])
+    hecho = {"creados": [], "cambiados": [], "retirados": []}
+    pendiente = {"status": "PENDING", "result_data": None, "error_message": ""}
+
+    def esperar(segundos):
+        reloj[0] += 20 * 60
+
+    transporte = TransporteEnCola([pendiente, en_curso(), en_curso(), acabada(200, hecho)])
+    cliente = GeosianClient("https://geo.ejemplo", transport=transporte, token="t")
+
+    assert cliente.confirmar(11, "points", cambiar=[{"id": 1}], esperar=esperar) == hecho
