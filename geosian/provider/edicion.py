@@ -215,10 +215,18 @@ class Edicion:
         return {"ref": str(fid), "geometry": self._geojson(feature.geometry(), "nuevo"), "attributes": atributos}
 
     def _geojson(self, geometria, fid):
-        """Una geometría de la capa como GeoJSON en 4326, que es como la guarda Geosian."""
+        """Una geometría de la capa como GeoJSON en 4326, que es como la guarda Geosian.
+
+        Sin altura (Z) ni medida (M): Geosian guarda en 2D y rechaza una geometría con Z.
+        QGIS no lo comprueba al cambiar la geometría de un elemento (sí en las altas), y
+        es lo que traen los datos de GPS o de CAD. Lo mismo que hace QGIS al pegar.
+        Las curvas salen ya troceadas en tramos rectos (``asJson``).
+        """
         if geometria is None or geometria.isNull() or geometria.isEmpty():
             raise _NoSePuede(f"El elemento {fid} se ha quedado sin geometría; Geosian no lo admite.")
         geometria = QgsGeometry(geometria)
+        geometria.get().dropZValue()
+        geometria.get().dropMValue()
         wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
         if self._crs.isValid() and self._crs != wgs84:
             geometria.transform(QgsCoordinateTransform(self._crs, wgs84, QgsProject.instance()))
