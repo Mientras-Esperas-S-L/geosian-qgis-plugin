@@ -111,7 +111,7 @@ def test_un_502_al_preguntar_es_pasajero():
 def test_sin_credencial_al_preguntar_no_se_sabe_si_entro():
     transporte = TransporteEnCola([(401, {"detail": "Credenciales no válidas"})])
 
-    with pytest.raises(LoteIncierto, match="No vuelvas a guardar"):
+    with pytest.raises(LoteIncierto, match="Vuelve a guardar sin tocar nada"):
         confirmar(transporte)
 
 

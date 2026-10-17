@@ -7,6 +7,7 @@ y al descartar.
 """
 
 from qgis.core import QgsProject
+from qgis.PyQt.QtCore import QTimer
 
 _vigilando = {"activo": False}
 
@@ -228,7 +229,37 @@ def enganchar(capa):
     capa.dataSourceChanged.connect(lambda *_: _avisos_del_proveedor(capa))
     _avisos_del_proveedor(capa)
     capa.setProperty("geosian_edicion", True)
+    # Si QGIS se cerró esperando la respuesta de un guardado, decir cómo acabó.
+    QTimer.singleShot(0, lambda: _lote_sin_respuesta(capa))
     return True
+
+
+def _lote_sin_respuesta(capa):
+    try:
+        proveedor = capa.dataProvider()
+        estado = proveedor.revisar_lote_sin_respuesta() if proveedor is not None else None
+    except RuntimeError:  # la capa ya no existe
+        return
+    if estado is None:
+        return
+    que, hora = estado
+    textos = {
+        "entro": "sí entró en Geosian: lo que ves en la capa ya lo incluye",
+        "no_consta": "no entró en Geosian: no se guardó nada",
+        "en_curso": "aún se está aplicando en Geosian; recarga la capa en un rato",
+    }
+    if que not in textos:
+        return
+    _mensaje(f"«{capa.name()}»: el guardado del {hora}, que se quedó sin respuesta, {textos[que]}.")
+
+
+def _mensaje(texto):
+    try:
+        from qgis.utils import iface
+    except ImportError:
+        iface = None
+    if iface is not None:
+        iface.messageBar().pushInfo("Geosian", texto)
 
 
 def _avisos_del_proveedor(capa):
