@@ -58,6 +58,7 @@ def test_si_se_corta_y_se_vuelve_a_guardar_no_se_repite(servidor):  # noqa: F811
     assert not capa.commitChanges()
     assert "No se sabe si Geosian ha guardado" in " ".join(capa.commitErrors())
     assert len(altas_en_el_servidor(servidor)) == 1
+    servidor.estado.perder_respuesta = False
 
     assert capa.commitChanges(), capa.commitErrors()
 
@@ -73,6 +74,7 @@ def test_si_se_corta_y_se_guarda_otra_cosa_avisa_de_que_entro(servidor):  # noqa
     nuevo(capa, -3.69, 40.41, codigo="N-1")
     servidor.estado.perder_respuesta = True
     assert not capa.commitChanges()
+    servidor.estado.perder_respuesta = False
     enviados = len([r for r, _ in servidor.peticiones if r == "/api/v1/geodata/confirmar/"])
 
     nuevo(capa, -3.70, 40.42, codigo="N-2")
@@ -101,6 +103,7 @@ def test_al_reabrir_tras_un_cierre_dice_que_entro(servidor, mensajes):  # noqa: 
     nuevo(capa, -3.69, 40.41, codigo="N-1")
     servidor.estado.perder_respuesta = True
     assert not capa.commitChanges()
+    servidor.estado.perder_respuesta = False
     # QGIS se cierra: se pierde lo que tenía en memoria, el apunte en disco queda.
     capa.rollBack()
     del capa

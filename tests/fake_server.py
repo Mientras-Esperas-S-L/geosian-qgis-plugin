@@ -599,6 +599,10 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._json({"detail": "No existe"}, 404)
 
+    def _cortar(self):
+        self.close_connection = True
+        self.connection.shutdown(2)
+
     def do_POST(self):
         partes = urlparse(self.path)
         largo = int(self.headers.get("Content-Length") or 0)
@@ -639,6 +643,9 @@ class Handler(BaseHTTPRequestHandler):
             lote_id = datos.get("lote_id")
             visto = self.server.lotes_vistos.get(lote_id) if lote_id else None
             if isinstance(visto, dict):
+                if self.server.perder_respuesta:
+                    self._cortar()
+                    return
                 self._json(visto)
                 return
             if isinstance(visto, str) and self.server.tareas[visto][2] is None:
@@ -661,9 +668,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.server.lotes_vistos[lote_id] = cuerpo
             if self.server.perder_respuesta:
                 # Entró, pero la conexión se cierra sin responder.
-                self.server.perder_respuesta = False
-                self.close_connection = True
-                self.connection.shutdown(2)
+                self._cortar()
                 return
             self._json(cuerpo, estado)
             return
@@ -736,7 +741,8 @@ class _Servidor(HTTPServer):
         self.tareas = {}
         # Como LoteDeQgis: lote_id → respuesta de los lotes que entraron, o la tarea en curso.
         self.lotes_vistos = {}
-        # La próxima confirmación se aplica pero la respuesta no llega (un corte).
+        # Las confirmaciones se aplican pero la respuesta no llega (un corte), hasta que la
+        # prueba lo quite: Qt repite por su cuenta la petición cuando se cierra la conexión.
         self.perder_respuesta = False
 
     def _version_nueva(self):
