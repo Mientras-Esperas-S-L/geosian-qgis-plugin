@@ -2,9 +2,9 @@
 name=Geosian
 qgisMinimumVersion=3.34
 qgisMaximumVersion=4.99
-description=Abre en QGIS los mapas y capas de Geosian (GreenCityControl) a través de su API, con sus permisos, fichas, partes, fotos, vistas y filtros. Por ahora, solo lectura.
-about=Geosian (GreenCityControl) es una plataforma de gestión de datos geoespaciales para servicios urbanos. Este complemento convierte QGIS en un cliente más de la plataforma: registra un proveedor de datos propio que habla con la API de Geosian, de modo que las capas no son ficheros ni una conexión directa a la base de datos, sino datos vivos del servidor, con los permisos de cada usuario. Las fichas se generan a partir del esquema de cada capa, con sus partes, fotos y archivos; las vistas, las etiquetas y los fondos son los de la web, y los cambios hechos en GCC llegan solos. Esta versión solo lee: la edición llegará en la siguiente fase.
-version=0.1.0-dev
+description=Abre en QGIS los mapas y capas de Geosian (GreenCityControl) a través de su API, con sus permisos, fichas, partes, fotos, vistas y filtros. Edición con las reglas de la web.
+about=Geosian (GreenCityControl) es una plataforma de gestión de datos geoespaciales para servicios urbanos. Este complemento convierte QGIS en un cliente más de la plataforma: registra un proveedor de datos propio que habla con la API de Geosian, de modo que las capas no son ficheros ni una conexión directa a la base de datos, sino datos vivos del servidor, con los permisos de cada usuario. Las fichas se generan a partir del esquema de cada capa, con sus partes, fotos y archivos; las vistas, las etiquetas y los fondos son los de la web, y los cambios hechos en GCC llegan solos. Las capas se editan con las herramientas de QGIS y se guardan en Geosian todo o nada, con bloqueo optimista: si otra persona cambió lo mismo, QGIS pregunta. Suprimir retira (pasa a «no disponible»), nunca borra.
+version=0.2.0-dev
 author=Mientras Esperas S.L.
 email=desarrollo@greencitycontrol.com
 
@@ -20,7 +20,12 @@ deprecated=False
 server=False
 hasProcessingProvider=False
 
-changelog=0.1.0-dev
+changelog=0.2.0-dev
+    - Fase 2, edición. Altas, cambios de atributos y de geometría y
+      retiradas, guardados en Geosian todo o nada; los grandes, en segundo
+      plano. Conflictos con quién y cuándo, y elección por elemento.
+      Fotos y archivos en las altas. Mismas reglas que la web.
+    0.1.0-dev
     - Fase 1, solo lectura. Conexión con doble factor y sesión cifrada en el
       gestor de autenticación de QGIS; panel con los mapas y capas del usuario.
     - Capas con el estilo, las vistas, las etiquetas y los fondos de la web

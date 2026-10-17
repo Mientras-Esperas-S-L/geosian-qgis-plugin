@@ -4,9 +4,6 @@ Abre en QGIS los mapas y capas de Geosian (GreenCityControl) tal y como los ves 
 web: con tus permisos, sus fichas, sus partes, sus fotos, sus vistas y sus fondos. Las
 capas no son una copia: son los datos del servidor, y lo que cambia en GCC llega solo.
 
-> **Esta versión solo lee.** Puedes consultar, filtrar, imprimir y analizar, pero no
-> editar. La edición llegará en la siguiente fase.
-
 Funciona con **QGIS 3.34 o posterior**, también con QGIS 4.
 
 ## Instalar
@@ -72,6 +69,30 @@ que en la web, sus listas de valores y los campos que dependen de otros.
   están también como tablas sin geometría en el grupo plegado «Información adicional», al
   final del mapa.
 
+## Editar
+
+Si tienes permiso de edición en la capa, se edita con las herramientas de siempre de QGIS:
+*Conmutar edición*, añadir, mover, editar vértices, la tabla de atributos o la calculadora de
+campos. Sin permiso, la capa se abre en solo lectura. Los permisos son los de GCC.
+
+- **Guardar es todo o nada.** Al pulsar *Guardar cambios*, todo lo pendiente de la capa va a
+  Geosian de una vez: o entra todo o no entra nada, y lo que no entra sigue pendiente.
+- **Guardados grandes**: con más de 300 cambios se hacen en segundo plano, como la edición
+  masiva de la web. QGIS sigue respondiendo y avisa al acabar. Hasta 20.000 por guardado.
+- **Suprimir es retirar.** El elemento pasa a «no disponible», con sus partes y fotos, y se
+  puede recuperar desde la web. Desde QGIS no se borra nada.
+- **Fotos y archivos en un elemento nuevo**: en su ficha, pestaña de fotos y archivos.
+- **Si alguien cambió lo mismo antes que tú**, no se guarda nada y sale un diálogo con quién
+  y cuándo. Por cada elemento eliges «sobrescribir con lo mío» o «quedarme con lo de
+  Geosian», y vuelves a guardar.
+- **Las mismas reglas que la web**: listas cerradas, campos que dependen de otros, campos
+  calculados (los calcula Geosian), historial, avisos y disparadores. Los campos que pone
+  Geosian no se pueden cambiar.
+- **Si se corta la red al guardar**, vuelve a guardar: Geosian reconoce el guardado y no lo
+  aplica dos veces. Si QGIS se cierra esperando, al reabrir la capa te dice cómo acabó.
+- Geosian guarda en dos dimensiones: la altura (Z) y la medida (M) se quitan al guardar. Las
+  curvas se guardan como tramos rectos.
+
 ## Filtrar
 
 - **Filtro de QGIS** (clic derecho en la capa › *Filtrar...*): lo que se pueda se resuelve en
@@ -99,7 +120,10 @@ abrieron en este equipo salen vacías, con sus campos y su estilo, hasta que vue
 
 ## Qué no hace todavía
 
-- **Editar**: ni elementos ni partes (siguiente fase).
+- **Crear capas o cambiar sus campos**: eso se hace en la web.
+- **Partes**: se ven y se filtran, pero no se crean ni se editan desde QGIS.
+- **Fotos y archivos de un elemento que ya existe**: se ven; añadirlos, solo en la web.
+- **Hexágonos, H3, calor y contornos**, y las tablas de partes: solo lectura.
 - **H3 de verdad** en capas pequeñas: van los hexágonos del servidor, como la web en las
   grandes.
 - El **satélite de Google** del selector de la web: sus condiciones no permiten usarlo fuera
