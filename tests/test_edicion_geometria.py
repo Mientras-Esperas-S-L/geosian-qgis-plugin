@@ -95,3 +95,16 @@ def test_quitar_la_geometria_no_se_manda(capa, servidor):  # noqa: F811
     assert lotes(servidor) == []
     assert any("sin geometría" in e for e in capa.commitErrors())
     assert indice(capa, "codigo") >= 0
+
+
+@pytest.mark.parametrize("wkt", ["PointZ (-3.69 40.41 650)", "PointM (-3.69 40.41 7)", "PointZM (-3.69 40.41 650 7)"])
+def test_la_altura_y_la_medida_no_se_mandan(capa, servidor, wkt):  # noqa: F811
+    """Geosian guarda en 2D. QGIS no comprueba el tipo al cambiar una geometría."""
+    list(capa.getFeatures())
+    capa.startEditing()
+    assert capa.changeGeometry(1001, QgsGeometry.fromWkt(wkt))
+
+    assert capa.commitChanges(), capa.commitErrors()
+
+    [cambio] = lotes(servidor)[-1]["cambiar"]
+    assert cambio["geometry"] == {"type": "Point", "coordinates": [-3.69, 40.41]}
