@@ -6,6 +6,12 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Añadido
 
+- Edición (fase 2): altas, cambios de atributos y de geometría y retiradas,
+  guardados en Geosian en un lote todo o nada. Más de 300 cambios van en segundo
+  plano; el reenvío de un guardado sin respuesta no se aplica dos veces.
+- Conflictos: si otra persona cambió lo mismo, diálogo con quién y cuándo y
+  elección por elemento.
+- Fotos y archivos en las altas, subidos antes de guardar.
 - Simbología de GCC a partir del esquema de cada capa, con los tamaños de la
   web, y etiquetas por defecto.
 - Vistas de capa: en el panel, con su filtro (traducido a `attr__` como hace la
