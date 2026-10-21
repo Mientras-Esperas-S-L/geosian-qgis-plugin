@@ -230,6 +230,16 @@ class GeosianClient:
         self.layers(map_id)
         return self._config_teselas.get(map_id)
 
+    def crear_capa(self, map_id, datos):
+        """Crea una capa en el mapa (``maps/<id>/layers/crear/``) y devuelve la capa.
+
+        ``datos``: ``{"name", "plantilla", "copiar_vistas"}`` o
+        ``{"name", "geometry_type", "campos"}`` (``core/crear_capa.py``).
+        """
+        capa = self._post(f"{API_PREFIX}/maps/{map_id}/layers/crear/", datos)
+        self.forget_layers()
+        return capa
+
     def forget_layers(self):
         """Olvida los listados de capas guardados (el panel al refrescar)."""
         self._capas.clear()

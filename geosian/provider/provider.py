@@ -330,7 +330,7 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
 
         # El tipo antes que el esquema: sin geometry_type en la URI, lo fija
         # _resolve_wkb_type, y el esquema que toca es el de ese tipo.
-        self._wkb_type = self._resolve_wkb_type(metadatos)
+        self._wkb_type = self._resolve_wkb_type(metadatos, definiciones)
         self._schema = self._pick_schema(definiciones)
         self._fields, self._attr_map = lad.build_fields(self._schema)
         if any(S.is_attachment(a) for a in S.flatten_attributes(self._schema)):
@@ -433,12 +433,14 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
 
         return definiciones[0].get("schema") or {}
 
-    def _resolve_wkb_type(self, metadatos):
+    def _resolve_wkb_type(self, metadatos, definiciones=()):
         """Tipo de geometría de la capa.
 
         QGIS exige uno fijo por capa, así que si la URI no lo dice se coge el
         que traen los metadatos. Con varios tipos presentes se coge el primero
-        y se avisa: el usuario debería abrir una capa por tipo.
+        y se avisa: el usuario debería abrir una capa por tipo. Una capa sin
+        elementos (recién creada) no trae tipos en los metadatos: entonces manda
+        el de su definición de campos.
         """
         if self._uri.geometry_type:
             return GEOMETRY_TYPES.get(self._uri.geometry_type, QgsWkbTypes.Unknown)
@@ -446,6 +448,12 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
         tipos = metadatos.get("geometry_types") or []
         if isinstance(tipos, dict):
             tipos = list(tipos.keys())
+        if not tipos:
+            tipos = [
+                _LAD_TO_GEOMETRY_TYPE.get((d or {}).get("geometry_type"))
+                for d in definiciones or []
+            ]
+            tipos = [t for t in tipos if t]
         tipos = list(dict.fromkeys(tipo_de_tabla(t) for t in tipos))
         tipos = [t for t in tipos if t in GEOMETRY_TYPES]
 
@@ -1276,6 +1284,10 @@ _GEOMETRY_TYPE_TO_LAD = {
     "multi_polygons": "MultiPolygon",
     "geometry_collections": "GeometryCollection",
 }
+
+
+# Al revés: el tipo de un LAD, a la tabla que lo sirve (los simples viven en las multi).
+_LAD_TO_GEOMETRY_TYPE = {lad: tipo_de_tabla(tabla) for tabla, lad in _GEOMETRY_TYPE_TO_LAD.items()}
 
 
 # Cada cuánto, como mucho, se avisa en la barra de que una conexión no tiene red.
