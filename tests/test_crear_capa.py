@@ -167,6 +167,13 @@ class TestCapaNueva:
         assert subido["properties"]["ok"] == "Sí"
         assert subido["properties"]["cuando"] == "2026-03-04T10:30:00"
 
+    def test_el_motivo_sin_el_envoltorio_de_qgis(self):
+        from geosian.gui.crear_capa import _motivos
+
+        errores = ["ERROR: 3 feature(s) not added.", "", "  Provider errors:", "    Geosian no ha guardado nada: el lote es grande"]
+
+        assert _motivos(errores) == "Geosian no ha guardado nada: el lote es grande"
+
     def test_sin_campos_se_puede_crear(self, app_gui, servidor):  # noqa: F811
         from geosian.gui.crear_capa import CrearCapaDialog
 

@@ -251,9 +251,18 @@ def subir_elementos(origen, destino, correspondencia):
         return False, "QGIS no pudo preparar los elementos."
     if destino.commitChanges():
         return True, f"Subidos {len(nuevos):,} elementos.".replace(",", ".")
-    errores = "; ".join(destino.commitErrors())
+    errores = _motivos(destino.commitErrors())
     destino.rollBack()
-    return False, f"No se ha subido nada: {errores}"
+    return False, f"No se ha subido nada. {errores}"
+
+
+def _motivos(errores):
+    """Lo que dice Geosian, sin el envoltorio de QGIS («ERROR: … not added», «Provider errors:»)."""
+    propios = [
+        e.strip() for e in errores
+        if e.strip() and not e.strip().startswith("ERROR:") and "Provider errors" not in e
+    ]
+    return "; ".join(propios or [e.strip() for e in errores if e.strip()])
 
 
 def crear_capa(dock, datos_mapa, parent=None):
