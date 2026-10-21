@@ -38,9 +38,19 @@ from qgis.PyQt.QtWidgets import (
 
 from ..core import connections
 from ..core import crear_capa as C
-from ..core.errors import GeosianError
+from ..core.errors import AuthError, GeosianError, NetworkError
 
 PLANTILLA, DE_QGIS = 0, 1
+
+
+def texto_de_error(exc):
+    """Lo que se le dice a quien crea la capa, con qué hacer si se puede."""
+    if isinstance(exc, AuthError):
+        return ("Tu sesión de Geosian ha caducado. Vuelve a entrar (clic derecho en la conexión del "
+                "panel › Volver a entrar) y repite.")
+    if isinstance(exc, NetworkError):
+        return f"Sin conexión con Geosian: {exc}. Comprueba la red y repite."
+    return str(exc)
 
 
 class CrearCapaDialog(QDialog):
@@ -50,6 +60,8 @@ class CrearCapaDialog(QDialog):
         self.mapa = mapa
         self.cliente = connections.client_for(conexion)
         self.capa_creada = None
+        # Lo que falló al cargar mapas o capas: manda sobre «elige la plantilla».
+        self.error_de_carga = None
         self.subir = False
         self.correspondencia = {}
         self.setWindowTitle(f"Crear capa en «{mapa.get('name')}»")
@@ -131,7 +143,8 @@ class CrearCapaDialog(QDialog):
         try:
             mapas = self.cliente.maps() if self.cliente else []
         except GeosianError as exc:
-            self.estado.setText(f"No se pudieron cargar los mapas: {exc}")
+            self.error_de_carga = f"No se pudieron cargar los mapas. {texto_de_error(exc)}"
+            self.estado.setText(self.error_de_carga)
             mapas = []
         mapas = sorted(mapas, key=lambda m: (m.get("id") != self.mapa.get("id"), str(m.get("name") or "").casefold()))
         for mapa in mapas:
@@ -145,7 +158,8 @@ class CrearCapaDialog(QDialog):
         try:
             capas = self.cliente.layers(mapa["id"])
         except GeosianError as exc:
-            self.estado.setText(f"No se pudieron cargar las capas: {exc}")
+            self.error_de_carga = f"No se pudieron cargar las capas. {texto_de_error(exc)}"
+            self.estado.setText(self.error_de_carga)
             return
         for capa in sorted(capas, key=lambda c: str(c.get("name") or "").casefold()):
             self.capa_plantilla.addItem(capa.get("name") or f"Capa {capa.get('id')}", capa)
@@ -192,7 +206,7 @@ class CrearCapaDialog(QDialog):
         if self.forma.checkedId() == PLANTILLA:
             plantilla = self.capa_plantilla.currentData()
             if not plantilla:
-                self.estado.setText("Elige la capa que sirve de modelo.")
+                self.estado.setText(self.error_de_carga or "Elige la capa que sirve de modelo.")
                 return
             datos = {"name": nombre, "plantilla": plantilla["id"], "copiar_vistas": self.copiar_vistas.isChecked()}
         else:
@@ -206,7 +220,7 @@ class CrearCapaDialog(QDialog):
         try:
             self.capa_creada = self.cliente.crear_capa(self.mapa["id"], datos)
         except GeosianError as exc:
-            self.estado.setText(f"No se ha creado: {exc}")
+            self.estado.setText(f"No se ha creado la capa. {texto_de_error(exc)}")
             return
         finally:
             self.botones.setEnabled(True)

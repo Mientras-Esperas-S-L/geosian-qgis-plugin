@@ -239,6 +239,31 @@ class TestDialogo:
         assert d.capa_creada is None
         assert "No tienes permiso para crear capas" in d.estado.text()
 
+    def test_sesion_caducada_lo_dice_y_como_volver(self, app_gui, servidor):  # noqa: F811
+        connections.set_session(CONEXION, "token-caducado", "")
+        d = self.dialogo()
+        d.nombre.setText("X")
+
+        d._crear()
+
+        assert "sesión de Geosian ha caducado" in d.estado.text()
+        assert "Volver a entrar" in d.estado.text()
+        assert d.capa_creada is None
+
+    def test_sin_red_lo_dice(self, app_gui):
+        connections.save_connection("SinRed", "http://127.0.0.1:9", "x@ejemplo.com")
+        connections.set_session("SinRed", "tok", "")
+        try:
+            from geosian.gui.crear_capa import CrearCapaDialog
+
+            d = CrearCapaDialog("SinRed", {"id": 4, "name": "Ciudad de Ejemplo"})
+            d.nombre.setText("X")
+            d._crear()
+
+            assert "Sin conexión con Geosian" in d.estado.text()
+        finally:
+            connections.remove_connection("SinRed")
+
     def test_sin_nombre_no_pide_nada(self, app_gui, servidor):  # noqa: F811
         d = self.dialogo()
 
