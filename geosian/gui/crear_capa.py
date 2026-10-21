@@ -170,7 +170,7 @@ class CrearCapaDialog(QDialog):
             ]
             lineas.append(f"Campos ({len(self.campos)}): " + ", ".join(nombres) + ".")
         else:
-            lineas.append("No tiene campos que se puedan llevar.")
+            lineas.append("Sin campos: la capa tendrá solo geometría; los campos se añaden en la web.")
         if self.fuera:
             lineas.append("No se llevan (tipo no admitido): " + ", ".join(self.fuera) + ".")
         self.resumen.setText("\n".join(lineas))
@@ -196,8 +196,8 @@ class CrearCapaDialog(QDialog):
                 return
             datos = {"name": nombre, "plantilla": plantilla["id"], "copiar_vistas": self.copiar_vistas.isChecked()}
         else:
-            if self.capa_qgis.currentLayer() is None or self.geometria is None or not self.campos:
-                self.estado.setText("Elige una capa de QGIS con geometría y algún campo.")
+            if self.capa_qgis.currentLayer() is None or self.geometria is None:
+                self.estado.setText("Elige una capa de QGIS con geometría de punto, línea o polígono.")
                 return
             datos = {"name": nombre, "geometry_type": self.geometria, "campos": self.campos}
 
@@ -229,6 +229,9 @@ def subir_elementos(origen, destino, correspondencia):
         if geometria.isNull() or geometria.isEmpty():
             continue
         geometria.transform(transformacion)
+        # Geosian guarda en 2D: sin quitar Z y M, QGIS no deja añadirlos a la capa.
+        geometria.get().dropZValue()
+        geometria.get().dropMValue()
         if multi:
             geometria.convertToMultiType()
         nuevo = QgsFeature(campos)
@@ -236,8 +239,8 @@ def subir_elementos(origen, destino, correspondencia):
         for de_qgis, en_geosian in correspondencia.items():
             indice = campos.indexFromName(en_geosian)
             if indice >= 0:
-                valor = elemento[de_qgis]
-                nuevo.setAttribute(indice, valor)
+                tipo = origen.fields().field(de_qgis).type()
+                nuevo.setAttribute(indice, C.valor_para_geosian(elemento[de_qgis], tipo))
         nuevos.append(nuevo)
     if not nuevos:
         return True, "La capa de QGIS no tiene elementos con geometría."

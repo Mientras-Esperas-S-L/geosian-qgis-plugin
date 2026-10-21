@@ -23,7 +23,6 @@ RESERVADOS = frozenset({
 MAX_ELEMENTOS = 20000
 
 _ENTEROS = {QVariant.Int, QVariant.UInt, QVariant.LongLong, QVariant.ULongLong}
-_FECHAS = {QVariant.Date, QVariant.DateTime}
 
 
 def tipo_de_geometria(capa):
@@ -46,9 +45,10 @@ def tipo_de_campo(campo):
         return "integer"
     if tipo == QVariant.Double:
         return "number"
-    if tipo in _FECHAS:
+    if tipo == QVariant.Date:
         return "calendar"
-    if tipo in (QVariant.String, QVariant.Bool):
+    # Con hora, texto: el calendario de la web guarda solo el día y la perdería al editar.
+    if tipo in (QVariant.String, QVariant.Bool, QVariant.DateTime):
         return "string"
     return None
 
@@ -87,3 +87,14 @@ def campos_de(capa):
         correspondencia[campo.name()] = nombre
         campos.append({"name": nombre, "title": campo.alias() or campo.name(), "type": tipo})
     return campos, fuera, correspondencia
+
+
+def valor_para_geosian(valor, tipo_qgis):
+    """El valor de un campo de QGIS tal y como se guarda en su campo de Geosian."""
+    if valor is None or (hasattr(valor, "isNull") and valor.isNull()):
+        return None
+    if tipo_qgis == QVariant.Bool:
+        return "Sí" if valor else "No"
+    if tipo_qgis == QVariant.DateTime and hasattr(valor, "toString"):
+        return valor.toString("yyyy-MM-ddTHH:mm:ss")
+    return valor

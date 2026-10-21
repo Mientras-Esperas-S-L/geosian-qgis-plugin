@@ -63,6 +63,8 @@ class TestDeUnaCapaDeQgis:
             ("material_2", "string"),
             ("revisado", "string"),
         ]
+        # La fecha con hora va como texto: el calendario de la web perdería la hora.
+        assert C.tipo_de_campo(memoria("Point?field=t:datetime").fields()[0]) == "string"
         assert campos[4]["title"] == "año"
         assert fuera == []
         assert correspondencia["año"] == "ano" and correspondencia["material"] == "material_2"
@@ -140,6 +142,48 @@ class TestCapaNueva:
         assert nueva.featureCount() == 2
         # Un solo lote, todo o nada.
         assert len([r for r in servidor.rutas_pedidas() if r == "/api/v1/geodata/confirmar/"]) == 1
+
+
+    def test_quita_z_y_m_y_convierte_valores(self, servidor):  # noqa: F811
+        from qgis.PyQt.QtCore import QDateTime
+
+        from geosian.gui.crear_capa import subir_elementos
+
+        origen = memoria("PolygonZM?crs=EPSG:4326&field=ok:boolean&field=cuando:datetime")
+        f = QgsFeature(origen.fields())
+        f.setGeometry(QgsGeometry.fromWkt("POLYGON ZM((-3.70 40.41 5 1, -3.699 40.41 5 1, -3.699 40.411 5 1, -3.70 40.41 5 1))"))
+        f["ok"] = True
+        f["cuando"] = QDateTime(2026, 3, 4, 10, 30, 0)
+        origen.dataProvider().addFeatures([f])
+        campos, _, correspondencia = C.campos_de(origen)
+        capa, nueva = crear_y_abrir(servidor, campos, "MultiPolygon")
+
+        ok, mensaje = subir_elementos(origen, nueva, correspondencia)
+
+        assert ok, mensaje
+        [subido] = servidor.estado.elementos_de_capa[capa["id"]]
+        assert subido["geometry"]["type"] == "MultiPolygon"
+        assert all(len(p) == 2 for p in subido["geometry"]["coordinates"][0][0])
+        assert subido["properties"]["ok"] == "Sí"
+        assert subido["properties"]["cuando"] == "2026-03-04T10:30:00"
+
+    def test_sin_campos_se_puede_crear(self, app_gui, servidor):  # noqa: F811
+        from geosian.gui.crear_capa import CrearCapaDialog
+
+        origen = memoria("Point?crs=EPSG:4326", "Solo puntos")
+        QgsProject.instance().addMapLayer(origen)
+        try:
+            d = CrearCapaDialog(CONEXION, {"id": 4, "name": "Ciudad de Ejemplo"})
+            d.de_qgis.setChecked(True)
+            d.capa_qgis.setLayer(origen)
+            d.nombre.setText("Solo puntos")
+
+            d._crear()
+
+            assert d.capa_creada is not None, d.estado.text()
+            assert "solo geometría" in d.resumen.text()
+        finally:
+            QgsProject.instance().removeMapLayer(origen.id())
 
 
 class TestDialogo:
