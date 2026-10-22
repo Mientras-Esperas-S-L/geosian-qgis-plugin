@@ -209,8 +209,10 @@ class GeosianClient:
             f"{API_PREFIX}/maps/{map_id}/layers/",
             # include_permissions: lo que el usuario puede escribir en cada capa. Un
             # servidor que no lo conoce no lo manda, y la capa abre en solo lectura.
+            # solo_visibles: las del mapa web también para quien gestiona permisos, que
+            # sin él recibe todas (las necesita la pantalla de permisos) y abrirían vacías.
             {"include_tile_metadata": "true", "include_tile_config": "true",
-             "include_permissions": "true"},
+             "include_permissions": "true", "solo_visibles": "true"},
             timeout=DEFINITION_TIMEOUT,
         )
         capas = _as_list(respuesta)

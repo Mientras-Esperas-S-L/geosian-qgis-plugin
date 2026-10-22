@@ -91,6 +91,12 @@ class TestApi:
         # El listado del mapa se vuelve a pedir: la capa nueva tiene que salir.
         assert capa["id"] in [c["id"] for c in cliente.layers(4)]
 
+    def test_pide_las_capas_del_mapa_web(self, servidor):  # noqa: F811
+        connections.client_for(CONEXION).layers(4)
+
+        consulta = next(c for ruta, c in servidor.peticiones if ruta == "/api/v1/maps/4/layers/")
+        assert consulta.get("solo_visibles") == ["true"]
+
     def test_sin_permiso_da_el_motivo(self, servidor):  # noqa: F811
         servidor.estado.sin_layer_create = True
 
