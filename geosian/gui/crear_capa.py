@@ -179,6 +179,7 @@ class CrearCapaDialog(QDialog):
     def _al_cambiar_capa_qgis(self, capa):
         self.campos, self.fuera, self.correspondencia = ([], [], {})
         self.geometria = None
+        self.total_elementos = 0
         if capa is None:
             self.resumen.setText("No hay capas vectoriales en el proyecto.")
             self.con_elementos.setEnabled(False)
@@ -200,7 +201,7 @@ class CrearCapaDialog(QDialog):
         if self.fuera:
             lineas.append("No se llevan (tipo no admitido): " + ", ".join(self.fuera) + ".")
         self.resumen.setText("\n".join(lineas))
-        total = C.contar_elementos(capa)
+        total = self.total_elementos = C.contar_elementos(capa)
         self.con_elementos.setText(f"Subir también sus {total:,} elementos".replace(",", "."))
         self.con_elementos.setEnabled(total > 0)
         self.con_elementos.setChecked(total > 0)
@@ -227,8 +228,7 @@ class CrearCapaDialog(QDialog):
                 self.estado.setText("Elige una capa de QGIS con geometría de punto, línea o polígono.")
                 return
             datos = {"name": nombre, "geometry_type": self.geometria, "campos": self.campos}
-            capa = self.capa_qgis.currentLayer()
-            if self.con_elementos.isChecked() and capa.featureCount() > C.MAX_ELEMENTOS:
+            if self.con_elementos.isChecked() and self.total_elementos > C.MAX_ELEMENTOS:
                 # La crea el servidor al importar; aquí no se pide nada.
                 self.grande = datos
                 self.accept()
@@ -314,7 +314,7 @@ class ImportarCapaGrande(QgsTask):
         self.correspondencia = correspondencia
         # La capa y el proyecto no se tocan desde el hilo de la tarea.
         self.fuente = QgsVectorLayerFeatureSource(origen)
-        self.total = origen.featureCount()
+        self.total = C.contar_elementos(origen)
         self.contexto = QgsProject.instance().transformContext()
         self.final = None
         self.error = None

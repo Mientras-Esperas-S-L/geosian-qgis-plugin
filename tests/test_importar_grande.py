@@ -189,6 +189,35 @@ class TestDialogo:
         finally:
             QgsProject.instance().removeMapLayer(origen.id())
 
+    def test_con_filtro_cuenta_los_que_deja_ver(self, app_gui, servidor, tmp_path, monkeypatch):  # noqa: F811
+        from qgis.core import QgsProject
+
+        from geosian.gui import crear_capa as G
+
+        # Un GeoPackage filtrado sigue dando en featureCount() el total del fichero.
+        origen = origen_con(3)
+        campos, _, correspondencia = C.campos_de(origen)
+        ruta = str(tmp_path / "tres.gpkg")
+        I.empaquetar(origen, campos, correspondencia, "Point", ruta)
+        capa = QgsVectorLayer(f"{ruta}|layername=capa", "tres", "ogr")
+        capa.setSubsetString("plazas < 2")
+        assert C.contar_elementos(capa) == 2
+        monkeypatch.setattr(C, "MAX_ELEMENTOS", 2)
+        QgsProject.instance().addMapLayer(capa)
+        try:
+            d = G.CrearCapaDialog(CONEXION, {"id": 4, "name": "Ciudad de Ejemplo"})
+            d.de_qgis.setChecked(True)
+            d.capa_qgis.setLayer(capa)
+            d.nombre.setText("Dos bancos")
+
+            d._crear()
+
+            # Dos caben en un lote: la capa se crea aquí, sin importación grande.
+            assert d.grande is None and d.capa_creada is not None
+            assert "2 elementos" in d.con_elementos.text()
+        finally:
+            QgsProject.instance().removeMapLayer(capa.id())
+
     def test_si_falla_lo_dice_y_no_anade_nada(self, app_gui, servidor, monkeypatch):  # noqa: F811
         from geosian.gui import crear_capa as G
 
