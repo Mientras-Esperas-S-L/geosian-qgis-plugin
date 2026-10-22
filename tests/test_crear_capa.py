@@ -85,6 +85,24 @@ class TestDeUnaCapaDeQgis:
 
         assert [c["name"] for c in campos] == ["nombre"] and "fid" not in correspondencia
 
+    def test_con_filtro_cuenta_los_que_deja_ver(self, app, tmp_path):
+        from qgis.core import QgsCoordinateTransformContext, QgsVectorFileWriter
+
+        origen = memoria("Point?crs=EPSG:4326&field=n:integer")
+        for i in range(3):
+            f = QgsFeature(origen.fields())
+            f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(i, i)))
+            f["n"] = i
+            origen.dataProvider().addFeatures([f])
+        opciones = QgsVectorFileWriter.SaveVectorOptions()
+        opciones.driverName = "GPKG"
+        ruta = str(tmp_path / "tres.gpkg")
+        QgsVectorFileWriter.writeAsVectorFormatV3(origen, ruta, QgsCoordinateTransformContext(), opciones)
+        capa = QgsVectorLayer(ruta, "tres", "ogr")
+        capa.setSubsetString("n < 2")
+
+        assert C.contar_elementos(capa) == 2
+
     def test_un_tipo_que_no_se_lleva(self, app):
         capa = memoria("Point?crs=EPSG:4326&field=nombre:string&field=datos:binary")
 

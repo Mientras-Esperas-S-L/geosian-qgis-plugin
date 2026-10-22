@@ -188,7 +188,7 @@ class CrearCapaDialog(QDialog):
         if self.fuera:
             lineas.append("No se llevan (tipo no admitido): " + ", ".join(self.fuera) + ".")
         self.resumen.setText("\n".join(lineas))
-        total = capa.featureCount()
+        total = C.contar_elementos(capa)
         self.con_elementos.setText(f"Subir también sus {total:,} elementos".replace(",", "."))
         self.con_elementos.setEnabled(0 < total <= C.MAX_ELEMENTOS)
         self.con_elementos.setChecked(0 < total <= C.MAX_ELEMENTOS)

@@ -8,7 +8,7 @@ que sale es mínimo a propósito: listas, partes y fotos se añaden después en 
 import re
 import unicodedata
 
-from qgis.core import QgsWkbTypes
+from qgis.core import QgsFeatureRequest, QgsWkbTypes
 from qgis.PyQt.QtCore import QVariant
 
 # Los tipos que admite Geosian para una capa creada desde QGIS.
@@ -36,6 +36,20 @@ def tipo_de_geometria(capa):
     if familia == QgsWkbTypes.PolygonGeometry:
         return "MultiPolygon"
     return None
+
+
+def contar_elementos(capa):
+    """Los elementos que se van a subir: los que deja ver el filtro de la capa.
+
+    ``featureCount()`` no vale sola: con un filtro puesto, un GeoPackage sigue dando el
+    total del fichero (1.078.380 con un filtro que deja 20.000), y un proveedor que no
+    sabe contar da -1. En esos casos se cuentan de verdad, sin geometría ni atributos.
+    """
+    total = capa.featureCount()
+    if total >= 0 and not capa.subsetString():
+        return total
+    peticion = QgsFeatureRequest().setFlags(QgsFeatureRequest.Flag.NoGeometry).setNoAttributes()
+    return sum(1 for _ in capa.getFeatures(peticion))
 
 
 def tipo_de_campo(campo):
