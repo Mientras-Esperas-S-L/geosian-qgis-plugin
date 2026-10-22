@@ -115,7 +115,7 @@ def actualizar(capa, extension, z):
             _rellenar(capa)
 
     tarea = QgsTask.fromFunction(
-        f"Geosian: celdas de «{capa.name()}»",
+        f"GreenCityControl: celdas de «{capa.name()}»",
         lambda _tarea: _leer(cliente, plantilla, faltan),
         on_finished=al_terminar,
         flags=QgsTask.Flag.CanCancel,

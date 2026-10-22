@@ -168,7 +168,7 @@ class Edicion:
             if not version:
                 raise _NoSePuede(
                     f"No se sabe qué versión del elemento {fid} se editó: el servidor no la "
-                    "da (¿Geosian sin actualizar?). Recarga la capa y vuelve a editar."
+                    "da (¿GreenCityControl sin actualizar?). Recarga la capa y vuelve a editar."
                 )
             cambio = {"id": fid, "expected_updated_at": version}
             registro = self._cache.get(fid)
@@ -223,7 +223,7 @@ class Edicion:
         Las curvas salen ya troceadas en tramos rectos (``asJson``).
         """
         if geometria is None or geometria.isNull() or geometria.isEmpty():
-            raise _NoSePuede(f"El elemento {fid} se ha quedado sin geometría; Geosian no lo admite.")
+            raise _NoSePuede(f"El elemento {fid} se ha quedado sin geometría; GreenCityControl no lo admite.")
         geometria = QgsGeometry(geometria)
         geometria.get().dropZValue()
         geometria.get().dropMValue()
@@ -283,13 +283,13 @@ class Edicion:
             attr = self._attr_map.get(campo.name())
             if attr is None or campo.name() in DE_GEOSIAN:
                 raise _NoSePuede(
-                    f"«{campo.displayName()}» no se puede cambiar desde QGIS: lo pone Geosian."
+                    f"«{campo.displayName()}» no se puede cambiar desde QGIS: lo pone GreenCityControl."
                 )
             if not S.is_editable(attr):
-                raise _NoSePuede(f"«{campo.displayName()}» es de solo lectura en Geosian.")
+                raise _NoSePuede(f"«{campo.displayName()}» es de solo lectura en GreenCityControl.")
             if S.is_computed(attr):
                 raise _NoSePuede(
-                    f"«{campo.displayName()}» es un campo calculado: lo rellena Geosian al guardar."
+                    f"«{campo.displayName()}» es un campo calculado: lo rellena GreenCityControl al guardar."
                 )
             nuevo = valor_para_api(valor, campo.type())
             viejo = _sin_nulo(registro.attributes[indice]) if registro is not None and indice < len(registro.attributes) else None
@@ -304,7 +304,7 @@ class Edicion:
         if self._foto is None:
             # Sin foto no se escribe: mejor fallar que mandar medio lote.
             self.pushError(
-                "Geosian: la confirmación no pasó por el complemento. Vuelve a confirmar."
+                "GreenCityControl: la confirmación no pasó por el complemento. Vuelve a confirmar."
             )
             return False
         if self._foto["error"]:
@@ -322,11 +322,11 @@ class Edicion:
             lote_id = self._identificador_de_lote(huella)
             pendientes.apuntar(*donde, lote_id)
         except _NoSePuede as exc:
-            self.pushError(f"Geosian: {exc}")
+            self.pushError(f"GreenCityControl: {exc}")
             self._foto = None
             return False
         except Exception as exc:  # una excepción aquí tumbaría QGIS
-            self.pushError(f"Geosian no ha guardado nada: {exc}")
+            self.pushError(f"GreenCityControl no ha guardado nada: {exc}")
             self._foto = None
             return False
         try:
@@ -337,7 +337,7 @@ class Edicion:
         except LoteIncierto as exc:
             # El apunte se queda: al reabrir o al volver a guardar se pregunta cómo acabó.
             self._incierto = (huella, lote_id)
-            self.pushError(f"Geosian: {exc}")
+            self.pushError(f"GreenCityControl: {exc}")
             self._foto = None
             return False
         except Exception as exc:  # una excepción aquí tumbaría QGIS
@@ -412,9 +412,9 @@ class Edicion:
             if self.al_conflicto is not None:
                 self.al_conflicto(list(self.conflictos))
         elif isinstance(exc, (ForbiddenError, HttpError, NetworkError, GeosianError)):
-            self.pushError(f"Geosian no ha guardado nada: {texto_de_error(exc)}")
+            self.pushError(f"GreenCityControl no ha guardado nada: {texto_de_error(exc)}")
         else:
-            self.pushError(f"Geosian no ha guardado nada: {exc}")
+            self.pushError(f"GreenCityControl no ha guardado nada: {exc}")
         return False
 
     def _aplicar_respuesta(self, lote, respuesta):
@@ -571,14 +571,14 @@ class Edicion:
                 return False, flist
             return True, self._guardar_altas(flist)
         except Exception as exc:  # una excepción en un método virtual tumba QGIS
-            self.pushError(f"Geosian: {exc}")
+            self.pushError(f"GreenCityControl: {exc}")
             return False, flist
 
     def _escritura_de_qgis(self, quien):
         try:
             return self._enviar(quien)
         except Exception as exc:  # una excepción en un método virtual tumba QGIS
-            self.pushError(f"Geosian: {exc}")
+            self.pushError(f"GreenCityControl: {exc}")
             return False
 
 
@@ -610,7 +610,7 @@ def _comprobar_lista(attr, campo, nuevo, viejo):
     if fuera:
         raise _NoSePuede(
             f"«{campo.displayName()}»: {', '.join(f'«{v}»' for v in fuera)} no está en su lista de "
-            "valores en Geosian."
+            "valores en GreenCityControl."
         )
 
 
@@ -680,7 +680,7 @@ def texto_de_conflicto(exc):
         partes.append(f"{choque.get('id')}{estado}" + (f" por {quien}" if quien else ""))
     resto = f" y {len(choques) - 5} más" if len(choques) > 5 else ""
     return (
-        "Geosian no ha guardado nada: alguien cambió estos elementos después de que los "
+        "GreenCityControl no ha guardado nada: alguien cambió estos elementos después de que los "
         f"leyeras: {', '.join(partes)}{resto}. Tus cambios siguen pendientes."
     )
 

@@ -210,9 +210,9 @@ class TestCapaNueva:
     def test_el_motivo_sin_el_envoltorio_de_qgis(self):
         from geosian.gui.crear_capa import _motivos
 
-        errores = ["ERROR: 3 feature(s) not added.", "", "  Provider errors:", "    Geosian no ha guardado nada: el lote es grande"]
+        errores = ["ERROR: 3 feature(s) not added.", "", "  Provider errors:", "    GreenCityControl no ha guardado nada: el lote es grande"]
 
-        assert _motivos(errores) == "Geosian no ha guardado nada: el lote es grande"
+        assert _motivos(errores) == "GreenCityControl no ha guardado nada: el lote es grande"
 
     def test_sin_campos_se_puede_crear(self, app_gui, servidor):  # noqa: F811
         from geosian.gui.crear_capa import CrearCapaDialog
@@ -286,7 +286,7 @@ class TestDialogo:
 
         d._crear()
 
-        assert "sesión de Geosian ha caducado" in d.estado.text()
+        assert "sesión de GreenCityControl ha caducado" in d.estado.text()
         assert "Volver a entrar" in d.estado.text()
         assert d.capa_creada is None
 
@@ -300,7 +300,7 @@ class TestDialogo:
             d.nombre.setText("X")
             d._crear()
 
-            assert "Sin conexión con Geosian" in d.estado.text()
+            assert "Sin conexión con GreenCityControl" in d.estado.text()
         finally:
             connections.remove_connection("SinRed")
 

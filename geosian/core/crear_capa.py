@@ -20,7 +20,10 @@ RESERVADOS = frozenset({
     "updated_at_iso", "longitud", "latitud", "in_succession_group", "additional_info",
     "_thumbnail", "nfc_uuid", "spatial_history_active_id", "_polygons",
 })
-MAX_ELEMENTOS = 20000
+# Por encima, los elementos no suben con el guardado de siempre sino como GeoPackage
+# (core/importar_grande.py). El guardado admite 20.000 por lote, pero con Nueva York
+# 20.000 tardaron 122 s con QGIS esperando, y 20.001 por GeoPackage, 10 s (22/10/2026).
+MAX_ELEMENTOS = 2000
 
 _ENTEROS = {QVariant.Int, QVariant.UInt, QVariant.LongLong, QVariant.ULongLong}
 

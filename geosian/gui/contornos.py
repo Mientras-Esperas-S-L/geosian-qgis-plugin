@@ -69,7 +69,7 @@ def recalcular(capa):
         _rellenar(capa, lineas)
 
     tarea = QgsTask.fromFunction(
-        f"Geosian: contornos de «{capa.name()}»",
+        f"GreenCityControl: contornos de «{capa.name()}»",
         lambda _tarea: _isolineas(cliente, info),
         on_finished=al_terminar,
         flags=QgsTask.Flag.CanCancel,

@@ -11,7 +11,7 @@ from .gui.filtro_partes import menu_de_filtros
 from .gui.media_widget import register_media_widget
 from .provider.metadata import register_provider
 
-MENU = "&Geosian"
+MENU = "&GreenCityControl"
 
 
 class GeosianPlugin:
@@ -28,9 +28,9 @@ class GeosianPlugin:
         # que el usuario toque nada.
         if not register_provider():
             self.iface.messageBar().pushCritical(
-                "Geosian",
+                "GreenCityControl",
                 "No se pudo registrar el proveedor de datos. Las capas de "
-                "Geosian no se podrán abrir en esta sesión.",
+                "GreenCityControl no se podrán abrir en esta sesión.",
             )
 
         # Igual con el panel de fotos de la ficha, que es un tipo de campo.
@@ -55,7 +55,7 @@ class GeosianPlugin:
         self.dock.hide()
 
         self._añadir_accion(
-            "Mapas y capas de Geosian",
+            "Mapas y capas de GreenCityControl",
             self._alternar_panel,
             checkable=True,
         )

@@ -168,7 +168,7 @@ class TestNoSeGuardaNada:
         assert not capa.commitChanges()
 
         assert lotes(servidor) == []
-        assert any("lo pone Geosian" in e or "solo lectura" in e for e in capa.commitErrors())
+        assert any("lo pone GreenCityControl" in e or "solo lectura" in e for e in capa.commitErrors())
 
     def test_un_error_del_servidor_lo_deja_todo_pendiente(self, capa, servidor):
         servidor.estado.forzar = (403, {"error": "No tiene permisos para update este elemento específico"})

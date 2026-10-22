@@ -126,7 +126,7 @@ def _store_token(nombre, token, jwt=None):
             return None
 
         config = QgsAuthMethodConfig()
-        config.setName(f"Geosian: {nombre}")
+        config.setName(f"GreenCityControl: {nombre}")
         config.setMethod("Basic")
         config.setConfig("username", "token")
         config.setConfig("password", token)

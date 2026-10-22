@@ -48,8 +48,8 @@ from ..core import schema as S
 from ..core.errors import GeosianError
 
 WIDGET_TYPE = "GeosianMedia"
-TITULO = "Fotos y archivos de Geosian"
-LOG_TAG = "Geosian"
+TITULO = "Fotos y archivos de GreenCityControl"
+LOG_TAG = "GreenCityControl"
 MINIATURA = 128
 
 # Como ResponsiveImageUploader.jsx: el lado mayor a 1600 px, en JPEG al 72 %; lo que
@@ -121,7 +121,7 @@ class SinAjustes(QgsEditorConfigWidget):
 
     def __init__(self, layer, fieldIdx, parent):
         super().__init__(layer, fieldIdx, parent)
-        QVBoxLayout(self).addWidget(QLabel("Fotos y archivos del elemento en Geosian."))
+        QVBoxLayout(self).addWidget(QLabel("Fotos y archivos del elemento en GreenCityControl."))
 
     def config(self):
         return {}
@@ -265,7 +265,7 @@ class MediaPanel(QWidget):
 
         proveedor = self._capa.dataProvider() if self._capa is not None else None
         if proveedor is None or not hasattr(proveedor, "media_of"):
-            self.estado.setText("Esta capa no es de Geosian.")
+            self.estado.setText("Esta capa no es de GreenCityControl.")
             return
         try:
             self._medios = proveedor.media_of(int(fid))
@@ -315,12 +315,12 @@ class MediaPanel(QWidget):
         if self.nuevos:
             self.estado.setText(
                 f"Elemento nuevo: {len(self.nuevos)} foto(s) o archivo(s) añadidos; se guardan "
-                "en Geosian al guardar la edición."
+                "en GreenCityControl al guardar la edición."
             )
         elif puede:
             self.estado.setText("Elemento nuevo: añade sus fotos y archivos con los botones.")
         else:
-            self.estado.setText("El elemento aún no está guardado en Geosian.")
+            self.estado.setText("El elemento aún no está guardado en GreenCityControl.")
 
     def _poner_botones(self, campos):
         while self._fila_botones.count():

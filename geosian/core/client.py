@@ -35,8 +35,8 @@ ESPERA_DE_LOTE = 27 * 60
 ESPERA_EN_COLA = 30 * 60
 # Al cabo de esto, «no se sabe»: puede entrar todavía.
 INCIERTO = (
-    "No se sabe si Geosian ha guardado los cambios: {motivo}. Vuelve a guardar sin "
-    "tocar nada: si ya entraron, Geosian lo sabe y no los repite."
+    "No se sabe si GreenCityControl ha guardado los cambios: {motivo}. Vuelve a guardar sin "
+    "tocar nada: si ya entraron, GreenCityControl lo sabe y no los repite."
 )
 
 # Cuánto se reutiliza el listado de capas de un mapa. Abrir un mapa entero son
@@ -242,6 +242,37 @@ class GeosianClient:
         self.forget_layers()
         return capa
 
+    # Importar una capa grande a trozos (core/importar_grande.py,
+    # maps/<id>/layers/importar/ del backend).
+    def importar_capa(self, map_id, datos):
+        """Abre la subida; devuelve ``id``, ``trozo``, ``trozos`` y ``faltan``."""
+        return self._post(f"{API_PREFIX}/maps/{map_id}/layers/importar/", datos)
+
+    def importar_trozo(self, map_id, id_subida, numero, datos):
+        url = self._url(f"{API_PREFIX}/maps/{map_id}/layers/importar/{id_subida}/trozos/{numero}/")
+        resp = self.transport.request(
+            "PUT",
+            url,
+            self._headers({"Content-Type": "application/octet-stream"}),
+            datos,
+            timeout=max(self.timeout, PLAZO_DE_SUBIDA),
+        )
+        return self._check(resp, url).json()
+
+    def importacion(self, map_id, id_subida):
+        """Estado de la subida: ``estado``, ``faltan``, ``progreso``, ``capa_id``, ``error``."""
+        return self._get(f"{API_PREFIX}/maps/{map_id}/layers/importar/{id_subida}/")
+
+    def confirmar_importacion(self, map_id, id_subida):
+        estado = self._post(f"{API_PREFIX}/maps/{map_id}/layers/importar/{id_subida}/confirmar/")
+        self.forget_layers()
+        return estado
+
+    def cancelar_importacion(self, map_id, id_subida):
+        url = self._url(f"{API_PREFIX}/maps/{map_id}/layers/importar/{id_subida}/")
+        resp = self.transport.request("DELETE", url, self._headers(), timeout=self.timeout)
+        return self._check(resp, url).json()
+
     def forget_layers(self):
         """Olvida los listados de capas guardados (el panel al refrescar)."""
         self._capas.clear()
@@ -356,7 +387,7 @@ class GeosianClient:
                 raise LoteIncierto(INCIERTO.format(motivo="no ha terminado a tiempo"))
         resultado = tarea.get("result_data") or {}
         cuerpo = resultado.get("cuerpo") or {
-            "error": tarea.get("error_message") or "Geosian no ha aplicado el lote."
+            "error": tarea.get("error_message") or "GreenCityControl no ha aplicado el lote."
         }
         # Lo mismo que habría respondido el lote sin esperar: mismos errores.
         self._check(

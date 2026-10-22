@@ -38,7 +38,7 @@ def test_el_dialogo_de_conexion_se_construye(app_gui):
     from geosian.gui.connection_dialog import ConnectionDialog
 
     dialogo = ConnectionDialog()
-    assert dialogo.windowTitle() == "Conectar con Geosian"
+    assert dialogo.windowTitle() == "Conectar con GreenCityControl"
     # El aviso de la sesión única tiene que estar a la vista.
     assert "navegador" in dialogo.findChildren(type(dialogo.lbl_estado))[0].text() or True
 
@@ -181,7 +181,7 @@ def test_anadir_mapa_entero_crea_un_grupo(app_gui):
             # Y los fijos del selector de la web: la ortofoto del IGN con sus calles
             # encima (un grupo, se encienden juntas) y el mapa base oscuro.
             assert fondos == {
-                "Fondo: mapa base de Geosian": (QgsMapLayerType.VectorTileLayer, True),
+                "Fondo: mapa base de GreenCityControl": (QgsMapLayerType.VectorTileLayer, True),
                 "Fondo: Ortofoto de ejemplo": (QgsMapLayerType.RasterLayer, False),
                 "Fondo: mapa base oscuro": (QgsMapLayerType.VectorTileLayer, False),
                 "Fondo: Ortofoto (IGN)": (QgsMapLayerType.RasterLayer, False),

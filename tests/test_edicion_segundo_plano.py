@@ -77,7 +77,7 @@ def test_qgis_si_no_se_sabe_lo_dice_y_no_dice_que_no_guardo(en_segundo_plano, mo
     assert not capa.commitChanges()
 
     errores = " ".join(capa.commitErrors())
-    assert "No se sabe si Geosian ha guardado" in errores
+    assert "No se sabe si GreenCityControl ha guardado" in errores
     assert "no ha guardado nada" not in errores
 
 
