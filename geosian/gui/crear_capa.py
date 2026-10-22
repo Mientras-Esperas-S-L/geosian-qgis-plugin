@@ -386,7 +386,10 @@ class ImportarCapas(QgsTask):
         barra = self.dock.iface.messageBar()
         fallidas = [r for r in self.resultados if r["error"] is not None]
         if ok:
-            barra.pushSuccess(APP, f"Subidas las {len(hechas)} capas a «{self.mapa.get('name')}».")
+            if len(hechas) == 1:
+                barra.pushSuccess(APP, f"Subida «{hechas[0]['nombre']}» a «{self.mapa.get('name')}».")
+            else:
+                barra.pushSuccess(APP, f"Subidas las {len(hechas)} capas a «{self.mapa.get('name')}».")
             return
         partes = [f"«{r['nombre']}»: {r['error']}" for r in fallidas if r["error"] != "cancelada"]
         if self.isCanceled() or any(r["error"] == "cancelada" for r in fallidas):

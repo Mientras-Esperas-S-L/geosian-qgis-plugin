@@ -168,3 +168,16 @@ class TestCapasRaras:
         assert not ok and [c["name"] for c in dock.añadidas] == ["origen"]
         nivel, texto = dock.barra.avisos[-1]
         assert nivel == "pushWarning" and "«Tramos»: fallo inesperado (RuntimeError: algo raro)" in texto
+
+
+def test_con_una_sola_capa_el_aviso_habla_en_singular(app_gui, servidor, proyecto, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(I, "esperar", _esperar)
+    proyecto(origen_con(3))
+    d = SC.SubirCapasDialog(MAPA)
+    d._aceptar()
+    dock = _Dock()
+    tarea = SC.ImportarCapas(dock, CONEXION, MAPA, d.elegidas)
+
+    tarea.finished(tarea.run())
+
+    assert dock.barra.avisos[-1] == ("pushSuccess", "Subida «origen» a «Ciudad de Ejemplo».")
