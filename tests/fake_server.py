@@ -7,8 +7,11 @@ verdad. Las respuestas imitan la forma real: GeoJSON en ``geodata``,
 
 import base64
 import copy
+import hashlib
 import json
+import os
 import re
+import tempfile
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -377,6 +380,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"detail": "Credenciales no válidas"}, 401)
             return
 
+        importacion = re.match(r"^/api/v1/maps/\d+/layers/importar/([^/]+)/$", ruta)
+        if importacion:
+            estado, cuerpo = _importacion(self.server, importacion.group(1), avanzar=True)
+            self._json(cuerpo, estado)
+            return
+
         if ruta.startswith("/api/v1/geodata/confirmar/") and ruta != "/api/v1/geodata/confirmar/":
             # Como GET /geodata/confirmar/<lote_id>/: cómo acabó un lote.
             visto = self.server.lotes_vistos.get(ruta.rstrip("/").rsplit("/", 1)[1])
@@ -677,6 +686,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json(cuerpo, estado)
             return
 
+        importar = re.match(r"^/api/v1/maps/(\d+)/layers/importar/(?:([^/]+)/confirmar/)?$", partes.path)
+        if importar:
+            Handler.peticiones.append((partes.path, datos))
+            if importar.group(2):
+                estado, cuerpo = _confirmar_importacion(self.server, importar.group(2))
+            else:
+                estado, cuerpo = _abrir_importacion(self.server, int(importar.group(1)), datos)
+            self._json(cuerpo, estado)
+            return
+
         crear = re.match(r"^/api/v1/maps/(\d+)/layers/crear/$", partes.path)
         if crear:
             Handler.peticiones.append((partes.path, datos))
@@ -718,6 +737,104 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"detail": "No existe"}, 404)
 
 
+    def do_PUT(self):
+        partes = urlparse(self.path)
+        largo = int(self.headers.get("Content-Length") or 0)
+        cuerpo = self.rfile.read(largo)
+        trozo = re.match(r"^/api/v1/maps/\d+/layers/importar/([^/]+)/trozos/(\d+)/$", partes.path)
+        if not trozo:
+            self._json({"detail": "No existe"}, 404)
+            return
+        Handler.peticiones.append((partes.path, {"bytes": len(cuerpo)}))
+        numero = int(trozo.group(2))
+        if numero in self.server.cortar_trozos:
+            # Se pierde por el camino una vez: no llega al servidor.
+            self.server.cortar_trozos.discard(numero)
+            self._cortar()
+            return
+        imp = self.server.importaciones.get(trozo.group(1))
+        if imp is None:
+            self._json({"error": "No encuentro esa importación."}, 404)
+            return
+        imp["trozos"][numero] = cuerpo
+        self._json(_importacion(self.server, trozo.group(1))[1])
+
+    def do_DELETE(self):
+        partes = urlparse(self.path)
+        Handler.peticiones.append((partes.path, {}))
+        importacion = re.match(r"^/api/v1/maps/\d+/layers/importar/([^/]+)/$", partes.path)
+        imp = self.server.importaciones.get(importacion.group(1)) if importacion else None
+        if imp is None:
+            self._json({"error": "No encuentro esa importación."}, 404)
+            return
+        imp["estado"] = "cancelada"
+        self._json(_importacion(self.server, importacion.group(1))[1])
+
+
+def _abrir_importacion(servidor, map_id, datos):
+    """Como POST /maps/<id>/layers/importar/ (services/importar_capa.py del backend)."""
+    if servidor.sin_layer_create:
+        return 403, {"error": "No tienes permiso para crear capas en este mapa."}
+    id_subida = f"sub-{len(servidor.importaciones) + 1}"
+    servidor.importaciones[id_subida] = {
+        "map_id": map_id, "datos": datos, "trozos": {}, "estado": "subiendo",
+        "vueltas": servidor.vueltas_importando, "capa_id": None, "error": None,
+    }
+    return 201, _importacion(servidor, id_subida)[1]
+
+
+def _importacion(servidor, id_subida, avanzar=False):
+    imp = servidor.importaciones.get(id_subida)
+    if imp is None:
+        return 404, {"error": "No encuentro esa importación."}
+    if avanzar and imp["estado"] == "importando":
+        imp["vueltas"] -= 1
+        if imp["vueltas"] <= 0:
+            imp["estado"] = imp.pop("final", "hecha")
+    tamano, trozo = imp["datos"]["tamano"], servidor.trozo
+    total = -(-tamano // trozo)
+    hechos = len(servidor.elementos_de_capa.get(imp["capa_id"], [])) if imp["capa_id"] else 0
+    return 200, {
+        "id": id_subida, "estado": imp["estado"], "tamano": tamano, "trozo": trozo, "trozos": total,
+        "faltan": [n for n in range(total) if n not in imp["trozos"]],
+        "progreso": {"hechos": hechos if imp["estado"] == "hecha" else 0, "total": imp["datos"].get("elementos")},
+        "capa_id": imp["capa_id"] if imp["estado"] == "hecha" else None, "error": imp["error"],
+    }
+
+
+def _confirmar_importacion(servidor, id_subida):
+    """Como POST …/importar/<id>/confirmar/: comprueba la huella, crea la capa y lee el
+    GeoPackage como lo importaría el servidor."""
+    from qgis.core import QgsVectorLayer
+
+    imp = servidor.importaciones.get(id_subida)
+    if imp is None:
+        return 404, {"error": "No encuentro esa importación."}
+    fichero = b"".join(imp["trozos"][n] for n in sorted(imp["trozos"]))
+    if hashlib.sha256(fichero).hexdigest() != imp["datos"]["huella"]:
+        imp["estado"], imp["error"] = "fallida", "El fichero llegó distinto del que se mandó."
+        return 409, {"error": imp["error"]}
+    datos = imp["datos"]
+    estado, capa = _capa_creada(servidor, imp["map_id"], {k: datos[k] for k in ("name", "geometry_type", "campos")})
+    if estado != 201:
+        return estado, capa
+    imp["capa_id"] = capa["id"]
+    with tempfile.NamedTemporaryFile(suffix=".gpkg", delete=False) as f:
+        f.write(fichero)
+    try:
+        leida = QgsVectorLayer(f"{f.name}|layername=capa", "importada", "ogr")
+        servidor.elementos_de_capa[capa["id"]] = [
+            {"geometry": json.loads(e.geometry().asJson()),
+             "properties": {c.name(): e[c.name()] for c in leida.fields() if c.name() != "fid"}}
+            for e in leida.getFeatures()
+        ]
+        del leida
+    finally:
+        os.remove(f.name)
+    imp["estado"] = "importando"
+    return 202, _importacion(servidor, id_subida)[1]
+
+
 TODOS_LOS_PERMISOS = {"can_create": True, "can_update": True, "can_retire": True, "update_restringido": False}
 SIN_PERMISOS = {"can_create": False, "can_update": False, "can_retire": False, "update_restringido": False}
 
@@ -746,6 +863,12 @@ class _Servidor(HTTPServer):
         # Capas creadas con maps/<id>/layers/crear/: sus elementos, aparte.
         self.elementos_de_capa = {}
         self.sin_layer_create = False
+        # Importaciones a trozos: id → estado; trozos que se pierden una vez; las vueltas
+        # que pasa «importando» antes de acabar.
+        self.importaciones = {}
+        self.cortar_trozos = set()
+        self.vueltas_importando = 2
+        self.trozo = 40_000
         self._reloj = 0
         # Las fotos y los ficheros subidos sueltos para un alta: ref → datos.
         self.adjuntos = {}

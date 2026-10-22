@@ -5,18 +5,27 @@ Dos formas (``core/crear_capa.py`` y la API ``maps/<id>/layers/crear/``):
 - **A partir de otra capa de Geosian**: la capa nueva, vacía, con los formularios, partes
   y colores de la elegida, y si se quiere sus vistas.
 - **A partir de una capa de QGIS**: con sus campos (nombre, título y tipo) y, si se
-  quiere, sus elementos, que suben con el guardado de siempre (todo o nada).
+  quiere, sus elementos, que suben con el guardado de siempre (todo o nada). Con más de
+  ``MAX_ELEMENTOS``, en una tarea de QGIS: se empaquetan en un GeoPackage, suben a trozos y
+  el servidor los importa; la capa aparece al terminar (``core/importar_grande.py``).
 
 Lo demás (listas, partes, fotos, colores) se completa en la web. La capa nueva la ve el
 grupo de quien la crea y va en la carpeta «Nuevas desde QGIS».
 """
 
+import os
+import shutil
+import tempfile
+
 from qgis.core import (
+    QgsApplication,
     QgsCoordinateTransform,
     QgsFeature,
     QgsGeometry,
     QgsMapLayerProxyModel,
     QgsProject,
+    QgsTask,
+    QgsVectorLayerFeatureSource,
     QgsWkbTypes,
 )
 from qgis.gui import QgsMapLayerComboBox
@@ -38,6 +47,7 @@ from qgis.PyQt.QtWidgets import (
 
 from ..core import connections
 from ..core import crear_capa as C
+from ..core import importar_grande as I
 from ..core.errors import AuthError, GeosianError, NetworkError
 
 PLANTILLA, DE_QGIS = 0, 1
@@ -63,6 +73,8 @@ class CrearCapaDialog(QDialog):
         # Lo que falló al cargar mapas o capas: manda sobre «elige la plantilla».
         self.error_de_carga = None
         self.subir = False
+        # Más de MAX_ELEMENTOS: la capa no se crea aquí, la crea la importación.
+        self.grande = None
         self.correspondencia = {}
         self.setWindowTitle(f"Crear capa en «{mapa.get('name')}»")
         self.setMinimumWidth(560)
@@ -190,11 +202,12 @@ class CrearCapaDialog(QDialog):
         self.resumen.setText("\n".join(lineas))
         total = C.contar_elementos(capa)
         self.con_elementos.setText(f"Subir también sus {total:,} elementos".replace(",", "."))
-        self.con_elementos.setEnabled(0 < total <= C.MAX_ELEMENTOS)
-        self.con_elementos.setChecked(0 < total <= C.MAX_ELEMENTOS)
+        self.con_elementos.setEnabled(total > 0)
+        self.con_elementos.setChecked(total > 0)
         if total > C.MAX_ELEMENTOS:
             self.con_elementos.setText(
-                f"Tiene {total:,} elementos: más de {C.MAX_ELEMENTOS:,} no se suben de una vez".replace(",", ".")
+                f"Subir también sus {total:,} elementos, en segundo plano: la capa aparecerá "
+                "cuando estén todos dentro".replace(",", ".")
             )
 
     # ------------------------------------------------------------------
@@ -214,6 +227,12 @@ class CrearCapaDialog(QDialog):
                 self.estado.setText("Elige una capa de QGIS con geometría de punto, línea o polígono.")
                 return
             datos = {"name": nombre, "geometry_type": self.geometria, "campos": self.campos}
+            capa = self.capa_qgis.currentLayer()
+            if self.con_elementos.isChecked() and capa.featureCount() > C.MAX_ELEMENTOS:
+                # La crea el servidor al importar; aquí no se pide nada.
+                self.grande = datos
+                self.accept()
+                return
 
         self.botones.setEnabled(False)
         self.estado.setText("Creando la capa…")
@@ -279,11 +298,93 @@ def _motivos(errores):
     return "; ".join(propios or [e.strip() for e in errores if e.strip()])
 
 
+class ImportarCapaGrande(QgsTask):
+    """Empaqueta la capa de QGIS, la sube a trozos y espera a que el servidor la importe.
+
+    Corre en segundo plano (el gestor de tareas de QGIS enseña el avance); al acabar,
+    añade la capa al proyecto o dice por qué no se ha creado.
+    """
+
+    def __init__(self, dock, conexion, mapa, origen, datos, correspondencia):
+        super().__init__(f"Importar «{datos['name']}» en Geosian", QgsTask.Flag.CanCancel)
+        self.dock = dock
+        self.conexion = conexion
+        self.mapa = mapa
+        self.datos = datos
+        self.correspondencia = correspondencia
+        # La capa y el proyecto no se tocan desde el hilo de la tarea.
+        self.fuente = QgsVectorLayerFeatureSource(origen)
+        self.total = origen.featureCount()
+        self.contexto = QgsProject.instance().transformContext()
+        self.final = None
+        self.error = None
+
+    def _fase(self, desde, hasta):
+        return lambda parte: self.setProgress(desde + (hasta - desde) * parte)
+
+    def run(self):
+        carpeta = tempfile.mkdtemp(prefix="geosian-importar-")
+        try:
+            ruta = os.path.join(carpeta, "capa.gpkg")
+            escritos, _ = I.empaquetar(
+                self.fuente, self.datos["campos"], self.correspondencia, self.datos["geometry_type"], ruta,
+                avance=self._fase(0, 30), cancelado=self.isCanceled, total=self.total, contexto=self.contexto,
+            )
+            cliente = connections.client_for(self.conexion)
+            datos = {**self.datos, "elementos": escritos}
+            subida = I.subir(cliente, self.mapa["id"], datos, ruta, avance=self._fase(30, 60), cancelado=self.isCanceled)
+            self.final = I.esperar(cliente, self.mapa["id"], subida["id"], avance=self._fase(60, 100), cancelado=self.isCanceled)
+            return self.final["estado"] == "hecha"
+        except I.Cancelado:
+            return False
+        except (I.NoSePuede, GeosianError) as exc:
+            self.error = texto_de_error(exc)
+            return False
+        finally:
+            shutil.rmtree(carpeta, ignore_errors=True)
+
+    def finished(self, ok):
+        _EN_MARCHA.discard(self)
+        barra = self.dock.iface.messageBar()
+        nombre = self.datos["name"]
+        if ok:
+            cliente = connections.client_for(self.conexion)
+            cliente.forget_layers()
+            capa = next((c for c in cliente.layers(self.mapa["id"]) if c.get("id") == self.final["capa_id"]), None)
+            if capa is not None:
+                self.dock.añadir_capa({"conexion": self.conexion, "mapa": self.mapa, "capa": capa})
+            total = (self.final.get("progreso") or {}).get("total") or 0
+            barra.pushSuccess("Geosian", f"«{nombre}» importada con sus {total:,} elementos.".replace(",", "."))
+        elif self.isCanceled():
+            barra.pushInfo("Geosian", f"Importación de «{nombre}» cancelada: no se ha creado nada.")
+        else:
+            motivo = self.error or (self.final or {}).get("error") or "no se sabe por qué"
+            barra.pushWarning("Geosian", f"No se ha creado «{nombre}». {motivo}")
+
+
+# Las tareas en marcha: sin una referencia, Python las recoge antes de que acaben.
+_EN_MARCHA = set()
+
+
 def crear_capa(dock, datos_mapa, parent=None):
     """Abre el diálogo y, al aceptar, añade la capa al proyecto (y sube sus elementos)."""
     conexion, mapa = datos_mapa["conexion"], datos_mapa["mapa"]
     dialogo = CrearCapaDialog(conexion, mapa, parent)
-    if not dialogo.exec() or not dialogo.capa_creada:
+    if not dialogo.exec():
+        return None
+    if dialogo.grande:
+        tarea = ImportarCapaGrande(
+            dock, conexion, mapa, dialogo.capa_qgis.currentLayer(), dialogo.grande, dialogo.correspondencia
+        )
+        _EN_MARCHA.add(tarea)
+        QgsApplication.taskManager().addTask(tarea)
+        dock.iface.messageBar().pushInfo(
+            "Geosian",
+            f"Importando «{dialogo.grande['name']}» en segundo plano; la verás al terminar. "
+            "El avance está en la barra de tareas de abajo.",
+        )
+        return tarea
+    if not dialogo.capa_creada:
         return None
     capa = dict(dialogo.capa_creada)
     # Una capa vacía no trae tipos en los metadatos: los de su definición de campos.
