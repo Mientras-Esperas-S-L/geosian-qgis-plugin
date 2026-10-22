@@ -58,10 +58,10 @@ APP = "GreenCityControl"
 def texto_de_error(exc):
     """Lo que se le dice a quien crea la capa, con qué hacer si se puede."""
     if isinstance(exc, AuthError):
-        return ("Tu sesión de Geosian ha caducado. Vuelve a entrar (clic derecho en la conexión del "
+        return ("Tu sesión de GreenCityControl ha caducado. Vuelve a entrar (clic derecho en la conexión del "
                 "panel › Volver a entrar) y repite.")
     if isinstance(exc, NetworkError):
-        return f"Sin conexión con Geosian: {exc}. Comprueba la red y repite."
+        return f"Sin conexión con GreenCityControl: {exc}. Comprueba la red y repite."
     return str(exc)
 
 
@@ -87,7 +87,7 @@ class CrearCapaDialog(QDialog):
         formulario.addRow("Nombre", self.nombre)
 
         self.forma = QButtonGroup(self)
-        self.de_plantilla = QRadioButton("A partir de otra capa de Geosian (sus formularios, partes y colores)")
+        self.de_plantilla = QRadioButton("A partir de otra capa de GreenCityControl (sus formularios, partes y colores)")
         self.de_qgis = QRadioButton("A partir de una capa de QGIS (sus campos y, si quieres, sus elementos)")
         self.forma.addButton(self.de_plantilla, PLANTILLA)
         self.forma.addButton(self.de_qgis, DE_QGIS)
@@ -434,7 +434,7 @@ def crear_capa(dock, datos_mapa, parent=None):
         _EN_MARCHA.add(tarea)
         QgsApplication.taskManager().addTask(tarea)
         dock.iface.messageBar().pushInfo(
-            "Geosian",
+            "GreenCityControl",
             f"Importando «{dialogo.grande['name']}» en segundo plano; la verás al terminar. "
             "El avance está en la barra de tareas de abajo.",
         )
@@ -450,13 +450,13 @@ def crear_capa(dock, datos_mapa, parent=None):
     if dialogo.subir and añadidas:
         ok, mensaje = subir_elementos(dialogo.capa_qgis.currentLayer(), añadidas[0], dialogo.correspondencia)
         (dock.iface.messageBar().pushSuccess if ok else dock.iface.messageBar().pushWarning)(
-            "Geosian", f"«{capa.get('name')}»: {mensaje}"
+            "GreenCityControl", f"«{capa.get('name')}»: {mensaje}"
         )
     elif añadidas:
         dock.iface.messageBar().pushSuccess(
-            "Geosian",
+            "GreenCityControl",
             f"Capa «{capa.get('name')}» creada. Sus formularios, partes y colores se completan en la web.",
         )
     if not añadidas:
-        QMessageBox.warning(parent, "Geosian", "La capa se ha creado, pero no se pudo abrir en QGIS.")
+        QMessageBox.warning(parent, "GreenCityControl", "La capa se ha creado, pero no se pudo abrir en QGIS.")
     return añadidas

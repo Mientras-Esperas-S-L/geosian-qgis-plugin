@@ -96,7 +96,7 @@ def test_si_no_acaba_a_tiempo_no_se_sabe_si_entro(monkeypatch):
     monkeypatch.setattr(C, "ESPERA_DE_LOTE", -1)
     transporte = TransporteEnCola([en_curso()])
 
-    with pytest.raises(LoteIncierto, match="No se sabe si Geosian ha guardado"):
+    with pytest.raises(LoteIncierto, match="No se sabe si GreenCityControl ha guardado"):
         confirmar(transporte)
 
 

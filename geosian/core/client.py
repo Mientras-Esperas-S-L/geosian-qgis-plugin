@@ -35,8 +35,8 @@ ESPERA_DE_LOTE = 27 * 60
 ESPERA_EN_COLA = 30 * 60
 # Al cabo de esto, «no se sabe»: puede entrar todavía.
 INCIERTO = (
-    "No se sabe si Geosian ha guardado los cambios: {motivo}. Vuelve a guardar sin "
-    "tocar nada: si ya entraron, Geosian lo sabe y no los repite."
+    "No se sabe si GreenCityControl ha guardado los cambios: {motivo}. Vuelve a guardar sin "
+    "tocar nada: si ya entraron, GreenCityControl lo sabe y no los repite."
 )
 
 # Cuánto se reutiliza el listado de capas de un mapa. Abrir un mapa entero son
@@ -387,7 +387,7 @@ class GeosianClient:
                 raise LoteIncierto(INCIERTO.format(motivo="no ha terminado a tiempo"))
         resultado = tarea.get("result_data") or {}
         cuerpo = resultado.get("cuerpo") or {
-            "error": tarea.get("error_message") or "Geosian no ha aplicado el lote."
+            "error": tarea.get("error_message") or "GreenCityControl no ha aplicado el lote."
         }
         # Lo mismo que habría respondido el lote sin esperar: mismos errores.
         self._check(

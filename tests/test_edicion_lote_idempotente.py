@@ -56,7 +56,7 @@ def test_si_se_corta_y_se_vuelve_a_guardar_no_se_repite(servidor):  # noqa: F811
     servidor.estado.perder_respuesta = True
 
     assert not capa.commitChanges()
-    assert "No se sabe si Geosian ha guardado" in " ".join(capa.commitErrors())
+    assert "No se sabe si GreenCityControl ha guardado" in " ".join(capa.commitErrors())
     assert len(altas_en_el_servidor(servidor)) == 1
     servidor.estado.perder_respuesta = False
 

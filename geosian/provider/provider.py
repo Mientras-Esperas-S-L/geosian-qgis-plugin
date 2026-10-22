@@ -54,8 +54,8 @@ from .subset import server_params
 from .uri import parse_uri, tipo_de_tabla
 
 PROVIDER_KEY = "geosian"
-PROVIDER_DESCRIPTION = "Geosian API"
-LOG_TAG = "Geosian"
+PROVIDER_DESCRIPTION = "GreenCityControl API"
+LOG_TAG = "GreenCityControl"
 
 # Tamaño de página al descargar. La API rechaza el endpoint sin paginar por
 # encima de 100.000 elementos, así que las capas grandes entran por páginas.
@@ -221,7 +221,7 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
             connections.mark_expired(self._uri.connection)
             self._error = (
                 f"La sesión de «{self._uri.connection}» ha caducado o no es válida. "
-                "Hay que volver a entrar desde el panel de Geosian; las capas se "
+                "Hay que volver a entrar desde el panel de GreenCityControl; las capas se "
                 "recuperan solas."
             )
             if self._abrir_sin_sesion():
@@ -231,7 +231,7 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
         except NotFoundError:
             self._error = (
                 f"La capa {self._uri.layer_id} ya no existe en GCC o ha cambiado de mapa. "
-                "Quítala del proyecto y vuelve a añadirla desde el panel de Geosian."
+                "Quítala del proyecto y vuelve a añadirla desde el panel de GreenCityControl."
             )
             self.log_error(self._error)
         except ForbiddenError:
@@ -839,7 +839,7 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
         return PROVIDER_KEY
 
     def storageType(self):
-        return "Geosian REST API"
+        return "GreenCityControl REST API"
 
     def dataSourceUri(self, expandAuthConfig=False):
         if getattr(self, "_uri", None) is None:
@@ -1309,7 +1309,7 @@ class _Avisos(QObject):
         from qgis.utils import iface
 
         if iface is not None:
-            iface.messageBar().pushWarning("Geosian", texto)
+            iface.messageBar().pushWarning("GreenCityControl", texto)
 
 
 _avisos = {"objeto": None}

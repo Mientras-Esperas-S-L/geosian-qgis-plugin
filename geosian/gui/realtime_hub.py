@@ -17,7 +17,7 @@ from ..core import aggregated, connections, realtime
 from ..core.errors import GeosianError
 from . import celdas, contornos, formulario, leyendas
 
-LOG_TAG = "Geosian"
+LOG_TAG = "GreenCityControl"
 AGRUPAR_MS = 500
 
 _hubs = {}
@@ -100,7 +100,7 @@ def _ofrecer_entrar(conexion, iface):
     barra = iface.messageBar()
     if conexion in {w.property(_PROPIEDAD) for w in barra.items() if w is not None}:
         return
-    aviso = barra.createMessage("Geosian", texto)
+    aviso = barra.createMessage("GreenCityControl", texto)
     aviso.setProperty(_PROPIEDAD, conexion)
     pedir = _vigilando["pedir"]
     if pedir is not None:
@@ -319,5 +319,5 @@ class RealtimeHub(QObject):
 
     def _avisar(self, texto):
         if self._iface is not None:
-            self._iface.messageBar().pushWarning("Geosian", texto)
+            self._iface.messageBar().pushWarning("GreenCityControl", texto)
         QgsMessageLog.logMessage(texto, LOG_TAG, Qgis.Warning)

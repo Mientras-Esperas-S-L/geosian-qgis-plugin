@@ -97,7 +97,7 @@ class GeosianBrowserDock(QDockWidget):
     """Panel acoplable con el catálogo de Geosian."""
 
     def __init__(self, iface, parent=None):
-        super().__init__("Geosian", parent)
+        super().__init__("GreenCityControl", parent)
         self.iface = iface
         self.setObjectName("GeosianBrowserDock")
 
@@ -413,7 +413,7 @@ class GeosianBrowserDock(QDockWidget):
             # ya lo ha hecho.
             QTimer.singleShot(0, lambda: self._reafirmar_mercator(extension))
         self.iface.messageBar().pushInfo(
-            "Geosian", f"{len(capas_qgis)} capa(s) añadidas al proyecto."
+            "GreenCityControl", f"{len(capas_qgis)} capa(s) añadidas al proyecto."
         )
 
     def _añadir_fondo(self, extension, api_url=None, fondos_del_mapa=()):
@@ -538,7 +538,7 @@ class GeosianBrowserDock(QDockWidget):
 
         if añadidas and avisar:
             self.iface.messageBar().pushInfo(
-                "Geosian",
+                "GreenCityControl",
                 f"{len(añadidas)} capa(s) añadidas al proyecto.",
             )
         return añadidas
@@ -694,7 +694,7 @@ class GeosianBrowserDock(QDockWidget):
         capa.setScaleBasedVisibility(True)
         capa.setMinimumScale(escala)
         self.iface.messageBar().pushInfo(
-            "Geosian",
+            "GreenCityControl",
             f"«{capa.name()}» tiene {proveedor.featureCount():,} elementos. ".replace(",", ".")
             + f"Se pinta a partir de 1:{escala:,}".replace(",", ".")
             + " y solo se descarga la zona que se ve.",
@@ -707,11 +707,11 @@ class GeosianBrowserDock(QDockWidget):
         except Exception as exc:
             # Un formulario mal construido no debe impedir ver los datos.
             self.iface.messageBar().pushWarning(
-                "Geosian", f"No se pudo construir el formulario: {exc}"
+                "GreenCityControl", f"No se pudo construir el formulario: {exc}"
             )
 
     def _error(self, mensaje):
-        self.iface.messageBar().pushCritical("Geosian", mensaje)
+        self.iface.messageBar().pushCritical("GreenCityControl", mensaje)
 
 
 def _hoja_informativa(texto):
@@ -779,7 +779,7 @@ def _añadir_fondos_fijos(raiz, api_url):
 
 def _fondo_geosian(api_url):
     """El mapa base de la web: teselas vectoriales propias con su estilo MapLibre."""
-    return _capa_vectorial(basemaps.geosian_style(api_url), "Fondo: mapa base de Geosian")
+    return _capa_vectorial(basemaps.geosian_style(api_url), "Fondo: mapa base de GreenCityControl")
 
 
 def _capa_vectorial(estilo, nombre):

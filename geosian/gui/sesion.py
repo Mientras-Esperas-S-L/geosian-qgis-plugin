@@ -73,7 +73,7 @@ def offer_reconnect(iface, pedir):
         if nombre in a_la_vista:
             continue
         aviso = barra.createMessage(
-            "Geosian",
+            "GreenCityControl",
             f"La sesión de «{nombre}» ha caducado: sus capas no traen datos nuevos "
             "hasta volver a entrar.",
         )

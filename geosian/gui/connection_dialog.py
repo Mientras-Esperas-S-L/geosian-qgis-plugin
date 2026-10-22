@@ -37,7 +37,7 @@ class ConnectionDialog(QDialog):
 
     def __init__(self, parent=None, nombre=None):
         super().__init__(parent)
-        self.setWindowTitle("Conectar con Geosian")
+        self.setWindowTitle("Conectar con GreenCityControl")
         self.setMinimumWidth(420)
         self._nombre_original = nombre
         self.connection_name = None

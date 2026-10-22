@@ -52,7 +52,7 @@ def capa(servidor):
 def test_la_capa_abre_y_es_de_puntos(capa):
     assert capa.isValid()
     assert capa.wkbType() == QgsWkbTypes.Point
-    assert capa.dataProvider().storageType() == "Geosian REST API"
+    assert capa.dataProvider().storageType() == "GreenCityControl REST API"
 
 
 def test_campos_salen_del_esquema(capa):

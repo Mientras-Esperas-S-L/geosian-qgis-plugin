@@ -23,9 +23,9 @@ def preguntar_retirada(capa, cuantos):
     elementos = "un elemento" if cuantos == 1 else f"{cuantos} elementos"
     respuesta = QMessageBox.question(
         None,
-        "Retirar en Geosian",
+        "Retirar en GreenCityControl",
         f"Vas a retirar {elementos} de «{capa.name()}».\n\n"
-        "En Geosian no se borran: pasan a «no disponible», quedan en su historial y se "
+        "En GreenCityControl no se borran: pasan a «no disponible», quedan en su historial y se "
         "pueden recuperar desde la web.\n\n¿Seguir?",
         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         QMessageBox.StandardButton.No,
@@ -120,8 +120,8 @@ def _al_encolar(capa, total):
         return
     cuantos = f"los {total:,} cambios".replace(",", ".") if total else "los cambios"
     iface.messageBar().pushInfo(
-        "Geosian",
-        f"«{capa.name()}»: Geosian aplica {cuantos} en segundo plano, todos o ninguno. "
+        "GreenCityControl",
+        f"«{capa.name()}»: GreenCityControl aplica {cuantos} en segundo plano, todos o ninguno. "
         "Puede tardar unos minutos.",
     )
 
@@ -136,7 +136,7 @@ def _avisar(capa, avisos):
     texto = f"Conflictos resueltos: vuelve a guardar «{capa.name()}»."
     if avisos:
         texto += " " + "; ".join(avisos) + "."
-    iface.messageBar().pushInfo("Geosian", texto)
+    iface.messageBar().pushInfo("GreenCityControl", texto)
 
 
 def dialogo_de_conflictos(capa, conflictos):
@@ -171,7 +171,7 @@ def dialogo_de_conflictos(capa, conflictos):
         tabla.setItem(fila, 1, QTableWidgetItem(quien.get("nombre") or quien.get("username") or "—"))
         tabla.setItem(fila, 2, QTableWidgetItem(_cuando(choque.get("updated_at"))))
         combo = QComboBox()
-        combo.addItem("Quedarme con lo de Geosian (descartar lo mío)", GEOSIAN)
+        combo.addItem("Quedarme con lo de GreenCityControl (descartar lo mío)", GEOSIAN)
         if not retirado:
             combo.addItem("Sobrescribir con lo mío", MIO)
         tabla.setCellWidget(fila, 3, combo)
@@ -244,9 +244,9 @@ def _lote_sin_respuesta(capa):
         return
     que, hora = estado
     textos = {
-        "entro": "sí entró en Geosian: lo que ves en la capa ya lo incluye",
-        "no_consta": "no entró en Geosian: no se guardó nada",
-        "en_curso": "aún se está aplicando en Geosian; recarga la capa en un rato",
+        "entro": "sí entró en GreenCityControl: lo que ves en la capa ya lo incluye",
+        "no_consta": "no entró en GreenCityControl: no se guardó nada",
+        "en_curso": "aún se está aplicando en GreenCityControl; recarga la capa en un rato",
     }
     if que not in textos:
         return
@@ -259,7 +259,7 @@ def _mensaje(texto):
     except ImportError:
         iface = None
     if iface is not None:
-        iface.messageBar().pushInfo("Geosian", texto)
+        iface.messageBar().pushInfo("GreenCityControl", texto)
 
 
 def _avisos_del_proveedor(capa):

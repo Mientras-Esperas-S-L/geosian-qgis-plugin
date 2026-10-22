@@ -94,14 +94,14 @@ def test_un_alta_sin_codigo_en_geosian_no_se_queda_con_el_pegado(capa, servidor)
 
 def test_lo_demas_que_pone_geosian_tambien_se_ve(capa, servidor):  # noqa: F811
     # Un código REFER, un disparador...: el servidor lo devuelve en «calculados».
-    servidor.estado.calcular = lambda antes, nuevos: {"observaciones": "puesto por Geosian"}
+    servidor.estado.calcular = lambda antes, nuevos: {"observaciones": "puesto por GreenCityControl"}
     editar(capa, 1001, altura=20.0)
     nuevo(capa, -3.69, 40.41, codigo="N-3")
 
     assert capa.commitChanges(), capa.commitErrors()
 
-    assert capa.getFeature(1001)["observaciones"] == "puesto por Geosian"
-    assert capa.getFeature(2001)["observaciones"] == "puesto por Geosian"
+    assert capa.getFeature(1001)["observaciones"] == "puesto por GreenCityControl"
+    assert capa.getFeature(2001)["observaciones"] == "puesto por GreenCityControl"
 
 
 def test_la_superficie_automatica_es_como_un_calculado(servidor, monkeypatch):  # noqa: F811
