@@ -16,13 +16,16 @@ grupo de quien la crea y va en la carpeta «Nuevas desde QGIS».
 import os
 import shutil
 import tempfile
+import traceback
 
 from qgis.core import (
+    Qgis,
     QgsApplication,
     QgsCoordinateTransform,
     QgsFeature,
     QgsGeometry,
     QgsMapLayerProxyModel,
+    QgsMessageLog,
     QgsProject,
     QgsTask,
     QgsVectorLayerFeatureSource,
@@ -356,6 +359,9 @@ class ImportarCapas(QgsTask):
                 break
             except (I.NoSePuede, GeosianError) as exc:
                 resultado["error"] = texto_de_error(exc)
+            except Exception as exc:
+                QgsMessageLog.logMessage(traceback.format_exc(), APP, Qgis.Critical)
+                resultado["error"] = f"fallo inesperado ({type(exc).__name__}: {exc}); el detalle está en el registro de mensajes"
             finally:
                 shutil.rmtree(carpeta, ignore_errors=True)
         return bool(self.resultados) and all(r["error"] is None for r in self.resultados) and len(self.resultados) == n
