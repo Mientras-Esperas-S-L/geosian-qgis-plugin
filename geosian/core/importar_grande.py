@@ -68,6 +68,8 @@ def empaquetar(origen, campos, correspondencia, tipo, ruta, avance=None, cancela
 
     Devuelve ``(escritos, sin_geometria)``.
     """
+    if tipo not in WKB:
+        raise NoSePuede("no tiene geometría de punto, línea ni polígono")
     campos_gpkg = QgsFields()
     for campo in campos:
         campos_gpkg.append(QgsField(campo["name"], TIPO_QGIS[campo["type"]]))
@@ -87,7 +89,11 @@ def empaquetar(origen, campos, correspondencia, tipo, ruta, avance=None, cancela
     multi = QgsWkbTypes.isMultiType(WKB[tipo])
     tipos = {de_qgis: origen.fields().field(de_qgis).type() for de_qgis in correspondencia}
     indices = {de_qgis: campos_gpkg.indexFromName(en_geosian) for de_qgis, en_geosian in correspondencia.items()}
-    total = total or origen.featureCount() or 1
+    # Con 0 elementos, ``total or …`` llamaba a featureCount(), que una
+    # QgsVectorLayerFeatureSource no tiene: la tarea entera se caía.
+    if total is None:
+        total = origen.featureCount()
+    total = max(total, 1)
     escritos = sin_geometria = 0
     no_validas = []
     try:

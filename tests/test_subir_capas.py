@@ -126,3 +126,58 @@ class TestSubida:
         nivel, texto = dock.barra.avisos[-1]
         assert nivel == "pushWarning" and texto.startswith("Subidas 1 de 2 capas.")
         assert "«Zonas rotas»" in texto and "geometría rota" in texto
+
+
+class TestCapasRaras:
+    def test_una_capa_sin_elementos_se_crea_vacia_y_no_tumba_las_demas(self, app_gui, servidor, proyecto, monkeypatch):  # noqa: F811
+        monkeypatch.setattr(I, "esperar", _esperar)
+        vacia = proyecto(QgsVectorLayer("Point?crs=EPSG:4326&field=n:string", "Vacía", "memory"))
+        proyecto(origen_con(3))
+        d = SC.SubirCapasDialog(MAPA)
+        d._aceptar()
+        dock = _Dock()
+        tarea = SC.ImportarCapas(dock, CONEXION, MAPA, d.elegidas)
+
+        ok = tarea.run()
+        tarea.finished(ok)
+
+        assert ok, tarea.resultados
+        assert sorted(c["name"] for c in dock.añadidas) == ["Vacía", "origen"]
+        assert vacia.featureCount() == 0
+
+    def test_un_fallo_inesperado_en_una_capa_lo_dice_y_sigue(self, app_gui, servidor, proyecto, monkeypatch):  # noqa: F811
+        monkeypatch.setattr(I, "esperar", _esperar)
+        proyecto(origen_con(3))
+        proyecto(lineas())
+        d = SC.SubirCapasDialog(MAPA)
+        d._aceptar()
+        original = I.empaquetar
+
+        def falla_con_lineas(origen, campos, correspondencia, tipo, *args, **kwargs):
+            if tipo == "MultiLineString":
+                raise RuntimeError("algo raro")
+            return original(origen, campos, correspondencia, tipo, *args, **kwargs)
+
+        monkeypatch.setattr(I, "empaquetar", falla_con_lineas)
+        dock = _Dock()
+        tarea = SC.ImportarCapas(dock, CONEXION, MAPA, d.elegidas)
+
+        ok = tarea.run()
+        tarea.finished(ok)
+
+        assert not ok and [c["name"] for c in dock.añadidas] == ["origen"]
+        nivel, texto = dock.barra.avisos[-1]
+        assert nivel == "pushWarning" and "«Tramos»: fallo inesperado (RuntimeError: algo raro)" in texto
+
+
+def test_con_una_sola_capa_el_aviso_habla_en_singular(app_gui, servidor, proyecto, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(I, "esperar", _esperar)
+    proyecto(origen_con(3))
+    d = SC.SubirCapasDialog(MAPA)
+    d._aceptar()
+    dock = _Dock()
+    tarea = SC.ImportarCapas(dock, CONEXION, MAPA, d.elegidas)
+
+    tarea.finished(tarea.run())
+
+    assert dock.barra.avisos[-1] == ("pushSuccess", "Subida «origen» a «Ciudad de Ejemplo».")

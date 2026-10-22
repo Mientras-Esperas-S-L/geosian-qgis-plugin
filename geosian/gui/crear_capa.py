@@ -16,13 +16,16 @@ grupo de quien la crea y va en la carpeta «Nuevas desde QGIS».
 import os
 import shutil
 import tempfile
+import traceback
 
 from qgis.core import (
+    Qgis,
     QgsApplication,
     QgsCoordinateTransform,
     QgsFeature,
     QgsGeometry,
     QgsMapLayerProxyModel,
+    QgsMessageLog,
     QgsProject,
     QgsTask,
     QgsVectorLayerFeatureSource,
@@ -356,6 +359,9 @@ class ImportarCapas(QgsTask):
                 break
             except (I.NoSePuede, GeosianError) as exc:
                 resultado["error"] = texto_de_error(exc)
+            except Exception as exc:
+                QgsMessageLog.logMessage(traceback.format_exc(), APP, Qgis.Critical)
+                resultado["error"] = f"fallo inesperado ({type(exc).__name__}: {exc}); el detalle está en el registro de mensajes"
             finally:
                 shutil.rmtree(carpeta, ignore_errors=True)
         return bool(self.resultados) and all(r["error"] is None for r in self.resultados) and len(self.resultados) == n
@@ -380,7 +386,10 @@ class ImportarCapas(QgsTask):
         barra = self.dock.iface.messageBar()
         fallidas = [r for r in self.resultados if r["error"] is not None]
         if ok:
-            barra.pushSuccess(APP, f"Subidas las {len(hechas)} capas a «{self.mapa.get('name')}».")
+            if len(hechas) == 1:
+                barra.pushSuccess(APP, f"Subida «{hechas[0]['nombre']}» a «{self.mapa.get('name')}».")
+            else:
+                barra.pushSuccess(APP, f"Subidas las {len(hechas)} capas a «{self.mapa.get('name')}».")
             return
         partes = [f"«{r['nombre']}»: {r['error']}" for r in fallidas if r["error"] != "cancelada"]
         if self.isCanceled() or any(r["error"] == "cancelada" for r in fallidas):
