@@ -266,6 +266,10 @@ class GeosianBrowserDock(QDockWidget):
                 "Añadir el mapa entero",
                 lambda: self.añadir_mapa(item.data(0, ROL_DATOS)),
             )
+            menu.addAction(
+                "Crear capa en este mapa…",
+                lambda: self._crear_capa(item),
+            )
         elif tipo == TIPO_CONEXION:
             nombre = item.data(0, ROL_DATOS)
             menu.addAction("Volver a entrar", lambda: self._pedir_reconexion(nombre))
@@ -273,6 +277,15 @@ class GeosianBrowserDock(QDockWidget):
 
         if not menu.isEmpty():
             menu.exec(self.arbol.viewport().mapToGlobal(punto))
+
+    def _crear_capa(self, item):
+        from .crear_capa import crear_capa
+
+        if crear_capa(self, item.data(0, ROL_DATOS), self) is not None:
+            # La capa nueva, en el árbol del mapa.
+            item.takeChildren()
+            item.setExpanded(False)
+            item.setExpanded(True)
 
     def nueva_conexion(self):
         dialogo = ConnectionDialog(self)

@@ -297,6 +297,10 @@ VISTA_TILOS = {
 def _pagina_de_elementos(consulta, lasso=None, servidor=None):
     """Lo que devolvería /geodata/paginated/ con esos parámetros."""
     elementos = servidor.elementos if servidor is not None else ELEMENTOS
+    capa = consulta.get("layer_id", [""])[0]
+    if servidor is not None and capa.isdigit() and int(capa) in servidor.elementos_de_capa:
+        # Una capa creada en la prueba: sus elementos, no los del arbolado.
+        elementos = servidor.elementos_de_capa[int(capa)]
     ids = consulta.get("ids", [""])[0]
     if ids:
         pedidos = {int(i) for i in ids.split(",") if i}
@@ -673,6 +677,16 @@ class Handler(BaseHTTPRequestHandler):
             self._json(cuerpo, estado)
             return
 
+        crear = re.match(r"^/api/v1/maps/(\d+)/layers/crear/$", partes.path)
+        if crear:
+            Handler.peticiones.append((partes.path, datos))
+            if self.headers.get("Authorization") != "Token tok-de-prueba":
+                self._json({"detail": "Credenciales no válidas"}, 401)
+                return
+            estado, cuerpo = _capa_creada(self.server, int(crear.group(1)), datos)
+            self._json(cuerpo, estado)
+            return
+
         if partes.path == "/users/login/" and datos.get("email") == "doble@ejemplo.com":
             self._json({"mfa_required": True, "mfa_token": "mfa-de-prueba"}, 202)
             return
@@ -729,6 +743,9 @@ class _Servidor(HTTPServer):
         # Los campos calculados que pone el servidor: (antes, nuevos) → {campo: valor}.
         self.calcular = lambda antes, nuevos: {}
         self._siguiente_id = 2001
+        # Capas creadas con maps/<id>/layers/crear/: sus elementos, aparte.
+        self.elementos_de_capa = {}
+        self.sin_layer_create = False
         self._reloj = 0
         # Las fotos y los ficheros subidos sueltos para un alta: ref → datos.
         self.adjuntos = {}
@@ -790,6 +807,24 @@ class _Servidor(HTTPServer):
             del atributos[campo]
         return usados, None
 
+    def _confirmar_en_capa_nueva(self, lote):
+        """Altas en una capa creada en la prueba: todas o ninguna, sin reglas del arbolado."""
+        if lote.get("cambiar") or lote.get("retirar"):
+            return 400, {"errores": [{"error": "En la capa nueva de prueba solo hay altas"}]}
+        lista = self.elementos_de_capa[lote["layer_id"]]
+        creados = []
+        for alta in lote.get("crear", []):
+            fid = self._siguiente_id
+            self._siguiente_id += 1
+            lista.append({
+                "type": "Feature", "geometry": alta["geometry"],
+                "properties": {"id": fid, "object_id": f"OBJ-{fid}", **(alta.get("attributes") or {})},
+            })
+            self.versiones[fid] = self._version_nueva()
+            creados.append({"ref": alta["ref"], "id": fid, "object_id": f"OBJ-{fid}",
+                            "updated_at": self.versiones[fid], "calculados": {}})
+        return 200, {"creados": creados, "cambiados": [], "retirados": []}
+
     def confirmar(self, lote):
         """Como POST /geodata/confirmar/: todo o nada, con el mismo cuerpo de respuesta."""
         self.lotes.append(copy.deepcopy(lote))
@@ -797,6 +832,8 @@ class _Servidor(HTTPServer):
             estado, cuerpo = self.forzar
             self.forzar = None
             return estado, cuerpo
+        if lote.get("layer_id") in self.elementos_de_capa:
+            return self._confirmar_en_capa_nueva(lote)
         permisos = self.permisos.get(lote.get("layer_id"), SIN_PERMISOS)
         if (lote.get("crear") and not permisos["can_create"]) or (
             lote.get("cambiar") and not permisos["can_update"]
@@ -871,6 +908,35 @@ class _Servidor(HTTPServer):
                 "calculados": calculados,
             })
         return 200, resultado
+
+
+def _capa_creada(servidor, map_id, datos):
+    """Como POST /maps/<id>/layers/crear/ (services/crear_capa.py del backend)."""
+    if servidor.sin_layer_create:
+        return 403, {"error": "No tienes permiso para crear capas en este mapa."}
+    nombre = str(datos.get("name") or "").strip()
+    if not nombre:
+        return 400, {"error": "Ponle un nombre a la capa."}
+    if ("plantilla" in datos) == ("campos" in datos):
+        return 400, {"error": "Elige una forma: a partir de otra capa (plantilla) o con campos."}
+    if "plantilla" in datos:
+        if datos["plantilla"] != 11:
+            return 404, {"error": "No encuentro esa capa, o no tienes permiso para verla."}
+        tipo, esquema = "Point", copy.deepcopy(ESQUEMA_ARBOLADO)
+    else:
+        tipo = datos.get("geometry_type")
+        if tipo not in ("Point", "MultiPoint", "MultiLineString", "MultiPolygon"):
+            return 400, {"error": f"Tipo de geometría no admitido: {tipo!r}."}
+        esquema = {"name": nombre.lower(), "title": nombre, "attributes": datos["campos"]}
+    capa_id = 300 + len(servidor.elementos_de_capa)
+    capa = {"id": capa_id, "name": nombre, "map": map_id, "description": "Creada desde QGIS.", "tile_version": 0}
+    servidor.capas_extra.append(capa)
+    servidor.definiciones_extra[str(capa_id)] = [
+        {"id": 900 + capa_id, "layer": capa_id, "geometry_type": tipo, "schema": esquema}
+    ]
+    servidor.permisos[capa_id] = dict(TODOS_LOS_PERMISOS)
+    servidor.elementos_de_capa[capa_id] = []
+    return 201, {**capa, "permissions": dict(TODOS_LOS_PERMISOS), "geometry_types": [tipo]}
 
 
 def _campos_del_esquema(atributos):

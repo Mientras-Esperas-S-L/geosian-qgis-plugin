@@ -209,8 +209,10 @@ class GeosianClient:
             f"{API_PREFIX}/maps/{map_id}/layers/",
             # include_permissions: lo que el usuario puede escribir en cada capa. Un
             # servidor que no lo conoce no lo manda, y la capa abre en solo lectura.
+            # solo_visibles: las del mapa web también para quien gestiona permisos, que
+            # sin él recibe todas (las necesita la pantalla de permisos) y abrirían vacías.
             {"include_tile_metadata": "true", "include_tile_config": "true",
-             "include_permissions": "true"},
+             "include_permissions": "true", "solo_visibles": "true"},
             timeout=DEFINITION_TIMEOUT,
         )
         capas = _as_list(respuesta)
@@ -229,6 +231,16 @@ class GeosianClient:
         """
         self.layers(map_id)
         return self._config_teselas.get(map_id)
+
+    def crear_capa(self, map_id, datos):
+        """Crea una capa en el mapa (``maps/<id>/layers/crear/``) y devuelve la capa.
+
+        ``datos``: ``{"name", "plantilla", "copiar_vistas"}`` o
+        ``{"name", "geometry_type", "campos"}`` (``core/crear_capa.py``).
+        """
+        capa = self._post(f"{API_PREFIX}/maps/{map_id}/layers/crear/", datos)
+        self.forget_layers()
+        return capa
 
     def forget_layers(self):
         """Olvida los listados de capas guardados (el panel al refrescar)."""
