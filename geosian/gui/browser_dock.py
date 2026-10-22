@@ -270,6 +270,10 @@ class GeosianBrowserDock(QDockWidget):
                 "Crear capa en este mapa…",
                 lambda: self._crear_capa(item),
             )
+            menu.addAction(
+                "Subir capas de QGIS a este mapa…",
+                lambda: self._subir_capas(item),
+            )
         elif tipo == TIPO_CONEXION:
             nombre = item.data(0, ROL_DATOS)
             menu.addAction("Volver a entrar", lambda: self._pedir_reconexion(nombre))
@@ -286,6 +290,11 @@ class GeosianBrowserDock(QDockWidget):
             item.takeChildren()
             item.setExpanded(False)
             item.setExpanded(True)
+
+    def _subir_capas(self, item):
+        from .subir_capas import subir_capas
+
+        subir_capas(self, item.data(0, ROL_DATOS), self)
 
     def nueva_conexion(self):
         dialogo = ConnectionDialog(self)

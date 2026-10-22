@@ -51,6 +51,8 @@ from ..core import importar_grande as I
 from ..core.errors import AuthError, GeosianError, NetworkError
 
 PLANTILLA, DE_QGIS = 0, 1
+# El nombre de la aplicación en lo que ve el técnico.
+APP = "GreenCityControl"
 
 
 def texto_de_error(exc):
@@ -298,68 +300,121 @@ def _motivos(errores):
     return "; ".join(propios or [e.strip() for e in errores if e.strip()])
 
 
-class ImportarCapaGrande(QgsTask):
-    """Empaqueta la capa de QGIS, la sube a trozos y espera a que el servidor la importe.
+class ImportarCapas(QgsTask):
+    """Empaqueta capas de QGIS, las sube a trozos y espera a que el servidor las importe.
 
-    Corre en segundo plano (el gestor de tareas de QGIS enseña el avance); al acabar,
-    añade la capa al proyecto o dice por qué no se ha creado.
+    Una detrás de otra (el servidor admite una importación por persona a la vez), en
+    segundo plano: el gestor de tareas de QGIS enseña el avance. Al acabar, añade al
+    proyecto las que entraron y dice cuáles no y por qué.
     """
 
-    def __init__(self, dock, conexion, mapa, origen, datos, correspondencia):
-        super().__init__(f"Importar «{datos['name']}» en Geosian", QgsTask.Flag.CanCancel)
+    def __init__(self, dock, conexion, mapa, capas, titulo=None):
+        """``capas``: ``[(capa de QGIS, datos para la API, correspondencia de campos)]``."""
+        super().__init__(titulo or f"Subir {len(capas)} capas a «{mapa.get('name')}»", QgsTask.Flag.CanCancel)
         self.dock = dock
         self.conexion = conexion
         self.mapa = mapa
-        self.datos = datos
-        self.correspondencia = correspondencia
         # La capa y el proyecto no se tocan desde el hilo de la tarea.
-        self.fuente = QgsVectorLayerFeatureSource(origen)
-        self.total = C.contar_elementos(origen)
+        self.capas = [
+            {"fuente": QgsVectorLayerFeatureSource(origen), "total": C.contar_elementos(origen),
+             "datos": datos, "correspondencia": correspondencia}
+            for origen, datos, correspondencia in capas
+        ]
         self.contexto = QgsProject.instance().transformContext()
-        self.final = None
-        self.error = None
+        # Una por capa: {"nombre", "final" (estado del servidor) o None, "error" o None}.
+        self.resultados = []
 
     def _fase(self, desde, hasta):
         return lambda parte: self.setProgress(desde + (hasta - desde) * parte)
 
     def run(self):
-        carpeta = tempfile.mkdtemp(prefix="geosian-importar-")
-        try:
-            ruta = os.path.join(carpeta, "capa.gpkg")
-            escritos, _ = I.empaquetar(
-                self.fuente, self.datos["campos"], self.correspondencia, self.datos["geometry_type"], ruta,
-                avance=self._fase(0, 30), cancelado=self.isCanceled, total=self.total, contexto=self.contexto,
-            )
-            cliente = connections.client_for(self.conexion)
-            datos = {**self.datos, "elementos": escritos}
-            subida = I.subir(cliente, self.mapa["id"], datos, ruta, avance=self._fase(30, 60), cancelado=self.isCanceled)
-            self.final = I.esperar(cliente, self.mapa["id"], subida["id"], avance=self._fase(60, 100), cancelado=self.isCanceled)
-            return self.final["estado"] == "hecha"
-        except I.Cancelado:
-            return False
-        except (I.NoSePuede, GeosianError) as exc:
-            self.error = texto_de_error(exc)
-            return False
-        finally:
-            shutil.rmtree(carpeta, ignore_errors=True)
+        cliente = connections.client_for(self.conexion)
+        n = len(self.capas)
+        for i, capa in enumerate(self.capas):
+            if self.isCanceled():
+                break
+            base, ancho = 100 * i / n, 100 / n
+            resultado = {"nombre": capa["datos"]["name"], "final": None, "error": None}
+            self.resultados.append(resultado)
+            carpeta = tempfile.mkdtemp(prefix="geosian-importar-")
+            try:
+                ruta = os.path.join(carpeta, "capa.gpkg")
+                escritos, _ = I.empaquetar(
+                    capa["fuente"], capa["datos"]["campos"], capa["correspondencia"], capa["datos"]["geometry_type"],
+                    ruta, avance=self._fase(base, base + ancho * 0.3), cancelado=self.isCanceled,
+                    total=capa["total"], contexto=self.contexto,
+                )
+                datos = {**capa["datos"], "elementos": escritos}
+                subida = I.subir(cliente, self.mapa["id"], datos, ruta,
+                                 avance=self._fase(base + ancho * 0.3, base + ancho * 0.6), cancelado=self.isCanceled)
+                resultado["final"] = I.esperar(cliente, self.mapa["id"], subida["id"],
+                                               avance=self._fase(base + ancho * 0.6, base + ancho), cancelado=self.isCanceled)
+                if resultado["final"]["estado"] != "hecha":
+                    resultado["error"] = resultado["final"].get("error") or "no se sabe por qué"
+            except I.Cancelado:
+                resultado["error"] = "cancelada"
+                break
+            except (I.NoSePuede, GeosianError) as exc:
+                resultado["error"] = texto_de_error(exc)
+            finally:
+                shutil.rmtree(carpeta, ignore_errors=True)
+        return bool(self.resultados) and all(r["error"] is None for r in self.resultados) and len(self.resultados) == n
+
+    def _hechas(self):
+        return [r for r in self.resultados if r["error"] is None and r["final"]]
 
     def finished(self, ok):
         _EN_MARCHA.discard(self)
+        hechas = self._hechas()
+        if hechas:
+            cliente = connections.client_for(self.conexion)
+            cliente.forget_layers()
+            capas = {c.get("id"): c for c in cliente.layers(self.mapa["id"])}
+            for r in hechas:
+                capa = capas.get(r["final"]["capa_id"])
+                if capa is not None:
+                    self.dock.añadir_capa({"conexion": self.conexion, "mapa": self.mapa, "capa": capa})
+        self._avisar(ok, hechas)
+
+    def _avisar(self, ok, hechas):
+        barra = self.dock.iface.messageBar()
+        fallidas = [r for r in self.resultados if r["error"] is not None]
+        if ok:
+            barra.pushSuccess(APP, f"Subidas las {len(hechas)} capas a «{self.mapa.get('name')}».")
+            return
+        partes = [f"«{r['nombre']}»: {r['error']}" for r in fallidas if r["error"] != "cancelada"]
+        if self.isCanceled() or any(r["error"] == "cancelada" for r in fallidas):
+            partes.append("se canceló; las que faltaban no se han subido")
+        barra.pushWarning(APP, f"Subidas {len(hechas)} de {len(self.capas)} capas. " + "; ".join(partes) + ".")
+
+
+class ImportarCapaGrande(ImportarCapas):
+    """Una sola capa (la de «Crear capa en este mapa…» con más de ``MAX_ELEMENTOS``)."""
+
+    def __init__(self, dock, conexion, mapa, origen, datos, correspondencia):
+        super().__init__(dock, conexion, mapa, [(origen, datos, correspondencia)],
+                         titulo=f"Importar «{datos['name']}» en {APP}")
+        self.datos = datos
+
+    @property
+    def final(self):
+        return self.resultados[0]["final"] if self.resultados else None
+
+    @property
+    def error(self):
+        error = self.resultados[0]["error"] if self.resultados else None
+        return None if error == "cancelada" else error
+
+    def _avisar(self, ok, hechas):
         barra = self.dock.iface.messageBar()
         nombre = self.datos["name"]
         if ok:
-            cliente = connections.client_for(self.conexion)
-            cliente.forget_layers()
-            capa = next((c for c in cliente.layers(self.mapa["id"]) if c.get("id") == self.final["capa_id"]), None)
-            if capa is not None:
-                self.dock.añadir_capa({"conexion": self.conexion, "mapa": self.mapa, "capa": capa})
             total = (self.final.get("progreso") or {}).get("total") or 0
-            barra.pushSuccess("Geosian", f"«{nombre}» importada con sus {total:,} elementos.".replace(",", "."))
-        elif self.isCanceled():
-            barra.pushInfo("Geosian", f"Importación de «{nombre}» cancelada: no se ha creado nada.")
+            barra.pushSuccess(APP, f"«{nombre}» importada con sus {total:,} elementos.".replace(",", "."))
+        elif self.isCanceled() or (self.resultados and self.resultados[0]["error"] == "cancelada"):
+            barra.pushInfo(APP, f"Importación de «{nombre}» cancelada: no se ha creado nada.")
         else:
-            motivo = self.error or (self.final or {}).get("error") or "no se sabe por qué"
-            barra.pushWarning("Geosian", f"No se ha creado «{nombre}». {motivo}")
+            barra.pushWarning(APP, f"No se ha creado «{nombre}». {self.error or 'no se sabe por qué'}")
 
 
 # Las tareas en marcha: sin una referencia, Python las recoge antes de que acaben.
