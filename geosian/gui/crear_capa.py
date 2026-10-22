@@ -380,6 +380,9 @@ class ImportarCapas(QgsTask):
                 capa = capas.get(r["final"]["capa_id"])
                 if capa is not None:
                     self.dock.añadir_capa({"conexion": self.conexion, "mapa": self.mapa, "capa": capa})
+            # Las nuevas, también en el árbol del panel si el mapa está desplegado.
+            if hasattr(self.dock, "refrescar_mapa"):
+                self.dock.refrescar_mapa(self.conexion, self.mapa["id"])
         self._avisar(ok, hechas)
 
     def _avisar(self, ok, hechas):

@@ -181,3 +181,28 @@ def test_con_una_sola_capa_el_aviso_habla_en_singular(app_gui, servidor, proyect
     tarea.finished(tarea.run())
 
     assert dock.barra.avisos[-1] == ("pushSuccess", "Subida «origen» a «Ciudad de Ejemplo».")
+
+
+def test_al_acabar_el_mapa_del_panel_ensena_las_capas_nuevas(app_gui, servidor, proyecto, monkeypatch):  # noqa: F811
+    from geosian.gui.browser_dock import GeosianBrowserDock
+    from tests.test_gui import IfaceFalso
+
+    monkeypatch.setattr(I, "esperar", _esperar)
+    panel = GeosianBrowserDock(IfaceFalso())
+    raiz = next(panel.arbol.topLevelItem(i) for i in range(panel.arbol.topLevelItemCount())
+                if panel.arbol.topLevelItem(i).text(0) == CONEXION)
+    raiz.setExpanded(True)
+    mapa = raiz.child(0).child(0)
+    mapa.setExpanded(True)
+    antes = [mapa.child(i).text(0) for i in range(mapa.childCount())]
+    proyecto(origen_con(3))
+    d = SC.SubirCapasDialog(MAPA)
+    d._aceptar()
+    dock = _Dock()
+    dock.refrescar_mapa = panel.refrescar_mapa
+    tarea = SC.ImportarCapas(dock, CONEXION, MAPA, d.elegidas)
+
+    tarea.finished(tarea.run())
+
+    despues = [mapa.child(i).text(0) for i in range(mapa.childCount())]
+    assert "origen" not in antes and "origen" in despues
