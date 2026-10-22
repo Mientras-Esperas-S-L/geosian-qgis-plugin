@@ -69,6 +69,22 @@ class TestDeUnaCapaDeQgis:
         assert fuera == []
         assert correspondencia["año"] == "ano" and correspondencia["material"] == "material_2"
 
+    def test_el_fid_de_un_geopackage_no_es_un_campo(self, app, tmp_path):
+        from qgis.core import QgsCoordinateTransformContext, QgsVectorFileWriter
+
+        opciones = QgsVectorFileWriter.SaveVectorOptions()
+        opciones.driverName = "GPKG"
+        ruta = str(tmp_path / "c.gpkg")
+        QgsVectorFileWriter.writeAsVectorFormatV3(
+            memoria("Point?crs=EPSG:4326&field=nombre:string"), ruta, QgsCoordinateTransformContext(), opciones
+        )
+        capa = QgsVectorLayer(ruta, "c", "ogr")
+        assert "fid" in capa.fields().names()
+
+        campos, _, correspondencia = C.campos_de(capa)
+
+        assert [c["name"] for c in campos] == ["nombre"] and "fid" not in correspondencia
+
     def test_un_tipo_que_no_se_lleva(self, app):
         capa = memoria("Point?crs=EPSG:4326&field=nombre:string&field=datos:binary")
 

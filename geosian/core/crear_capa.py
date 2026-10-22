@@ -78,7 +78,13 @@ def campos_de(capa):
     - ``correspondencia``: ``{nombre en QGIS: nombre en Geosian}``.
     """
     campos, fuera, correspondencia, usados = [], [], {}, set()
-    for campo in capa.fields():
+    # El «fid» de un GeoPackage es el número de fila del fichero, no un dato: llevarlo
+    # dejaba en Geosian un campo siempre vacío.
+    de_fichero = capa.dataProvider() is not None and capa.dataProvider().name() == "ogr"
+    numero_de_fila = set(capa.primaryKeyAttributes()) if de_fichero else set()
+    for indice, campo in enumerate(capa.fields()):
+        if indice in numero_de_fila:
+            continue
         tipo = tipo_de_campo(campo)
         if tipo is None:
             fuera.append(f"«{campo.name()}» ({campo.typeName() or 'tipo desconocido'})")
