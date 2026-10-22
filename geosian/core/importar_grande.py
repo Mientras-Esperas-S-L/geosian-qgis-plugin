@@ -68,6 +68,8 @@ def empaquetar(origen, campos, correspondencia, tipo, ruta, avance=None, cancela
 
     Devuelve ``(escritos, sin_geometria)``.
     """
+    if tipo not in WKB:
+        raise NoSePuede("no tiene geometría de punto, línea ni polígono")
     campos_gpkg = QgsFields()
     for campo in campos:
         campos_gpkg.append(QgsField(campo["name"], TIPO_QGIS[campo["type"]]))

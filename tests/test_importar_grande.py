@@ -66,6 +66,12 @@ class TestEmpaquetar:
 
         assert I.empaquetar(origen, campos, correspondencia, "Point", str(tmp_path / "c.gpkg")) == (3, 1)
 
+    def test_sin_geometria_util_lo_dice(self, app, tmp_path):
+        tabla = QgsVectorLayer("None?field=n:string", "tabla", "memory")
+
+        with pytest.raises(I.NoSePuede, match="no tiene geometría"):
+            I.empaquetar(tabla, [], {}, None, str(tmp_path / "c.gpkg"))
+
     def test_geometria_rota_no_sube_nada(self, app, tmp_path):
         origen = QgsVectorLayer("Polygon?crs=EPSG:4326&field=n:string", "o", "memory")
         f = QgsFeature(origen.fields())
