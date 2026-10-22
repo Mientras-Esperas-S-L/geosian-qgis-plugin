@@ -286,10 +286,28 @@ class GeosianBrowserDock(QDockWidget):
         from .crear_capa import crear_capa
 
         if crear_capa(self, item.data(0, ROL_DATOS), self) is not None:
-            # La capa nueva, en el árbol del mapa.
-            item.takeChildren()
-            item.setExpanded(False)
-            item.setExpanded(True)
+            self._recargar(item)
+
+    @staticmethod
+    def _recargar(item):
+        """Vuelve a pedir las capas del mapa: la que se acaba de crear sale en el árbol."""
+        item.takeChildren()
+        item.setExpanded(False)
+        item.setExpanded(True)
+
+    def refrescar_mapa(self, conexion, map_id):
+        """Las capas del mapa ``map_id`` de ``conexion``, otra vez (tras subir capas en
+        segundo plano). Si el mapa no está a la vista, no hace nada."""
+        pendientes = [self.arbol.topLevelItem(i) for i in range(self.arbol.topLevelItemCount())]
+        while pendientes:
+            item = pendientes.pop()
+            datos = item.data(0, ROL_DATOS)
+            if (item.data(0, ROL_TIPO) == TIPO_MAPA and isinstance(datos, dict)
+                    and datos.get("conexion") == conexion and (datos.get("mapa") or {}).get("id") == map_id):
+                if item.isExpanded():
+                    self._recargar(item)
+                return
+            pendientes.extend(item.child(i) for i in range(item.childCount()))
 
     def _subir_capas(self, item):
         from .subir_capas import subir_capas
