@@ -98,7 +98,9 @@ def actualizar(capa, extension, z):
     extra = dict(info.get("extra") or {})
     if version is not None:
         extra["_v"] = version
-    plantilla = aggregated.tile_url(info["base_url"], info["layer_id"], info["params"], extra)
+    # La dirección, la del cliente: la del proyecto podría apuntar a otro servidor y el
+    # cliente le mandaría el token.
+    plantilla = aggregated.tile_url(cliente.base_url, info["layer_id"], info["params"], extra)
     clave = capa.id()
 
     def al_terminar(error, leidas=None):

@@ -61,6 +61,7 @@ from ..core.errors import (
     HttpError,
     NetworkError,
 )
+from .avisos import seguro
 
 PLANTILLA, DE_QGIS = 0, 1
 # El nombre de la aplicación en lo que ve el técnico.
@@ -469,8 +470,8 @@ class ImportarCapas(QgsTask):
             except Exception as exc:
                 QgsMessageLog.logMessage(traceback.format_exc(), APP, Qgis.Warning)
                 self.dock.iface.messageBar().pushWarning(
-                    APP, f"Las capas están en {APP}, pero no se han podido abrir en QGIS. "
-                    f"{texto_de_error(exc)} Ábrelas desde el panel."
+                    APP, seguro(f"Las capas están en {APP}, pero no se han podido abrir en QGIS. "
+                    f"{texto_de_error(exc)} Ábrelas desde el panel.")
                 )
         self._avisar(ok, hechas)
 
@@ -493,16 +494,16 @@ class ImportarCapas(QgsTask):
         if ok:
             fuera = saltados(sum(r["sin_geometria"] for r in hechas))
             if len(hechas) == 1:
-                barra.pushSuccess(APP, f"Subida «{hechas[0]['nombre']}» a «{self.mapa.get('name')}».{fuera}")
+                barra.pushSuccess(APP, seguro(f"Subida «{hechas[0]['nombre']}» a «{self.mapa.get('name')}».{fuera}"))
             else:
-                barra.pushSuccess(APP, f"Subidas las {len(hechas)} capas a «{self.mapa.get('name')}».{fuera}")
+                barra.pushSuccess(APP, seguro(f"Subidas las {len(hechas)} capas a «{self.mapa.get('name')}».{fuera}"))
             return
         partes = [f"«{r['nombre']}»: {r['error']}" for r in fallidas if r["error"] != "cancelada"]
         if self.isCanceled() or any(r["error"] == "cancelada" for r in fallidas):
             partes.append("se canceló; las que faltaban no se han subido")
         elif len(self.resultados) < len(self.capas):
             partes.append("las demás no se han intentado")
-        barra.pushWarning(APP, f"Subidas {len(hechas)} de {len(self.capas)} capas. " + "; ".join(partes) + ".")
+        barra.pushWarning(APP, seguro(f"Subidas {len(hechas)} de {len(self.capas)} capas. " + "; ".join(partes) + "."))
 
 
 class ImportarCapaGrande(ImportarCapas):
@@ -528,13 +529,13 @@ class ImportarCapaGrande(ImportarCapas):
         if ok:
             total = (self.final.get("progreso") or {}).get("total") or 0
             barra.pushSuccess(
-                APP, f"«{nombre}» importada con sus {total:,} elementos.".replace(",", ".")
-                + saltados(self.resultados[0]["sin_geometria"])
+                APP, seguro(f"«{nombre}» importada con sus {total:,} elementos.".replace(",", ".")
+                + saltados(self.resultados[0]["sin_geometria"]))
             )
         elif self.isCanceled() or (self.resultados and self.resultados[0]["error"] == "cancelada"):
-            barra.pushInfo(APP, f"Importación de «{nombre}» cancelada: no se ha creado nada.")
+            barra.pushInfo(APP, seguro(f"Importación de «{nombre}» cancelada: no se ha creado nada."))
         else:
-            barra.pushWarning(APP, f"No se ha creado «{nombre}». {self.error or 'no se sabe por qué'}")
+            barra.pushWarning(APP, seguro(f"No se ha creado «{nombre}». {self.error or 'no se sabe por qué'}"))
 
 
 # Las tareas en marcha: sin una referencia, Python las recoge antes de que acaben.
@@ -630,7 +631,7 @@ def lanzar(dock, tarea, mensaje):
         mensaje += " Va detrás de la subida que ya está en marcha."
     _EN_MARCHA.add(tarea)
     QgsApplication.taskManager().addTask(tarea)
-    dock.iface.messageBar().pushInfo(APP, mensaje)
+    dock.iface.messageBar().pushInfo(APP, seguro(mensaje))
 
 
 def crear_capa(dock, datos_mapa, parent=None):
@@ -662,17 +663,17 @@ def crear_capa(dock, datos_mapa, parent=None):
     if dialogo.subir and añadidas:
         ok, mensaje = subir_elementos(dialogo.capa_qgis.currentLayer(), añadidas[0], dialogo.correspondencia)
         if ok:
-            dock.iface.messageBar().pushSuccess(APP, f"«{capa.get('name')}»: {mensaje}")
+            dock.iface.messageBar().pushSuccess(APP, seguro(f"«{capa.get('name')}»: {mensaje}"))
         else:
             # La capa ya existe en el servidor: que no parezca que no se creó nada.
             dock.iface.messageBar().pushWarning(
-                APP, f"La capa «{capa.get('name')}» se ha creado, pero vacía. {mensaje} "
-                "Puedes pegarle los elementos en QGIS y guardar.",
+                APP, seguro(f"La capa «{capa.get('name')}» se ha creado, pero vacía. {mensaje} "
+                "Puedes pegarle los elementos en QGIS y guardar."),
             )
     elif añadidas:
         dock.iface.messageBar().pushSuccess(
             "GreenCityControl",
-            f"Capa «{capa.get('name')}» creada. Sus formularios, partes y colores se completan en la web.",
+            seguro(f"Capa «{capa.get('name')}» creada. Sus formularios, partes y colores se completan en la web."),
         )
     if not añadidas:
         QMessageBox.warning(parent, "GreenCityControl", "La capa se ha creado, pero no se pudo abrir en QGIS.")

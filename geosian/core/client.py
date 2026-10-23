@@ -8,7 +8,7 @@ inyecta, así que se puede usar y probar por separado.
 import base64
 import json
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from .errors import (
     ApiError,
@@ -610,8 +610,14 @@ class GeosianClient:
             {"geometry_type": data_type, "embed_images": "false"},
         )
 
+    def es_suya(self, url):
+        """Si ``url`` es de este servidor (esquema, máquina y puerto): el token, solo ahí."""
+        return _origen(url) == _origen(self.base_url)
+
     def tiles(self, urls):
         """Los bytes de varias teselas de la API, en paralelo y con el token."""
+        if not all(self.es_suya(url) for url in urls):
+            raise GeosianError("Se han pedido teselas de otro servidor: no se manda la credencial.")
         respuestas = self.transport.get_many(urls, self._headers({"Accept": "*/*"}), timeout=self.timeout)
         cuerpos = []
         for respuesta, url in zip(respuestas, urls):
@@ -696,3 +702,9 @@ def _as_list(datos):
                 return datos[clave]
         return []
     return datos if isinstance(datos, list) else []
+
+
+def _origen(url):
+    partes = urlsplit(url or "")
+    puerto = partes.port or {"https": 443, "http": 80}.get(partes.scheme)
+    return (partes.scheme.lower(), (partes.hostname or "").lower(), puerto)

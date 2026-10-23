@@ -471,10 +471,10 @@ class MediaPanel(QWidget):
         except GeosianError as exc:
             self.estado.setText(f"No se pudo descargar «{item.name}»: {exc}")
             return
-        nombre = os.path.basename(item.name) or f"fichero-{item.id}"
-        ruta = os.path.join(_carpeta_temporal(), f"{item.id}-{nombre}")
+        ruta = os.path.join(_carpeta_temporal(), _nombre_seguro(item.id, item.name))
         with open(ruta, "wb") as destino:
             destino.write(contenido)
+        _marcar_descargado(ruta)
         _abrir_fuera(ruta)
 
 
@@ -520,10 +520,36 @@ def _es_nulo(valor):
     return hasattr(valor, "isNull") and valor.isNull()
 
 
+_CARPETA = []
+
+
 def _carpeta_temporal():
-    carpeta = os.path.join(tempfile.gettempdir(), "geosian-adjuntos")
-    os.makedirs(carpeta, exist_ok=True)
-    return carpeta
+    """Una carpeta propia de esta sesión, solo para este usuario (mkdtemp la crea con 0700);
+    la de nombre fijo en /tmp la podían leer otros usuarios del equipo."""
+    if not _CARPETA or not os.path.isdir(_CARPETA[0]):
+        _CARPETA[:] = [tempfile.mkdtemp(prefix="geosian-adjuntos-")]
+    return _CARPETA[0]
+
+
+def _nombre_seguro(id_, nombre):
+    """``<id>-<nombre>`` sin rutas: los dos vienen del servidor, y un «../» en cualquiera
+    escribiría fuera de la carpeta."""
+    def limpio(texto):
+        texto = os.path.basename(str(texto or "").replace("\\", "/"))
+        return "".join(c for c in texto if c.isalnum() or c in "._- ()").strip(". ")
+    return f"{limpio(id_) or 'x'}-{limpio(nombre) or 'fichero'}"
+
+
+def _marcar_descargado(ruta):
+    """En Windows, la marca de «descargado de Internet» (Mark of the Web): con ella Office
+    abre en vista protegida un documento con macros."""
+    if sys.platform != "win32":
+        return
+    try:
+        with open(ruta + ":Zone.Identifier", "w") as marca:
+            marca.write("[ZoneTransfer]\nZoneId=3\n")
+    except OSError:
+        pass
 
 
 def _abrir_fuera(ruta):

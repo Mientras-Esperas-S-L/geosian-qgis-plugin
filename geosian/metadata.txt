@@ -21,7 +21,12 @@ server=False
 hasProcessingProvider=False
 
 changelog=0.3.1-dev
-    - Una subida que dejó a medias un QGIS cerrado se cancela al empezar otra.
+    - Seguridad: un proyecto manipulado ya no puede mandar la sesión a otro
+      servidor; las expresiones, los nombres de los adjuntos y los avisos ya no
+      dejan colar nada del servidor; sin https:// no se conecta (salvo en el
+      propio equipo); el tiempo real comprueba el saludo y limita el tamaño.
+    - Con otra subida a medias se enseña cuál es y se elige cancelarla; la que
+      dejó un QGIS cerrado en este equipo se cancela sola.
     0.3.0-dev
     - Crear capas desde QGIS: con los campos de una capa de QGIS o a partir de
       otra; las de más de 2.000 elementos suben como GeoPackage en segundo

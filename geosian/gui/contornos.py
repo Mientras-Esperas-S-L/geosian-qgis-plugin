@@ -85,7 +85,8 @@ def _isolineas(cliente, info):
     extra = {"geom": "centroid", "cells": aggregated.CELDAS_DE_CALOR}
     if estilo.get("weight"):
         extra["weight"] = estilo["weight"]
-    plantilla = aggregated.tile_url(info["base_url"], info["layer_id"], info["params"], extra)
+    # La dirección, la del cliente: la del proyecto podría apuntar a otro servidor.
+    plantilla = aggregated.tile_url(cliente.base_url, info["layer_id"], info["params"], extra)
     urls = [plantilla.replace("{z}", str(z)).replace("{x}", str(x)).replace("{y}", str(y))
             for x, y in teselas]
     celdas = []

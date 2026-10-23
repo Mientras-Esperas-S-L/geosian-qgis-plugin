@@ -14,6 +14,7 @@ web, para que no acabe en los registros de acceso. Si el servidor la rechaza
 """
 
 import base64
+import hashlib
 import json
 import os
 import socket
@@ -25,6 +26,9 @@ from urllib.parse import urlparse
 
 RECHAZO_CREDENCIAL = 4001
 ESPERA_MAXIMA = 60  # segundos entre reintentos, como mucho
+
+# Tope de un mensaje del canal: los avisos de Geosian ocupan unos cientos de bytes.
+MAXIMO_MENSAJE = 1024 * 1024
 
 
 def ws_url(api_url):
@@ -157,6 +161,16 @@ class LayerDataChannel:
         cabecera, _, resto = respuesta.partition(b"\r\n\r\n")
         if b" 101 " not in cabecera.split(b"\r\n", 1)[0]:
             raise ConnectionError(cabecera.split(b"\r\n", 1)[0].decode(errors="replace"))
+        # Que quien responde sea un servidor de websocket de verdad (RFC 6455, 4.1).
+        esperada = base64.b64encode(
+            hashlib.sha1((clave + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()
+        )
+        cabeceras = {
+            linea.split(b":", 1)[0].strip().lower(): linea.split(b":", 1)[1].strip()
+            for linea in cabecera.split(b"\r\n")[1:] if b":" in linea
+        }
+        if cabeceras.get(b"sec-websocket-accept") != esperada:
+            raise ConnectionError("la respuesta del servidor no es la de un websocket")
         sock.settimeout(1.0)  # para poder mirar si hay que parar o latir
         self._sock = sock
         self._pendiente = resto
@@ -193,6 +207,9 @@ class LayerDataChannel:
             largo = struct.unpack("!H", self._exacto(2))[0]
         elif largo == 127:
             largo = struct.unpack("!Q", self._exacto(8))[0]
+        if largo > MAXIMO_MENSAJE:
+            # Los avisos de Geosian ocupan unos cientos de bytes: esto no es uno.
+            raise ConnectionError(f"mensaje de {largo} bytes, demasiado grande")
         mascara = self._exacto(4) if cabeza[1] & 0x80 else None
         datos = self._exacto(largo)
         if mascara:

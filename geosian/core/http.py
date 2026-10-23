@@ -14,6 +14,7 @@ levantar QGIS.
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from .errors import NetworkError
@@ -60,6 +61,21 @@ class Transport:
         return salida
 
 
+class _SinTokenFuera(urllib.request.HTTPRedirectHandler):
+    """Sigue redirecciones, pero a otro servidor sin la cabecera del token."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        nueva = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if nueva is not None:
+            antes, despues = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+            if (antes.scheme, antes.netloc) != (despues.scheme, despues.netloc):
+                nueva.remove_header("Authorization")
+        return nueva
+
+
+_ABRIDOR = urllib.request.build_opener(_SinTokenFuera)
+
+
 class UrllibTransport(Transport):
     """Transporte de la biblioteca estándar."""
 
@@ -68,7 +84,7 @@ class UrllibTransport(Transport):
         for key, value in (headers or {}).items():
             req.add_header(key, value)
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with _ABRIDOR.open(req, timeout=timeout) as resp:
                 return Response(resp.status, resp.read(), dict(resp.headers))
         except urllib.error.HTTPError as exc:
             # Un código de error no es un fallo de transporte: el cliente
@@ -202,6 +218,11 @@ def _get_many_qgis(urls, headers, timeout):
             QNetworkRequest.CacheLoadControl.AlwaysNetwork,
         )
         peticion.setAttribute(QNetworkRequest.Attribute.CacheSaveControlAttribute, False)
+        # Una redirección a otro servidor llevaría la cabecera con el token: solo al mismo.
+        peticion.setAttribute(
+            QNetworkRequest.Attribute.RedirectPolicyAttribute,
+            QNetworkRequest.RedirectPolicy.SameOriginRedirectPolicy,
+        )
         respuesta = gestor.get(peticion)
         pendientes.add(i)
         respuesta.finished.connect(partial(terminado, i, respuesta))

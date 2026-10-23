@@ -51,6 +51,7 @@ from ..core.errors import AuthError, GeosianError
 from ..provider.provider import GEOMETRY_TYPES
 from ..provider.uri import build_uri, tipo_de_tabla
 from . import celdas, contornos, formulario, leyendas, realtime_hub, sesion
+from .avisos import seguro
 from .connection_dialog import ConnectionDialog
 
 ROL_TIPO = Qt.ItemDataRole.UserRole
@@ -431,7 +432,7 @@ class GeosianBrowserDock(QDockWidget):
             # ya lo ha hecho.
             QTimer.singleShot(0, lambda: self._reafirmar_mercator(extension))
         self.iface.messageBar().pushInfo(
-            "GreenCityControl", f"{len(capas_qgis)} capa(s) añadidas al proyecto."
+            "GreenCityControl", seguro(f"{len(capas_qgis)} capa(s) añadidas al proyecto.")
         )
 
     def _añadir_fondo(self, extension, api_url=None, fondos_del_mapa=()):
@@ -557,7 +558,7 @@ class GeosianBrowserDock(QDockWidget):
         if añadidas and avisar:
             self.iface.messageBar().pushInfo(
                 "GreenCityControl",
-                f"{len(añadidas)} capa(s) añadidas al proyecto.",
+                seguro(f"{len(añadidas)} capa(s) añadidas al proyecto."),
             )
         return añadidas
 
@@ -713,9 +714,9 @@ class GeosianBrowserDock(QDockWidget):
         capa.setMinimumScale(escala)
         self.iface.messageBar().pushInfo(
             "GreenCityControl",
-            f"«{capa.name()}» tiene {proveedor.featureCount():,} elementos. ".replace(",", ".")
+            seguro(f"«{capa.name()}» tiene {proveedor.featureCount():,} elementos. ".replace(",", ".")
             + f"Se pinta a partir de 1:{escala:,}".replace(",", ".")
-            + " y solo se descarga la zona que se ve.",
+            + " y solo se descarga la zona que se ve."),
         )
 
     def _aplicar_esquema(self, capa):
@@ -725,11 +726,11 @@ class GeosianBrowserDock(QDockWidget):
         except Exception as exc:
             # Un formulario mal construido no debe impedir ver los datos.
             self.iface.messageBar().pushWarning(
-                "GreenCityControl", f"No se pudo construir el formulario: {exc}"
+                "GreenCityControl", seguro(f"No se pudo construir el formulario: {exc}")
             )
 
     def _error(self, mensaje):
-        self.iface.messageBar().pushCritical("GreenCityControl", mensaje)
+        self.iface.messageBar().pushCritical("GreenCityControl", seguro(mensaje))
 
 
 def _hoja_informativa(texto):
