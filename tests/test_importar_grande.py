@@ -1,5 +1,7 @@
 """Subir a Geosian una capa de QGIS demasiado grande para un lote: GeoPackage a trozos."""
 
+import os
+
 import pytest
 
 qgis_core = pytest.importorskip("qgis.core")
@@ -224,6 +226,38 @@ class TestSubir:
 
         assert I.subir(cliente, 4, datos, ruta, espera=0)["estado"] in ("importando", "hecha")
         assert len(veces) >= 2
+
+    def test_la_que_dejo_a_medias_un_qgis_cerrado_se_cancela_al_abrir_otra(self, servidor, tmp_path):  # noqa: F811
+        import subprocess
+        import sys
+
+        from geosian.core import subidas_abiertas
+
+        datos, ruta = preparar(tmp_path)
+        cliente = connections.client_for(CONEXION)
+        vieja = cliente.importar_capa(4, {**datos, "name": "A medias", "tamano": 10, "huella": "0" * 64})
+        # Un proceso que ya terminó, como un QGIS que se cerró en mitad de la subida.
+        muerto = subprocess.Popen([sys.executable, "-c", "pass"])
+        muerto.wait()
+        subidas_abiertas._guardar([{"servidor": cliente.base_url, "map_id": 4, "id": vieja["id"], "pid": muerto.pid}])
+
+        assert I.subir(cliente, 4, datos, ruta, espera=0)["estado"] in ("importando", "hecha")
+        assert servidor.estado.importaciones[vieja["id"]]["estado"] == "cancelada"
+        assert subidas_abiertas._todas() == []
+
+    def test_la_de_otro_qgis_abierto_no_se_toca(self, servidor, tmp_path):  # noqa: F811
+        from geosian.core import subidas_abiertas
+
+        datos, ruta = preparar(tmp_path)
+        cliente = connections.client_for(CONEXION)
+        otra = cliente.importar_capa(4, {**datos, "name": "De otro QGIS", "tamano": 10, "huella": "0" * 64})
+        subidas_abiertas._guardar([{"servidor": cliente.base_url, "map_id": 4, "id": otra["id"], "pid": os.getppid()}])
+        try:
+            with pytest.raises(ConflictError, match="en marcha"):
+                I.subir(cliente, 4, datos, ruta, espera=0)
+            assert servidor.estado.importaciones[otra["id"]]["estado"] == "subiendo"
+        finally:
+            subidas_abiertas._guardar([])
 
     def test_cancelar_avisa_al_servidor(self, servidor, tmp_path):  # noqa: F811
         datos, ruta = preparar(tmp_path)

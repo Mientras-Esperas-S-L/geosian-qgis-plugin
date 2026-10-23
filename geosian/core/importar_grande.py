@@ -27,6 +27,7 @@ from qgis.core import (
 from qgis.PyQt.QtCore import QVariant
 
 from . import crear_capa as C
+from . import subidas_abiertas
 from .errors import ConflictError, GeosianError, HttpError, NetworkError
 
 WKB = {
@@ -220,7 +221,12 @@ def subir(cliente, map_id, datos, ruta, avance=None, cancelado=None, espera=None
     (el servidor dice cuáles ``faltan``).
     """
     tamano = os.path.getsize(ruta)
+    # Las que dejó a medias un QGIS que se cerró: abiertas, no dejarían empezar esta.
+    for vieja in subidas_abiertas.huerfanas(cliente.base_url):
+        _cancelar(cliente, vieja["map_id"], vieja["id"])
+        subidas_abiertas.quitar(vieja["id"])
     subida = cliente.importar_capa(map_id, {**datos, "tamano": tamano, "huella": huella(ruta)})
+    subidas_abiertas.apuntar(cliente.base_url, map_id, subida["id"])
     # Pase lo que pase a partir de aquí (cancelar, la red, la sesión, un fallo propio), la
     # subida no se queda abierta en el servidor.
     try:
@@ -242,6 +248,9 @@ def subir(cliente, map_id, datos, ruta, avance=None, cancelado=None, espera=None
     except BaseException:
         _cancelar(cliente, map_id, subida["id"])
         raise
+    finally:
+        # Confirmada ya no bloquea nada (el servidor la importa solo); cancelada, tampoco.
+        subidas_abiertas.quitar(subida["id"])
 
 
 def esperar(cliente, map_id, id_subida, avance=None, cancelado=None, cada=3):
