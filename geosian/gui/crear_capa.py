@@ -17,6 +17,7 @@ import os
 import shutil
 import tempfile
 import threading
+import time
 import traceback
 
 from qgis.core import (
@@ -50,7 +51,7 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
 )
 
-from ..core import connections
+from ..core import connections, subidas_abiertas
 from ..core import crear_capa as C
 from ..core import importar_grande as I
 from ..core.errors import (
@@ -541,6 +542,88 @@ _EN_MARCHA = set()
 _UNA_A_LA_VEZ = threading.Lock()
 
 
+def _cuando(segundos):
+    momento = time.localtime(segundos)
+    hora = time.strftime("%H:%M", momento)
+    if momento[:3] == time.localtime()[:3]:
+        return f"a las {hora}"
+    return f"el {time.strftime('%d/%m', momento)} a las {hora}"
+
+
+def _hace(segundos):
+    minutos = max(0, int(time.time() - segundos) // 60)
+    if minutos < 1:
+        return "hace menos de un minuto"
+    if minutos < 120:
+        return f"hace {minutos} min"
+    return f"hace {minutos // 60} h"
+
+
+def describir(activa):
+    """Una importación en marcha, para quien decide si cancelarla."""
+    partes = [f"«{activa.get('nombre') or 'sin nombre'}»"]
+    if activa.get("creada"):
+        partes.append(f"empezada {_cuando(activa['creada'])}")
+    if activa.get("estado") == "subiendo" and activa.get("trozos"):
+        hechos = activa["trozos"] - len(activa.get("faltan") or [])
+        partes.append(f"con el {100 * hechos // activa['trozos']} % subido")
+        if activa.get("ultima_actividad"):
+            partes.append(f"y el último trozo llegado {_hace(activa['ultima_actividad'])}")
+    return ", ".join(partes[:2]) + (" " + " ".join(partes[2:]) if partes[2:] else "")
+
+
+def liberar_cupo(parent, cliente, map_id):
+    """Antes de lanzar una subida grande: que no haya otra de esta persona ocupando el cupo.
+
+    El servidor admite una importación por persona a la vez. Las de este QGIS no cuentan (la
+    nueva va detrás). Las que dejó a medias un QGIS de este equipo que ya se cerró se cancelan
+    solas. Para las demás decide quien sube: se le enseña cuál es, cuánto lleva y cuándo dio
+    señal por última vez, y se le ofrece cancelarla. Nada se da por abandonado por tiempo.
+
+    Devuelve True si se puede lanzar.
+    """
+    try:
+        activas = [a for a in cliente.importaciones_en_marcha(map_id) if a.get("id") not in I.EN_ESTE_QGIS]
+    except GeosianError:
+        return True  # Sin poder preguntar, que lo diga el servidor al abrir la subida.
+    huerfanas = {e["id"]: e for e in subidas_abiertas.huerfanas(cliente.base_url)}
+    for activa in list(activas):
+        vieja = huerfanas.get(activa["id"])
+        if vieja and activa.get("estado") == "subiendo":
+            I._cancelar(cliente, vieja["map_id"], vieja["id"])
+            subidas_abiertas.quitar(vieja["id"])
+            activas.remove(activa)
+    if not activas:
+        return True
+    activa = activas[0]
+    if activa.get("estado") != "subiendo":
+        QMessageBox.information(
+            parent, APP,
+            f"{APP} está importando {describir(activa)}. Solo se puede importar una capa grande a "
+            "la vez: cuando acabe, vuelve a intentarlo.",
+        )
+        return False
+    pregunta = QMessageBox(
+        QMessageBox.Icon.Question, APP,
+        f"Tienes una subida a medias: {describir(activa)}.\n\n"
+        "Mientras siga abierta no se puede empezar otra. Si es de un QGIS que ya cerraste o que "
+        "se ha quedado colgado, cancélala; si sigue subiendo en otro QGIS, déjala acabar.",
+        parent=parent,
+    )
+    cancelar = pregunta.addButton("Cancelarla y subir esta", QMessageBox.ButtonRole.AcceptRole)
+    pregunta.addButton("Dejarla", QMessageBox.ButtonRole.RejectRole)
+    pregunta.exec()
+    if pregunta.clickedButton() is not cancelar:
+        return False
+    try:
+        cliente.cancelar_importacion(activa.get("map_id"), activa["id"])
+    except GeosianError as exc:
+        QMessageBox.warning(parent, APP, f"No se ha podido cancelar. {texto_de_error(exc)}")
+        return False
+    subidas_abiertas.quitar(activa["id"])
+    return True
+
+
 def lanzar(dock, tarea, mensaje):
     """Pone en marcha una subida y lo dice; si ya hay otra, que va detrás."""
     if _EN_MARCHA:
@@ -557,6 +640,8 @@ def crear_capa(dock, datos_mapa, parent=None):
     if not dialogo.exec():
         return None
     if dialogo.grande:
+        if not liberar_cupo(parent, dialogo.cliente, mapa["id"]):
+            return None
         tarea = ImportarCapaGrande(
             dock, conexion, mapa, dialogo.capa_qgis.currentLayer(), dialogo.grande, dialogo.correspondencia
         )

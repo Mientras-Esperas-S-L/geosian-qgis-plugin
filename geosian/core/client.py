@@ -259,6 +259,16 @@ class GeosianClient:
         )
         return self._check(resp, url).json()
 
+    def importaciones_en_marcha(self, map_id):
+        """Las importaciones del usuario que ocupan su cupo (de cualquier mapa). Un servidor
+        que aún no lo da devuelve 404 o 405: entonces, ninguna conocida."""
+        try:
+            return self._get(f"{API_PREFIX}/maps/{map_id}/layers/importar/").get("activas") or []
+        except (NotFoundError, ApiError) as exc:
+            if isinstance(exc, ApiError) and exc.status != 405:
+                raise
+            return []
+
     def importacion(self, map_id, id_subida):
         """Estado de la subida: ``estado``, ``faltan``, ``progreso``, ``capa_id``, ``error``."""
         return self._get(f"{API_PREFIX}/maps/{map_id}/layers/importar/{id_subida}/")

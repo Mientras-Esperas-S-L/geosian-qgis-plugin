@@ -58,6 +58,10 @@ DE_PASO = (502, 503, 504)
 VECES_ANTES_DE_REPETIR = 20
 
 
+# Las subidas de este QGIS mientras suben o se esperan: no son «otra en marcha».
+EN_ESTE_QGIS = set()
+
+
 class Cancelado(Exception):
     pass
 
@@ -234,6 +238,7 @@ def subir(cliente, map_id, datos, ruta, avance=None, cancelado=None, espera=None
         subidas_abiertas.quitar(vieja["id"])
     subida = cliente.importar_capa(map_id, {**datos, "tamano": tamano, "huella": huella(ruta)})
     subidas_abiertas.apuntar(cliente.base_url, map_id, subida["id"])
+    EN_ESTE_QGIS.add(subida["id"])
     # Pase lo que pase a partir de aquí (cancelar, la red, la sesión, un fallo propio), la
     # subida no se queda abierta en el servidor.
     try:
@@ -254,6 +259,7 @@ def subir(cliente, map_id, datos, ruta, avance=None, cancelado=None, espera=None
         return _confirmar(cliente, map_id, subida["id"], cancelado, espera)
     except BaseException:
         _cancelar(cliente, map_id, subida["id"])
+        EN_ESTE_QGIS.discard(subida["id"])
         raise
     finally:
         # Confirmada ya no bloquea nada (el servidor la importa solo); cancelada, tampoco.
@@ -266,6 +272,13 @@ def esperar(cliente, map_id, id_subida, avance=None, cancelado=None, cada=3):
     Cancelada (también mientras espera a que vuelva la red), avisa al servidor y espera a
     que pare; si para porque ya había terminado, la capa entró y se devuelve como hecha.
     """
+    try:
+        return _esperar(cliente, map_id, id_subida, avance, cancelado, cada)
+    finally:
+        EN_ESTE_QGIS.discard(id_subida)
+
+
+def _esperar(cliente, map_id, id_subida, avance, cancelado, cada):
     try:
         while True:
             estado = _con_reintentos(

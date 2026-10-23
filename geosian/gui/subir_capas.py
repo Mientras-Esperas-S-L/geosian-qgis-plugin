@@ -26,6 +26,7 @@ from .crear_capa import (
     ImportarCapas,
     capas_para_subir,
     lanzar,
+    liberar_cupo,
     nombres_del_mapa,
     ya_existe,
 )
@@ -150,8 +151,11 @@ def subir_capas(dock, datos_mapa, parent=None):
         marcadas = {capa.id() for capa in dock.iface.layerTreeView().selectedLayers()} or None
     except AttributeError:
         marcadas = None
-    dialogo = SubirCapasDialog(mapa, parent, cliente=connections.client_for(conexion), marcadas=marcadas)
+    cliente = connections.client_for(conexion)
+    dialogo = SubirCapasDialog(mapa, parent, cliente=cliente, marcadas=marcadas)
     if not dialogo.exec() or not dialogo.elegidas:
+        return None
+    if cliente is not None and not liberar_cupo(parent, cliente, mapa["id"]):
         return None
     tarea = ImportarCapas(dock, conexion, mapa, dialogo.elegidas)
     lanzar(
