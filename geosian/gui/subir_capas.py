@@ -50,8 +50,8 @@ class SubirCapasDialog(QDialog):
         self.setMinimumWidth(760)
 
         explicacion = QLabel(
-            "Marca las capas que quieres subir (salen marcadas las que tengas seleccionadas en el "
-            "panel de capas). Cada una se crea con sus campos y sus elementos, "
+            "Marca las capas que quieres subir (si tenías algunas seleccionadas en el panel de "
+            "capas, salen marcadas solo esas). Cada una se crea con sus campos y sus elementos, "
             f"una detrás de otra en segundo plano; aparecen en {APP} cuando han entrado enteras. "
             f"{QUIEN_LA_VE} Formularios, listas, partes y colores se completan después en la web."
         )
@@ -146,7 +146,8 @@ def subir_capas(dock, datos_mapa, parent=None):
     """Abre la ventana y, al aceptar, lanza la subida en segundo plano. Devuelve la tarea."""
     conexion, mapa = datos_mapa["conexion"], datos_mapa["mapa"]
     try:
-        marcadas = {capa.id() for capa in dock.iface.layerTreeView().selectedLayers()}
+        # Sin ninguna seleccionada, todas: que no salga la ventana vacía de marcas.
+        marcadas = {capa.id() for capa in dock.iface.layerTreeView().selectedLayers()} or None
     except AttributeError:
         marcadas = None
     dialogo = SubirCapasDialog(mapa, parent, cliente=connections.client_for(conexion), marcadas=marcadas)

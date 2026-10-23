@@ -237,6 +237,56 @@ class TestSubir:
         assert imp["estado"] == "cancelada"
 
 
+class _Cliente:
+    """Un cliente que responde lo que se le diga, en orden, y apunta lo que se le pide."""
+
+    def __init__(self, estados):
+        self.estados = list(estados)
+        self.pedido = []
+
+    def importacion(self, map_id, id_subida):
+        self.pedido.append("estado")
+        siguiente = self.estados.pop(0) if len(self.estados) > 1 else self.estados[0]
+        if isinstance(siguiente, Exception):
+            raise siguiente
+        return {"estado": siguiente, "faltan": [], "progreso": None}
+
+    def cancelar_importacion(self, map_id, id_subida):
+        self.pedido.append("cancelar")
+
+    def confirmar_importacion(self, map_id, id_subida):
+        self.pedido.append("confirmar")
+        raise NetworkError("sin respuesta")
+
+
+class TestCancelarYConfirmar:
+    def test_cancelar_mientras_espera_a_la_red_avisa_al_servidor(self, app):
+        cliente = _Cliente([NetworkError("sin red"), "cancelada"])
+        veces = []
+
+        with pytest.raises(I.Cancelado):
+            I.esperar(cliente, 4, "s", cancelado=lambda: veces.append(1) or True, cada=0)
+
+        assert "cancelar" in cliente.pedido
+
+    def test_si_al_cancelar_ya_habia_terminado_la_capa_cuenta(self, app):
+        cliente = _Cliente(["importando", "hecha"])
+
+        estado = I.esperar(cliente, 4, "s", cancelado=lambda: True, cada=0)
+
+        assert estado["estado"] == "hecha" and "cancelar" in cliente.pedido
+
+    def test_sin_respuesta_al_confirmar_espera_antes_de_repetir(self, app, monkeypatch):
+        # Puede seguir comprobando la huella: repetir enseguida la confirmaba dos veces.
+        monkeypatch.setattr(I, "ESPERA", 0)
+        cliente = _Cliente(["subiendo", "subiendo", "importando"])
+
+        estado = I._confirmar(cliente, 4, "s", None, espera=0)
+
+        assert estado["estado"] == "importando"
+        assert cliente.pedido.count("confirmar") == 1
+
+
 class _Barra:
     def __init__(self):
         self.avisos = []

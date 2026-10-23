@@ -52,6 +52,9 @@ ESPERA_MAXIMA = 30
 REINTENTOS_AL_ESPERAR = 25
 # Un 502, 503 o 504 es el servidor reiniciándose (un despliegue): se repite como un corte.
 DE_PASO = (502, 503, 504)
+# Tras una confirmación sin respuesta, lo que se espera a que el servidor diga que la tiene
+# antes de repetirla (puede seguir comprobando la huella del fichero).
+VECES_ANTES_DE_REPETIR = 20
 
 
 class Cancelado(Exception):
@@ -164,11 +167,16 @@ def _con_reintentos(hacer, cancelado, espera=None, intentos=REINTENTOS):
         except GeosianError as exc:
             if not _de_paso(exc) or intento == intentos - 1:
                 raise
-            pausa = min((ESPERA if espera is None else espera) * (intento + 1), ESPERA_MAXIMA)
-            for _ in range(int(pausa * 10)):
-                if cancelado and cancelado():
-                    raise Cancelado()
-                time.sleep(0.1)
+            _pausa(min((ESPERA if espera is None else espera) * (intento + 1), ESPERA_MAXIMA), cancelado)
+
+
+def _pausa(segundos, cancelado):
+    """Espera ``segundos`` mirando si se cancela; lo mira al menos una vez."""
+    for _ in range(max(int(segundos * 10), 1)):
+        if cancelado and cancelado():
+            raise Cancelado()
+        if segundos:
+            time.sleep(0.1)
 
 
 def _confirmar(cliente, map_id, id_subida, cancelado, espera=None):
@@ -184,9 +192,13 @@ def _confirmar(cliente, map_id, id_subida, cancelado, espera=None):
         except GeosianError as exc:
             if not (_de_paso(exc) or isinstance(exc, ConflictError)):
                 raise
-            estado = _con_reintentos(lambda: cliente.importacion(map_id, id_subida), cancelado, espera)
-            if estado["estado"] != "subiendo":
-                return estado
+            for _ in range(VECES_ANTES_DE_REPETIR if _de_paso(exc) else 1):
+                estado = _con_reintentos(lambda: cliente.importacion(map_id, id_subida), cancelado, espera)
+                if estado["estado"] != "subiendo":
+                    return estado
+                if not _de_paso(exc):
+                    break
+                _pausa(ESPERA if espera is None else espera, cancelado)
             raise
 
     return _con_reintentos(una_vez, cancelado, espera)
@@ -233,22 +245,28 @@ def subir(cliente, map_id, datos, ruta, avance=None, cancelado=None, espera=None
 
 
 def esperar(cliente, map_id, id_subida, avance=None, cancelado=None, cada=3):
-    """Espera a que el servidor acabe de importar. Devuelve el estado final."""
-    while True:
-        estado = _con_reintentos(
-            lambda: cliente.importacion(map_id, id_subida), cancelado, intentos=REINTENTOS_AL_ESPERAR
-        )
-        if estado["estado"] not in ACTIVAS:
-            return estado
-        progreso = estado.get("progreso") or {}
-        if avance and progreso.get("total"):
-            avance(progreso["hechos"] / progreso["total"])
-        if cancelado and cancelado():
-            _cancelar(cliente, map_id, id_subida)
-            _hasta_que_pare(cliente, map_id, id_subida, cada)
-            raise Cancelado()
-        for _ in range(int(cada * 10)):
-            time.sleep(0.1)
+    """Espera a que el servidor acabe de importar. Devuelve el estado final.
+
+    Cancelada (también mientras espera a que vuelva la red), avisa al servidor y espera a
+    que pare; si para porque ya había terminado, la capa entró y se devuelve como hecha.
+    """
+    try:
+        while True:
+            estado = _con_reintentos(
+                lambda: cliente.importacion(map_id, id_subida), cancelado, intentos=REINTENTOS_AL_ESPERAR
+            )
+            if estado["estado"] not in ACTIVAS:
+                return estado
+            progreso = estado.get("progreso") or {}
+            if avance and progreso.get("total"):
+                avance(progreso["hechos"] / progreso["total"])
+            _pausa(cada, cancelado)
+    except Cancelado:
+        _cancelar(cliente, map_id, id_subida)
+        final = _hasta_que_pare(cliente, map_id, id_subida, cada)
+        if final and final["estado"] == "hecha":
+            return final
+        raise
 
 
 ACTIVAS = ("subiendo", "importando")
@@ -257,12 +275,15 @@ ACTIVAS = ("subiendo", "importando")
 def _hasta_que_pare(cliente, map_id, id_subida, cada, veces=20):
     """Tras cancelar una importación en curso, espera a que el servidor la corte de verdad
     (lo ve en su siguiente aviso de progreso, cada pocos segundos): así «cancelada» es
-    cierto y la siguiente subida no choca con ella."""
+    cierto y la siguiente subida no choca con ella. Devuelve el último estado, o None."""
+    estado = None
     for _ in range(veces):
         try:
-            if cliente.importacion(map_id, id_subida)["estado"] not in ACTIVAS:
-                return
+            estado = cliente.importacion(map_id, id_subida)
         except GeosianError:
-            return
+            return estado
+        if estado["estado"] not in ACTIVAS:
+            return estado
         for _ in range(int(max(cada, 0.5) * 10)):
             time.sleep(0.1)
+    return estado

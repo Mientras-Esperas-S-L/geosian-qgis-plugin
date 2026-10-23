@@ -126,7 +126,7 @@ class GeosianClient:
         )
         return self._check(resp, url).json()
 
-    def _post(self, path, data=None, params=None):
+    def _post(self, path, data=None, params=None, timeout=None):
         url = self._url(path, params)
         body = json.dumps(data).encode("utf-8") if data is not None else None
         resp = self.transport.request(
@@ -134,7 +134,7 @@ class GeosianClient:
             url,
             self._headers({"Content-Type": "application/json"}),
             body,
-            timeout=self.timeout,
+            timeout=timeout or self.timeout,
         )
         return self._check(resp, url).json()
 
@@ -264,7 +264,12 @@ class GeosianClient:
         return self._get(f"{API_PREFIX}/maps/{map_id}/layers/importar/{id_subida}/")
 
     def confirmar_importacion(self, map_id, id_subida):
-        estado = self._post(f"{API_PREFIX}/maps/{map_id}/layers/importar/{id_subida}/confirmar/")
+        # El servidor comprueba la huella de un fichero de hasta 2 GB antes de responder: con
+        # el plazo normal, la respuesta no llegaba y se confirmaba otra vez.
+        estado = self._post(
+            f"{API_PREFIX}/maps/{map_id}/layers/importar/{id_subida}/confirmar/",
+            timeout=max(self.timeout, PLAZO_DE_SUBIDA),
+        )
         self.forget_layers()
         return estado
 

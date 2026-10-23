@@ -110,6 +110,8 @@ class TestDeUnaCapaDeQgis:
         assert C.nombre_valido("Código _ zona", usados) == "Codigo_zona"
         assert C.nombre_valido("COD__X", usados) == "COD_X"
         assert C.nombre_valido("__x__", usados) == "x"
+        # Recortado a 60 y repetido: sin «_» al final, el «_2» no deja «__».
+        assert "__" not in C.nombre_valido("a" * 59 + "_c", usados) + C.nombre_valido("a" * 59 + "_d", usados)
 
     def test_un_campo_fid_cambia_de_nombre(self, app):
         # En el GeoPackage de las capas grandes «fid» es el número de fila.

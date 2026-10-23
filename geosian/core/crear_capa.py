@@ -128,7 +128,8 @@ def nombre_valido(nombre, usados):
     limpio = re.sub(r"_+", "_", re.sub(r"[^A-Za-z0-9_]+", "_", limpio)).strip("_") or "campo"
     if limpio[0].isdigit():
         limpio = f"c_{limpio}"
-    limpio = limpio[:60]
+    # Recortado, sin «_» al final: con el «_2» de un repetido saldría «__».
+    limpio = limpio[:60].rstrip("_") or "campo"
     if limpio.lower() in RESERVADOS | DEL_COMPLEMENTO or limpio.startswith("attr__"):
         limpio = f"{limpio}_qgis"
     base, n = limpio, 2
