@@ -103,6 +103,20 @@ class TestDeUnaCapaDeQgis:
 
         assert C.contar_elementos(capa) == 2
 
+    def test_sin_dos_guiones_bajos_seguidos(self, app):
+        # El importador de capas grandes junta los «__» y rechaza la subida: se quitan ya.
+        usados = set()
+
+        assert C.nombre_valido("Código _ zona", usados) == "Codigo_zona"
+        assert C.nombre_valido("COD__X", usados) == "COD_X"
+        assert C.nombre_valido("__x__", usados) == "x"
+
+    def test_un_campo_fid_cambia_de_nombre(self, app):
+        # En el GeoPackage de las capas grandes «fid» es el número de fila.
+        campos, _, correspondencia = C.campos_de(memoria("Point?crs=EPSG:4326&field=fid:string"))
+
+        assert [c["name"] for c in campos] == ["fid_qgis"] and correspondencia == {"fid": "fid_qgis"}
+
     def test_un_tipo_que_no_se_lleva(self, app):
         capa = memoria("Point?crs=EPSG:4326&field=nombre:string&field=datos:binary")
 
@@ -303,6 +317,51 @@ class TestDialogo:
             assert "Sin conexión con GreenCityControl" in d.estado.text()
         finally:
             connections.remove_connection("SinRed")
+
+    def test_nombre_repetido_lo_dice_sin_crear_nada(self, app_gui, servidor):  # noqa: F811
+        d = self.dialogo()
+        d.nombre.setText("arbolado ")
+
+        d._crear()
+
+        assert d.estado.text() == "Ya hay una capa «arbolado» en este mapa. Elige otro nombre."
+        assert d.capa_creada is None and d.grande is None
+        assert not any(r.endswith("/layers/crear/") for r in servidor.rutas_pedidas())
+
+    def test_si_los_elementos_no_suben_dice_que_la_capa_quedo_vacia(self, app_gui, servidor, monkeypatch):  # noqa: F811
+        from geosian.gui import crear_capa as G
+        from tests.test_importar_grande import _Dock
+
+        origen = memoria("Point?crs=EPSG:4326&field=n:string", "Bancos")
+        f = QgsFeature(origen.fields())
+        f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(-3.7, 40.4)))
+        origen.dataProvider().addFeatures([f])
+        QgsProject.instance().addMapLayer(origen)
+        monkeypatch.setattr(G, "subir_elementos", lambda *a: (False, "No se ha subido nada. Falta el código."))
+
+        class Dialogo(G.CrearCapaDialog):
+            def exec(self):
+                self.de_qgis.setChecked(True)
+                self.capa_qgis.setLayer(origen)
+                self.nombre.setText("Bancos")
+                self._crear()
+                return self.result()
+
+        class Dock(_Dock):
+            def añadir_capa(self, datos):
+                super().añadir_capa(datos)
+                return [origen]
+
+        monkeypatch.setattr(G, "CrearCapaDialog", Dialogo)
+        dock = Dock()
+        try:
+            G.crear_capa(dock, {"conexion": CONEXION, "mapa": {"id": 4, "name": "Ciudad de Ejemplo"}})
+        finally:
+            QgsProject.instance().removeMapLayer(origen.id())
+
+        nivel, texto = dock.barra.avisos[-1]
+        assert nivel == "pushWarning"
+        assert texto.startswith("La capa «Bancos» se ha creado, pero vacía. No se ha subido nada. Falta el código.")
 
     def test_sin_nombre_no_pide_nada(self, app_gui, servidor):  # noqa: F811
         d = self.dialogo()

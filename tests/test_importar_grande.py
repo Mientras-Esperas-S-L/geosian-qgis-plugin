@@ -57,6 +57,20 @@ class TestEmpaquetar:
         punto = primero.geometry().asPoint()
         assert -3.70 < punto.x() < -3.67 and 40.40 < punto.y() < 40.43
 
+    def test_un_campo_fid_de_la_capa_se_empaqueta_aparte(self, app, tmp_path):
+        # Con el nombre tal cual, el GeoPackage no se podía escribir («Wrong field type for fid»).
+        origen = QgsVectorLayer("Point?crs=EPSG:4326&field=fid:string&field=a  b:string", "o", "memory")
+        f = QgsFeature(origen.fields())
+        f.setGeometry(QgsGeometry.fromWkt("POINT(-3.7 40.4)"))
+        f.setAttributes(["A-1", "x"])
+        origen.dataProvider().addFeatures([f])
+        campos, _, correspondencia = C.campos_de(origen)
+        ruta = str(tmp_path / "c.gpkg")
+
+        assert I.empaquetar(origen, campos, correspondencia, "Point", ruta) == (1, 0)
+        [leido] = leer(ruta).getFeatures()
+        assert (leido["fid_qgis"], leido["a_b"]) == ("A-1", "x")
+
     def test_sin_geometria_se_salta(self, app, tmp_path):
         origen = origen_con()
         f = QgsFeature(origen.fields())

@@ -19,8 +19,16 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
 )
 
+from ..core import connections
 from ..core import crear_capa as C
-from .crear_capa import _EN_MARCHA, APP, ImportarCapas
+from .crear_capa import (
+    APP,
+    QUIEN_LA_VE,
+    ImportarCapas,
+    lanzar,
+    nombres_del_mapa,
+    ya_existe,
+)
 
 COL_CAPA, COL_NOMBRE, COL_ELEMENTOS, COL_GEOMETRIA, COL_AVISO = range(5)
 
@@ -34,18 +42,19 @@ def capas_del_proyecto():
 
 
 class SubirCapasDialog(QDialog):
-    def __init__(self, mapa, parent=None):
+    def __init__(self, mapa, parent=None, cliente=None):
         super().__init__(parent)
         self.mapa = mapa
         self.elegidas = []
+        # Las que ya tiene el mapa: el nombre repetido se ve antes de subir nada.
+        self.existentes = nombres_del_mapa(cliente, mapa.get("id")) if cliente else set()
         self.setWindowTitle(f"Subir capas de QGIS a «{mapa.get('name')}»")
         self.setMinimumWidth(760)
 
         explicacion = QLabel(
             "Marca las capas que quieres subir. Cada una se crea con sus campos y sus elementos, "
             f"una detrás de otra en segundo plano; aparecen en {APP} cuando han entrado enteras. "
-            "Las verá tu grupo, en la carpeta «Nuevas desde QGIS». Formularios, listas, partes y "
-            "colores se completan después en la web."
+            f"{QUIEN_LA_VE} Formularios, listas, partes y colores se completan después en la web."
         )
         explicacion.setWordWrap(True)
 
@@ -88,11 +97,18 @@ class SubirCapasDialog(QDialog):
         self.tabla.setItem(fila, COL_CAPA, marca)
         self.tabla.setItem(fila, COL_NOMBRE, QTableWidgetItem(capa.name()))
         solo_lectura = Qt.ItemFlag.ItemIsEnabled
+        avisos = []
+        if geometria is None:
+            avisos.append("Sin punto, línea ni polígono: no se puede subir.")
+        else:
+            if capa.name().strip().casefold() in self.existentes:
+                avisos.append("Ya hay una capa con este nombre en el mapa: cámbialo.")
+            if fuera:
+                avisos.append("No se llevan: " + ", ".join(fuera))
         for col, texto in (
             (COL_ELEMENTOS, f"{C.contar_elementos(capa):,}".replace(",", ".")),
             (COL_GEOMETRIA, geometria or "—"),
-            (COL_AVISO, "Sin punto, línea ni polígono: no se puede subir." if geometria is None
-             else ("No se llevan: " + ", ".join(fuera)) if fuera else ""),
+            (COL_AVISO, " ".join(avisos)),
         ):
             celda = QTableWidgetItem(texto)
             celda.setFlags(solo_lectura)
@@ -111,6 +127,9 @@ class SubirCapasDialog(QDialog):
             if nombre.casefold() in nombres:
                 self.estado.setText(f"Hay dos capas con el nombre «{nombre}»: cambia uno.")
                 return
+            if nombre.casefold() in self.existentes:
+                self.estado.setText(ya_existe(nombre))
+                return
             nombres.add(nombre.casefold())
             elegidas.append((capa, {"name": nombre, "geometry_type": geometria, "campos": campos}, correspondencia))
         if not elegidas:
@@ -122,18 +141,16 @@ class SubirCapasDialog(QDialog):
 
 def subir_capas(dock, datos_mapa, parent=None):
     """Abre la ventana y, al aceptar, lanza la subida en segundo plano. Devuelve la tarea."""
-    from qgis.core import QgsApplication
-
     conexion, mapa = datos_mapa["conexion"], datos_mapa["mapa"]
-    dialogo = SubirCapasDialog(mapa, parent)
+    dialogo = SubirCapasDialog(mapa, parent, cliente=connections.client_for(conexion))
     if not dialogo.exec() or not dialogo.elegidas:
         return None
     tarea = ImportarCapas(dock, conexion, mapa, dialogo.elegidas)
-    _EN_MARCHA.add(tarea)
-    QgsApplication.taskManager().addTask(tarea)
-    dock.iface.messageBar().pushInfo(
-        APP,
-        f"Subiendo {len(dialogo.elegidas)} capas a «{mapa.get('name')}» en segundo plano; "
-        "aparecerán al terminar. El avance está en la barra de tareas de abajo.",
+    lanzar(
+        dock, tarea,
+        (f"Subiendo «{dialogo.elegidas[0][1]['name']}»" if len(dialogo.elegidas) == 1
+         else f"Subiendo {len(dialogo.elegidas)} capas")
+        + f" a «{mapa.get('name')}» en segundo plano; aparecerán al terminar. "
+        "El avance está en la barra de tareas de abajo.",
     )
     return tarea

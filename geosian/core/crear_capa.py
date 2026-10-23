@@ -20,6 +20,8 @@ RESERVADOS = frozenset({
     "updated_at_iso", "longitud", "latitud", "in_succession_group", "additional_info",
     "_thumbnail", "nfc_uuid", "spatial_history_active_id", "_polygons",
 })
+# «fid» no lo reserva Geosian, pero en el GeoPackage de las capas grandes es el número de
+# fila: un campo con ese nombre no se podría escribir (``nombre_valido`` lo cambia).
 # Por encima, los elementos no suben con el guardado de siempre sino como GeoPackage
 # (core/importar_grande.py). El guardado admite 20.000 por lote, pero con Nueva York
 # 20.000 tardaron 122 s con QGIS esperando, y 20.001 por GeoPackage, 10 s (22/10/2026).
@@ -73,11 +75,12 @@ def tipo_de_campo(campo):
 def nombre_valido(nombre, usados):
     """Un nombre que Geosian acepta: letras sin tilde, números y _, sin empezar por número."""
     limpio = unicodedata.normalize("NFKD", nombre).encode("ascii", "ignore").decode()
-    limpio = re.sub(r"[^A-Za-z0-9_]+", "_", limpio).strip("_") or "campo"
+    # Sin «__»: el importador de capas grandes los junta y el campo no casaría con su LAD.
+    limpio = re.sub(r"_+", "_", re.sub(r"[^A-Za-z0-9_]+", "_", limpio)).strip("_") or "campo"
     if limpio[0].isdigit():
         limpio = f"c_{limpio}"
     limpio = limpio[:60]
-    if limpio.lower() in RESERVADOS or limpio.startswith("attr__"):
+    if limpio.lower() in RESERVADOS | {"fid"} or limpio.startswith("attr__"):
         limpio = f"{limpio}_qgis"
     base, n = limpio, 2
     while limpio.lower() in usados:

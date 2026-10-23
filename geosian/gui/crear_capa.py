@@ -16,6 +16,7 @@ grupo de quien la crea y va en la carpeta «Nuevas desde QGIS».
 import os
 import shutil
 import tempfile
+import threading
 import traceback
 
 from qgis.core import (
@@ -66,6 +67,29 @@ def texto_de_error(exc):
     if isinstance(exc, NetworkError):
         return f"Sin conexión con GreenCityControl: {exc}. Comprueba la red y repite."
     return str(exc)
+
+
+def nombres_del_mapa(cliente, map_id):
+    """Los nombres de las capas que ya tiene el mapa, en minúsculas.
+
+    Para avisar antes de empaquetar y subir nada. Si no se pueden pedir, vacío: el servidor
+    lo vuelve a mirar al crear.
+    """
+    try:
+        return {str(c.get("name") or "").strip().casefold() for c in cliente.layers(map_id)}
+    except (GeosianError, AttributeError):
+        return set()
+
+
+def ya_existe(nombre):
+    return f"Ya hay una capa «{nombre}» en este mapa. Elige otro nombre."
+
+
+# Quien entra como administrador crea las capas sin grupo (services/crear_capa.py del backend).
+QUIEN_LA_VE = (
+    "La verá tu grupo, en la carpeta «Nuevas desde QGIS»; si entras como administrador, solo "
+    "los administradores hasta que le asignes un grupo en la web."
+)
 
 
 class CrearCapaDialog(QDialog):
@@ -121,8 +145,7 @@ class CrearCapaDialog(QDialog):
         disp.addRow("", self.con_elementos)
 
         aviso = QLabel(
-            "La capa nueva la verá tu grupo y aparecerá en la carpeta «Nuevas desde QGIS». "
-            "Listas, partes, fotos y colores se completan después en la web de GCC."
+            f"{QUIEN_LA_VE} Listas, partes, fotos y colores se completan después en la web de GCC."
         )
         aviso.setWordWrap(True)
         self.estado = QLabel("")
@@ -222,6 +245,9 @@ class CrearCapaDialog(QDialog):
         if not nombre:
             self.estado.setText("Ponle un nombre a la capa.")
             return
+        if nombre.casefold() in nombres_del_mapa(self.cliente, self.mapa["id"]):
+            self.estado.setText(ya_existe(nombre))
+            return
         if self.forma.checkedId() == PLANTILLA:
             plantilla = self.capa_plantilla.currentData()
             if not plantilla:
@@ -313,7 +339,10 @@ class ImportarCapas(QgsTask):
 
     def __init__(self, dock, conexion, mapa, capas, titulo=None):
         """``capas``: ``[(capa de QGIS, datos para la API, correspondencia de campos)]``."""
-        super().__init__(titulo or f"Subir {len(capas)} capas a «{mapa.get('name')}»", QgsTask.Flag.CanCancel)
+        if titulo is None:
+            que = f"«{capas[0][1]['name']}»" if len(capas) == 1 else f"{len(capas)} capas"
+            titulo = f"Subir {que} a «{mapa.get('name')}»"
+        super().__init__(titulo, QgsTask.Flag.CanCancel)
         self.dock = dock
         self.conexion = conexion
         self.mapa = mapa
@@ -331,6 +360,17 @@ class ImportarCapas(QgsTask):
         return lambda parte: self.setProgress(desde + (hasta - desde) * parte)
 
     def run(self):
+        # El servidor admite una importación por persona a la vez: la tarea que llega con
+        # otra en marcha espera su turno, en vez de empaquetar y fallar al abrir la subida.
+        while not _UNA_A_LA_VEZ.acquire(timeout=0.5):
+            if self.isCanceled():
+                return False
+        try:
+            return self._subir_todas()
+        finally:
+            _UNA_A_LA_VEZ.release()
+
+    def _subir_todas(self):
         cliente = connections.client_for(self.conexion)
         n = len(self.capas)
         for i, capa in enumerate(self.capas):
@@ -373,17 +413,30 @@ class ImportarCapas(QgsTask):
         _EN_MARCHA.discard(self)
         hechas = self._hechas()
         if hechas:
-            cliente = connections.client_for(self.conexion)
-            cliente.forget_layers()
-            capas = {c.get("id"): c for c in cliente.layers(self.mapa["id"])}
-            for r in hechas:
-                capa = capas.get(r["final"]["capa_id"])
-                if capa is not None:
-                    self.dock.añadir_capa({"conexion": self.conexion, "mapa": self.mapa, "capa": capa})
-            # Las nuevas, también en el árbol del panel si el mapa está desplegado.
-            if hasattr(self.dock, "refrescar_mapa"):
-                self.dock.refrescar_mapa(self.conexion, self.mapa["id"])
+            # Una excepción aquí no llegaría a nadie y se perdería el aviso: las capas ya
+            # están en el servidor, así que se dice y se sigue.
+            try:
+                self._abrir(hechas)
+            except Exception as exc:
+                QgsMessageLog.logMessage(traceback.format_exc(), APP, Qgis.Warning)
+                self.dock.iface.messageBar().pushWarning(
+                    APP, f"Las capas están en {APP}, pero no se han podido abrir en QGIS. "
+                    f"{texto_de_error(exc)} Ábrelas desde el panel."
+                )
         self._avisar(ok, hechas)
+
+    def _abrir(self, hechas):
+        """Añade al proyecto las capas que entraron y las enseña en el árbol del panel."""
+        cliente = connections.client_for(self.conexion)
+        cliente.forget_layers()
+        capas = {c.get("id"): c for c in cliente.layers(self.mapa["id"])}
+        for r in hechas:
+            capa = capas.get(r["final"]["capa_id"])
+            if capa is not None:
+                self.dock.añadir_capa({"conexion": self.conexion, "mapa": self.mapa, "capa": capa})
+        # Las nuevas, también en el árbol del panel si el mapa está desplegado.
+        if hasattr(self.dock, "refrescar_mapa"):
+            self.dock.refrescar_mapa(self.conexion, self.mapa["id"])
 
     def _avisar(self, ok, hechas):
         barra = self.dock.iface.messageBar()
@@ -431,6 +484,16 @@ class ImportarCapaGrande(ImportarCapas):
 
 # Las tareas en marcha: sin una referencia, Python las recoge antes de que acaben.
 _EN_MARCHA = set()
+_UNA_A_LA_VEZ = threading.Lock()
+
+
+def lanzar(dock, tarea, mensaje):
+    """Pone en marcha una subida y lo dice; si ya hay otra, que va detrás."""
+    if _EN_MARCHA:
+        mensaje += " Va detrás de la subida que ya está en marcha."
+    _EN_MARCHA.add(tarea)
+    QgsApplication.taskManager().addTask(tarea)
+    dock.iface.messageBar().pushInfo(APP, mensaje)
 
 
 def crear_capa(dock, datos_mapa, parent=None):
@@ -443,10 +506,8 @@ def crear_capa(dock, datos_mapa, parent=None):
         tarea = ImportarCapaGrande(
             dock, conexion, mapa, dialogo.capa_qgis.currentLayer(), dialogo.grande, dialogo.correspondencia
         )
-        _EN_MARCHA.add(tarea)
-        QgsApplication.taskManager().addTask(tarea)
-        dock.iface.messageBar().pushInfo(
-            "GreenCityControl",
+        lanzar(
+            dock, tarea,
             f"Importando «{dialogo.grande['name']}» en segundo plano; la verás al terminar. "
             "El avance está en la barra de tareas de abajo.",
         )
@@ -461,9 +522,14 @@ def crear_capa(dock, datos_mapa, parent=None):
     añadidas = dock.añadir_capa({"conexion": conexion, "mapa": mapa, "capa": capa})
     if dialogo.subir and añadidas:
         ok, mensaje = subir_elementos(dialogo.capa_qgis.currentLayer(), añadidas[0], dialogo.correspondencia)
-        (dock.iface.messageBar().pushSuccess if ok else dock.iface.messageBar().pushWarning)(
-            "GreenCityControl", f"«{capa.get('name')}»: {mensaje}"
-        )
+        if ok:
+            dock.iface.messageBar().pushSuccess(APP, f"«{capa.get('name')}»: {mensaje}")
+        else:
+            # La capa ya existe en el servidor: que no parezca que no se creó nada.
+            dock.iface.messageBar().pushWarning(
+                APP, f"La capa «{capa.get('name')}» se ha creado, pero vacía. {mensaje} "
+                "Puedes pegarle los elementos en QGIS y guardar.",
+            )
     elif añadidas:
         dock.iface.messageBar().pushSuccess(
             "GreenCityControl",
