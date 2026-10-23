@@ -284,7 +284,8 @@ def _contains(ref, valor):
 
 
 def _quote_field(nombre):
-    return '"' + str(nombre).replace('"', '""') + '"'
+    # Como QgsExpression.quotedColumnRef: también la barra invertida, que QGIS lee como escape.
+    return '"' + str(nombre).replace("\\", "\\\\").replace('"', '""') + '"'
 
 
 def _quote_value(valor):
@@ -294,7 +295,10 @@ def _quote_value(valor):
         return "TRUE" if valor else "FALSE"
     if isinstance(valor, (int, float)):
         return repr(valor)
-    return "'" + str(valor).replace("'", "''") + "'"
+    # Como QgsExpression.quotedString. Sin escapar la barra invertida, un valor del servidor
+    # como «\' || … || '» se salía de la cadena y QGIS evaluaba lo de dentro.
+    texto = str(valor).replace("\\", "\\\\").replace("'", "''").replace("\n", "\\n").replace("\t", "\\t")
+    return "'" + texto + "'"
 
 
 def _number(valor):

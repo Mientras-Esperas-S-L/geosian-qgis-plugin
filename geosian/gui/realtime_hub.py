@@ -16,6 +16,7 @@ from qgis.PyQt.QtWidgets import QPushButton
 from ..core import aggregated, connections, realtime
 from ..core.errors import GeosianError
 from . import celdas, contornos, formulario, leyendas
+from .avisos import seguro
 
 LOG_TAG = "GreenCityControl"
 AGRUPAR_MS = 500
@@ -319,5 +320,5 @@ class RealtimeHub(QObject):
 
     def _avisar(self, texto):
         if self._iface is not None:
-            self._iface.messageBar().pushWarning("GreenCityControl", texto)
+            self._iface.messageBar().pushWarning("GreenCityControl", seguro(texto))
         QgsMessageLog.logMessage(texto, LOG_TAG, Qgis.Warning)

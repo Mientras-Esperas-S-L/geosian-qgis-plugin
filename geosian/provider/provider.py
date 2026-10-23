@@ -47,6 +47,7 @@ from ..core.errors import (
     NetworkError,
     NotFoundError,
 )
+from ..gui.avisos import seguro
 from .edicion import Edicion
 from .feature_source import GeosianFeatureSource
 from .subset import parse as parse_subset
@@ -1309,7 +1310,7 @@ class _Avisos(QObject):
         from qgis.utils import iface
 
         if iface is not None:
-            iface.messageBar().pushWarning("GreenCityControl", texto)
+            iface.messageBar().pushWarning("GreenCityControl", seguro(texto))
 
 
 _avisos = {"objeto": None}

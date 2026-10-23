@@ -1,5 +1,7 @@
 """«Subir capas de QGIS a este mapa…»: varias capas del proyecto de una vez."""
 
+from typing import ClassVar
+
 import pytest
 
 qgis_core = pytest.importorskip("qgis.core")
@@ -288,3 +290,118 @@ def test_sin_permiso_no_empaqueta_las_demas(app_gui, servidor, proyecto, monkeyp
     assert len(empaquetadas) == 1
     nivel, texto = dock.barra.avisos[-1]
     assert nivel == "pushWarning" and "No tienes permiso" in texto and "las demás no se han intentado" in texto
+
+
+class _Pregunta:
+    """En lugar de QMessageBox: apunta lo que se enseña y pulsa el botón que se le diga."""
+
+    pulsar = None
+    vistas: ClassVar[list] = []
+
+    class Icon:
+        Question = 4
+
+    class ButtonRole:
+        AcceptRole, RejectRole = 0, 1
+
+    def __init__(self, icono, titulo, texto, parent=None):
+        _Pregunta.vistas.append(("pregunta", texto))
+        self.botones = {}
+
+    def addButton(self, texto, papel):
+        self.botones[texto] = object()
+        return self.botones[texto]
+
+    def exec(self):
+        return 0
+
+    def clickedButton(self):
+        return self.botones.get(_Pregunta.pulsar)
+
+    @staticmethod
+    def information(parent, titulo, texto):
+        _Pregunta.vistas.append(("informa", texto))
+
+    @staticmethod
+    def warning(parent, titulo, texto):
+        _Pregunta.vistas.append(("avisa", texto))
+
+
+@pytest.fixture
+def pregunta(monkeypatch):
+    from geosian.gui import crear_capa as G
+
+    _Pregunta.vistas, _Pregunta.pulsar = [], None
+    monkeypatch.setattr(G, "QMessageBox", _Pregunta)
+    return _Pregunta
+
+
+def _a_medias(nombre="A medias"):
+    from geosian.core import connections
+
+    cliente = connections.client_for(CONEXION)
+    return cliente, cliente.importar_capa(4, {"name": nombre, "geometry_type": "Point", "campos": [],
+                                              "tamano": 10, "huella": "0" * 64})
+
+
+class TestOtraEnMarcha:
+    def test_sin_ninguna_se_lanza_sin_preguntar(self, app_gui, servidor, pregunta):  # noqa: F811
+        from geosian.core import connections
+        from geosian.gui.crear_capa import liberar_cupo
+
+        assert liberar_cupo(None, connections.client_for(CONEXION), 4) is True
+        assert pregunta.vistas == []
+
+    def test_una_a_medias_de_otro_qgis_se_cancela_solo_si_se_quiere(self, app_gui, servidor, pregunta):  # noqa: F811
+        from geosian.gui.crear_capa import liberar_cupo
+
+        cliente, abierta = _a_medias()
+
+        pregunta.pulsar = "Dejarla"
+        assert liberar_cupo(None, cliente, 4) is False
+        assert servidor.estado.importaciones[abierta["id"]]["estado"] == "subiendo"
+        [(tipo, texto)] = pregunta.vistas
+        assert tipo == "pregunta" and "«A medias», empezada a las" in texto and "con el 0 % subido" in texto
+
+        pregunta.pulsar = "Cancelarla y subir esta"
+        assert liberar_cupo(None, cliente, 4) is True
+        assert servidor.estado.importaciones[abierta["id"]]["estado"] == "cancelada"
+
+    def test_una_que_se_importa_se_espera(self, app_gui, servidor, pregunta):  # noqa: F811
+        from geosian.gui.crear_capa import liberar_cupo
+
+        cliente, abierta = _a_medias()
+        servidor.estado.importaciones[abierta["id"]]["estado"] = "importando"
+
+        assert liberar_cupo(None, cliente, 4) is False
+        [(tipo, texto)] = pregunta.vistas
+        assert tipo == "informa" and "está importando «A medias»" in texto
+        assert servidor.estado.importaciones[abierta["id"]]["estado"] == "importando"
+
+    def test_la_de_un_qgis_cerrado_en_este_equipo_se_cancela_sin_preguntar(self, app_gui, servidor, pregunta):  # noqa: F811
+        import socket
+        import subprocess
+        import sys
+
+        from geosian.core import subidas_abiertas
+        from geosian.gui.crear_capa import liberar_cupo
+
+        cliente, abierta = _a_medias()
+        muerto = subprocess.Popen([sys.executable, "-c", "pass"])
+        muerto.wait()
+        subidas_abiertas._guardar([{"servidor": cliente.base_url, "map_id": 4, "id": abierta["id"],
+                                    "pid": muerto.pid, "equipo": socket.gethostname()}])
+
+        assert liberar_cupo(None, cliente, 4) is True
+        assert pregunta.vistas == [] and subidas_abiertas._todas() == []
+        assert servidor.estado.importaciones[abierta["id"]]["estado"] == "cancelada"
+
+    def test_las_de_este_qgis_no_cuentan(self, app_gui, servidor, pregunta):  # noqa: F811
+        from geosian.gui.crear_capa import liberar_cupo
+
+        cliente, abierta = _a_medias()
+        I.EN_ESTE_QGIS.add(abierta["id"])
+        try:
+            assert liberar_cupo(None, cliente, 4) is True and pregunta.vistas == []
+        finally:
+            I.EN_ESTE_QGIS.discard(abierta["id"])

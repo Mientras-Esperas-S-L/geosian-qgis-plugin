@@ -5,6 +5,7 @@ from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QAction
 
 from .gui import celdas, edicion, leyendas, realtime_hub, sesion
+from .gui.avisos import seguro
 from .gui.browser_dock import GeosianBrowserDock, menu_de_etiquetas
 from .gui.connection_dialog import ConnectionDialog
 from .gui.filtro_partes import menu_de_filtros
@@ -29,8 +30,8 @@ class GeosianPlugin:
         if not register_provider():
             self.iface.messageBar().pushCritical(
                 "GreenCityControl",
-                "No se pudo registrar el proveedor de datos. Las capas de "
-                "GreenCityControl no se podrán abrir en esta sesión.",
+                seguro("No se pudo registrar el proveedor de datos. Las capas de "
+                "GreenCityControl no se podrán abrir en esta sesión."),
             )
 
         # Igual con el panel de fotos de la ficha, que es un tipo de campo.

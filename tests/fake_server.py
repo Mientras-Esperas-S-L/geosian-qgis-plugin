@@ -13,6 +13,7 @@ import os
 import re
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -378,6 +379,15 @@ class Handler(BaseHTTPRequestHandler):
 
         if self.headers.get("Authorization") != "Token tok-de-prueba":
             self._json({"detail": "Credenciales no válidas"}, 401)
+            return
+
+        if re.match(r"^/api/v1/maps/\d+/layers/importar/$", ruta):
+            # Como GET …/importar/: las del usuario que ocupan su cupo.
+            activas = [
+                _importacion(self.server, id_subida)[1] for id_subida, imp in self.server.importaciones.items()
+                if imp["estado"] in ("subiendo", "importando")
+            ]
+            self._json({"activas": activas})
             return
 
         importacion = re.match(r"^/api/v1/maps/\d+/layers/importar/([^/]+)/$", ruta)
@@ -783,7 +793,7 @@ def _abrir_importacion(servidor, map_id, datos):
         return 409, {"error": "Ya tienes una importación en marcha. Espera a que acabe o cancélala."}
     id_subida = f"sub-{len(servidor.importaciones) + 1}"
     servidor.importaciones[id_subida] = {
-        "map_id": map_id, "datos": datos, "trozos": {}, "estado": "subiendo",
+        "map_id": map_id, "datos": datos, "trozos": {}, "estado": "subiendo", "creada": time.time(),
         "vueltas": servidor.vueltas_importando, "capa_id": None, "error": None,
     }
     return 201, _importacion(servidor, id_subida)[1]
@@ -801,7 +811,9 @@ def _importacion(servidor, id_subida, avanzar=False):
     total = -(-tamano // trozo)
     hechos = len(servidor.elementos_de_capa.get(imp["capa_id"], [])) if imp["capa_id"] else 0
     return 200, {
-        "id": id_subida, "estado": imp["estado"], "tamano": tamano, "trozo": trozo, "trozos": total,
+        "id": id_subida, "map_id": imp["map_id"], "nombre": imp["datos"].get("name"), "estado": imp["estado"],
+        "tamano": tamano, "trozo": trozo, "trozos": total,
+        "creada": imp.get("creada"), "ultima_actividad": imp.get("creada"),
         "faltan": [n for n in range(total) if n not in imp["trozos"]],
         "progreso": {"hechos": hechos if imp["estado"] == "hecha" else 0, "total": imp["datos"].get("elementos")},
         "capa_id": imp["capa_id"] if imp["estado"] == "hecha" else None, "error": imp["error"],

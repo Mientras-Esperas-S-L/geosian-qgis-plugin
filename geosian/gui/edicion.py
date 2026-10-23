@@ -9,6 +9,8 @@ y al descartar.
 from qgis.core import QgsProject
 from qgis.PyQt.QtCore import QTimer
 
+from .avisos import seguro
+
 _vigilando = {"activo": False}
 
 
@@ -121,8 +123,8 @@ def _al_encolar(capa, total):
     cuantos = f"los {total:,} cambios".replace(",", ".") if total else "los cambios"
     iface.messageBar().pushInfo(
         "GreenCityControl",
-        f"«{capa.name()}»: GreenCityControl aplica {cuantos} en segundo plano, todos o ninguno. "
-        "Puede tardar unos minutos.",
+        seguro(f"«{capa.name()}»: GreenCityControl aplica {cuantos} en segundo plano, todos o ninguno. "
+        "Puede tardar unos minutos."),
     )
 
 
@@ -136,7 +138,7 @@ def _avisar(capa, avisos):
     texto = f"Conflictos resueltos: vuelve a guardar «{capa.name()}»."
     if avisos:
         texto += " " + "; ".join(avisos) + "."
-    iface.messageBar().pushInfo("GreenCityControl", texto)
+    iface.messageBar().pushInfo("GreenCityControl", seguro(texto))
 
 
 def dialogo_de_conflictos(capa, conflictos):
@@ -259,7 +261,7 @@ def _mensaje(texto):
     except ImportError:
         iface = None
     if iface is not None:
-        iface.messageBar().pushInfo("GreenCityControl", texto)
+        iface.messageBar().pushInfo("GreenCityControl", seguro(texto))
 
 
 def _avisos_del_proveedor(capa):

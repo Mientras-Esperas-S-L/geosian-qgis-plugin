@@ -32,6 +32,24 @@ AVISO_SESION = (
 )
 
 
+def url_insegura(url):
+    """Por qué no vale ``url`` para conectar, o None.
+
+    Por ``http://`` la contraseña, el código del doble factor y después el token viajan sin
+    cifrar. Solo se admite contra el propio equipo (desarrollo).
+    """
+    from urllib.parse import urlsplit
+
+    partes = urlsplit(url)
+    if partes.scheme == "https" and partes.hostname:
+        return None
+    if partes.scheme == "http" and partes.hostname in ("localhost", "127.0.0.1", "::1"):
+        return None
+    if partes.scheme == "http":
+        return "La dirección tiene que empezar por https://: por http:// la contraseña y la sesión viajarían sin cifrar."
+    return "La dirección no es válida: tiene que ser como https://app.greencitycontrol.com"
+
+
 class ConnectionDialog(QDialog):
     """Alta o edición de una conexión."""
 
@@ -104,6 +122,10 @@ class ConnectionDialog(QDialog):
 
         if not (nombre and url and email and password):
             self.lbl_estado.setText("Faltan datos por rellenar.")
+            return
+        motivo = url_insegura(url)
+        if motivo:
+            self.lbl_estado.setText(motivo)
             return
 
         self._botones.setEnabled(False)

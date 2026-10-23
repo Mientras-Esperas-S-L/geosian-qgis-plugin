@@ -4,7 +4,7 @@ qgisMinimumVersion=3.34
 qgisMaximumVersion=4.99
 description=Abre en QGIS los mapas y capas de GreenCityControl a través de su API, con sus permisos, fichas, partes, fotos, vistas y filtros. Edición con las reglas de la web.
 about=GreenCityControl es una plataforma de gestión de datos geoespaciales para servicios urbanos. Este complemento convierte QGIS en un cliente más de la plataforma: registra un proveedor de datos propio que habla con la API de GreenCityControl, de modo que las capas no son ficheros ni una conexión directa a la base de datos, sino datos vivos del servidor, con los permisos de cada usuario. Las fichas se generan a partir del esquema de cada capa, con sus partes, fotos y archivos; las vistas, las etiquetas y los fondos son los de la web, y los cambios hechos en GCC llegan solos. Las capas se editan con las herramientas de QGIS y se guardan en GreenCityControl todo o nada, con bloqueo optimista: si otra persona cambió lo mismo, QGIS pregunta. Suprimir retira (pasa a «no disponible»), nunca borra.
-version=0.3.0-dev
+version=0.3.1-dev
 author=Mientras Esperas S.L.
 email=desarrollo@greencitycontrol.com
 
@@ -20,7 +20,14 @@ deprecated=False
 server=False
 hasProcessingProvider=False
 
-changelog=0.3.0-dev
+changelog=0.3.1-dev
+    - Seguridad: un proyecto manipulado ya no puede mandar la sesión a otro
+      servidor; las expresiones, los nombres de los adjuntos y los avisos ya no
+      dejan colar nada del servidor; sin https:// no se conecta (salvo en el
+      propio equipo); el tiempo real comprueba el saludo y limita el tamaño.
+    - Con otra subida a medias se enseña cuál es y se elige cancelarla; la que
+      dejó un QGIS cerrado en este equipo se cancela sola.
+    0.3.0-dev
     - Crear capas desde QGIS: con los campos de una capa de QGIS o a partir de
       otra; las de más de 2.000 elementos suben como GeoPackage en segundo
       plano. «Subir capas de QGIS a este mapa…» sube varias de una vez.
