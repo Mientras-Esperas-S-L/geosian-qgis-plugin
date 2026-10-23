@@ -1,6 +1,7 @@
 """Subir a Geosian una capa de QGIS demasiado grande para un lote: GeoPackage a trozos."""
 
 import os
+import socket
 
 import pytest
 
@@ -239,10 +240,33 @@ class TestSubir:
         # Un proceso que ya terminó, como un QGIS que se cerró en mitad de la subida.
         muerto = subprocess.Popen([sys.executable, "-c", "pass"])
         muerto.wait()
-        subidas_abiertas._guardar([{"servidor": cliente.base_url, "map_id": 4, "id": vieja["id"], "pid": muerto.pid}])
+        subidas_abiertas._guardar([{"servidor": cliente.base_url, "map_id": 4, "id": vieja["id"], "pid": muerto.pid,
+                                     "equipo": socket.gethostname()}])
 
         assert I.subir(cliente, 4, datos, ruta, espera=0)["estado"] in ("importando", "hecha")
         assert servidor.estado.importaciones[vieja["id"]]["estado"] == "cancelada"
+        assert subidas_abiertas._todas() == []
+
+    def test_la_que_ya_se_importa_no_se_cancela(self, servidor, tmp_path):  # noqa: F811
+        # QGIS se cerró esperando la respuesta de confirmar: la importación es buena.
+        import subprocess
+        import sys
+
+        from geosian.core import subidas_abiertas
+
+        servidor.estado.vueltas_importando = 1000
+        datos, ruta = preparar(tmp_path)
+        cliente = connections.client_for(CONEXION)
+        buena = I.subir(cliente, 4, {**datos, "name": "Buena"}, ruta, espera=0)
+        muerto = subprocess.Popen([sys.executable, "-c", "pass"])
+        muerto.wait()
+        subidas_abiertas._guardar([{"servidor": cliente.base_url, "map_id": 4, "id": buena["id"], "pid": muerto.pid,
+                                    "equipo": socket.gethostname()}])
+
+        with pytest.raises(ConflictError, match="en marcha"):
+            I.subir(cliente, 4, datos, ruta, espera=0)
+
+        assert servidor.estado.importaciones[buena["id"]]["estado"] == "importando"
         assert subidas_abiertas._todas() == []
 
     def test_la_de_otro_qgis_abierto_no_se_toca(self, servidor, tmp_path):  # noqa: F811
@@ -251,7 +275,8 @@ class TestSubir:
         datos, ruta = preparar(tmp_path)
         cliente = connections.client_for(CONEXION)
         otra = cliente.importar_capa(4, {**datos, "name": "De otro QGIS", "tamano": 10, "huella": "0" * 64})
-        subidas_abiertas._guardar([{"servidor": cliente.base_url, "map_id": 4, "id": otra["id"], "pid": os.getppid()}])
+        subidas_abiertas._guardar([{"servidor": cliente.base_url, "map_id": 4, "id": otra["id"], "pid": os.getppid(),
+                                     "equipo": socket.gethostname()}])
         try:
             with pytest.raises(ConflictError, match="en marcha"):
                 I.subir(cliente, 4, datos, ruta, espera=0)

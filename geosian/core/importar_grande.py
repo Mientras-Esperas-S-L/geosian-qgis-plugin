@@ -221,9 +221,16 @@ def subir(cliente, map_id, datos, ruta, avance=None, cancelado=None, espera=None
     (el servidor dice cuáles ``faltan``).
     """
     tamano = os.path.getsize(ruta)
-    # Las que dejó a medias un QGIS que se cerró: abiertas, no dejarían empezar esta.
+    # Las que dejó a medias un QGIS que se cerró: abiertas, no dejarían empezar esta. Solo
+    # las que siguen «subiendo»: una que ya se importa (QGIS se cerró esperando la respuesta
+    # de confirmar) es buena y acabará sola.
     for vieja in subidas_abiertas.huerfanas(cliente.base_url):
-        _cancelar(cliente, vieja["map_id"], vieja["id"])
+        try:
+            sigue = cliente.importacion(vieja["map_id"], vieja["id"])["estado"] == "subiendo"
+        except GeosianError:
+            sigue = False
+        if sigue:
+            _cancelar(cliente, vieja["map_id"], vieja["id"])
         subidas_abiertas.quitar(vieja["id"])
     subida = cliente.importar_capa(map_id, {**datos, "tamano": tamano, "huella": huella(ruta)})
     subidas_abiertas.apuntar(cliente.base_url, map_id, subida["id"])
