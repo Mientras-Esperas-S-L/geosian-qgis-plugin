@@ -15,6 +15,7 @@ from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
     QgsCoordinateTransformContext,
+    QgsCsException,
     QgsFeature,
     QgsField,
     QgsFields,
@@ -26,7 +27,7 @@ from qgis.core import (
 from qgis.PyQt.QtCore import QVariant
 
 from . import crear_capa as C
-from .errors import NetworkError
+from .errors import ConflictError, GeosianError, HttpError, NetworkError
 
 WKB = {
     "Point": QgsWkbTypes.Point,
@@ -41,9 +42,16 @@ TIPO_QGIS = {
     "number": QVariant.Double,
     "calendar": QVariant.Date,
 }
-# Las veces que se repite un trozo que no llega, y la espera antes de cada intento.
+# Las veces que se repite un trozo que no llega, y la espera antes de cada intento (crece
+# con cada uno, hasta ESPERA_MAXIMA).
 REINTENTOS = 5
 ESPERA = 3
+ESPERA_MAXIMA = 30
+# Mientras el servidor importa, un corte de red no es un fallo: se sigue preguntando
+# unos diez minutos antes de rendirse (la capa puede entrar igual).
+REINTENTOS_AL_ESPERAR = 25
+# Un 502, 503 o 504 es el servidor reiniciándose (un despliegue): se repite como un corte.
+DE_PASO = (502, 503, 504)
 
 
 class Cancelado(Exception):
@@ -95,7 +103,7 @@ def empaquetar(origen, campos, correspondencia, tipo, ruta, avance=None, cancela
         total = origen.featureCount()
     total = max(total, 1)
     escritos = sin_geometria = 0
-    no_validas = []
+    no_validas, fuera_de_su_sistema = [], []
     try:
         for n, elemento in enumerate(origen.getFeatures(), 1):
             geometria = QgsGeometry(elemento.geometry())
@@ -105,11 +113,11 @@ def empaquetar(origen, campos, correspondencia, tipo, ruta, avance=None, cancela
             if not geometria.isGeosValid():
                 no_validas.append(elemento.id())
                 continue
-            geometria.transform(transformacion)
-            geometria.get().dropZValue()
-            geometria.get().dropMValue()
-            if multi:
-                geometria.convertToMultiType()
+            try:
+                geometria = C.geometria_para_geosian(geometria, transformacion, multi)
+            except QgsCsException:
+                fuera_de_su_sistema.append(elemento.id())
+                continue
             nuevo = QgsFeature(campos_gpkg)
             nuevo.setGeometry(geometria)
             for de_qgis, indice in indices.items():
@@ -131,6 +139,8 @@ def empaquetar(origen, campos, correspondencia, tipo, ruta, avance=None, cancela
             f"{len(no_validas)} elementos tienen la geometría rota (por ejemplo: {muestra}). "
             "Arréglalos en QGIS (Vectorial › Herramientas de geometría › Reparar geometrías) y repite."
         )
+    if fuera_de_su_sistema:
+        raise NoSePuede(C.fuera_de_su_sistema(fuera_de_su_sistema))
     return escritos, sin_geometria
 
 
@@ -142,17 +152,53 @@ def huella(ruta):
     return h.hexdigest()
 
 
-def _con_reintentos(hacer, cancelado, espera=None):
-    for intento in range(REINTENTOS):
+def _de_paso(exc):
+    """Un fallo que se arregla solo: sin red o el servidor reiniciándose."""
+    return isinstance(exc, NetworkError) or (isinstance(exc, HttpError) and exc.status in DE_PASO)
+
+
+def _con_reintentos(hacer, cancelado, espera=None, intentos=REINTENTOS):
+    for intento in range(intentos):
         try:
             return hacer()
-        except NetworkError:
-            if intento == REINTENTOS - 1:
+        except GeosianError as exc:
+            if not _de_paso(exc) or intento == intentos - 1:
                 raise
-            for _ in range(int((ESPERA if espera is None else espera) * (intento + 1) * 10)):
+            pausa = min((ESPERA if espera is None else espera) * (intento + 1), ESPERA_MAXIMA)
+            for _ in range(int(pausa * 10)):
                 if cancelado and cancelado():
                     raise Cancelado()
                 time.sleep(0.1)
+
+
+def _confirmar(cliente, map_id, id_subida, cancelado, espera=None):
+    """Confirma la subida sin poder confirmarla dos veces.
+
+    Si la respuesta no llega, puede que la confirmación sí: repetirla daba 409 («ya está
+    confirmada») y QGIS decía que había fallado mientras la capa se importaba. Antes de
+    repetir se pregunta en qué está.
+    """
+    def una_vez():
+        try:
+            return cliente.confirmar_importacion(map_id, id_subida)
+        except GeosianError as exc:
+            if not (_de_paso(exc) or isinstance(exc, ConflictError)):
+                raise
+            estado = _con_reintentos(lambda: cliente.importacion(map_id, id_subida), cancelado, espera)
+            if estado["estado"] != "subiendo":
+                return estado
+            raise
+
+    return _con_reintentos(una_vez, cancelado, espera)
+
+
+def _cancelar(cliente, map_id, id_subida):
+    """Avisa al servidor de que la subida no sigue. Sin el aviso, la subida a medias cuenta
+    como «en marcha» 24 horas y no deja empezar otra."""
+    try:
+        cliente.cancelar_importacion(map_id, id_subida)
+    except GeosianError:
+        pass
 
 
 def subir(cliente, map_id, datos, ruta, avance=None, cancelado=None, espera=None):
@@ -163,6 +209,8 @@ def subir(cliente, map_id, datos, ruta, avance=None, cancelado=None, espera=None
     """
     tamano = os.path.getsize(ruta)
     subida = cliente.importar_capa(map_id, {**datos, "tamano": tamano, "huella": huella(ruta)})
+    # Pase lo que pase a partir de aquí (cancelar, la red, la sesión, un fallo propio), la
+    # subida no se queda abierta en el servidor.
     try:
         with open(ruta, "rb") as f:
             faltan = list(subida["faltan"])
@@ -178,23 +226,43 @@ def subir(cliente, map_id, datos, ruta, avance=None, cancelado=None, espera=None
                     if avance:
                         avance(1 - len(estado["faltan"]) / subida["trozos"])
                 faltan = _con_reintentos(lambda: cliente.importacion(map_id, subida["id"]), cancelado, espera)["faltan"]
-        return _con_reintentos(lambda: cliente.confirmar_importacion(map_id, subida["id"]), cancelado, espera)
-    except Cancelado:
-        cliente.cancelar_importacion(map_id, subida["id"])
+        return _confirmar(cliente, map_id, subida["id"], cancelado, espera)
+    except BaseException:
+        _cancelar(cliente, map_id, subida["id"])
         raise
 
 
 def esperar(cliente, map_id, id_subida, avance=None, cancelado=None, cada=3):
     """Espera a que el servidor acabe de importar. Devuelve el estado final."""
     while True:
-        estado = _con_reintentos(lambda: cliente.importacion(map_id, id_subida), cancelado)
-        if estado["estado"] not in ("subiendo", "importando"):
+        estado = _con_reintentos(
+            lambda: cliente.importacion(map_id, id_subida), cancelado, intentos=REINTENTOS_AL_ESPERAR
+        )
+        if estado["estado"] not in ACTIVAS:
             return estado
         progreso = estado.get("progreso") or {}
         if avance and progreso.get("total"):
             avance(progreso["hechos"] / progreso["total"])
         if cancelado and cancelado():
-            cliente.cancelar_importacion(map_id, id_subida)
+            _cancelar(cliente, map_id, id_subida)
+            _hasta_que_pare(cliente, map_id, id_subida, cada)
             raise Cancelado()
         for _ in range(int(cada * 10)):
+            time.sleep(0.1)
+
+
+ACTIVAS = ("subiendo", "importando")
+
+
+def _hasta_que_pare(cliente, map_id, id_subida, cada, veces=20):
+    """Tras cancelar una importación en curso, espera a que el servidor la corte de verdad
+    (lo ve en su siguiente aviso de progreso, cada pocos segundos): así «cancelada» es
+    cierto y la siguiente subida no choca con ella."""
+    for _ in range(veces):
+        try:
+            if cliente.importacion(map_id, id_subida)["estado"] not in ACTIVAS:
+                return
+        except GeosianError:
+            return
+        for _ in range(int(max(cada, 0.5) * 10)):
             time.sleep(0.1)

@@ -117,6 +117,38 @@ class TestDeUnaCapaDeQgis:
 
         assert [c["name"] for c in campos] == ["fid_qgis"] and correspondencia == {"fid": "fid_qgis"}
 
+    @pytest.mark.parametrize("nombre", ["geom", "geometry", "adjuntos_nuevos"])
+    def test_los_nombres_que_renombra_el_proveedor_cambian_ya(self, app, nombre):
+        # Con el nombre tal cual, el proveedor lo abre como attr__… y sus valores se perdían.
+        campos, _, _ = C.campos_de(memoria(f"Point?crs=EPSG:4326&field={nombre}:string"))
+
+        assert [c["name"] for c in campos] == [f"{nombre}_qgis"]
+
+    def test_nan_e_infinito_van_vacios(self, app):
+        from qgis.PyQt.QtCore import QVariant
+
+        assert C.valor_para_geosian(float("nan"), QVariant.Double) is None
+        assert C.valor_para_geosian(float("inf"), QVariant.Double) is None
+        assert C.valor_para_geosian(2.5, QVariant.Double) == 2.5
+
+    def test_lo_que_no_se_puede_subir_se_dice_antes(self, app):
+        # Como un shapefile sin .prj (una capa en memoria sin crs= toma 4326).
+        sin_sistema = memoria("Point?field=n:string")
+        sin_sistema.setCrs(qgis_core.QgsCoordinateReferenceSystem())
+        assert "sistema de coordenadas" in C.motivo_para_no_subir(sin_sistema, [])
+        assert "geometría" in C.motivo_para_no_subir(memoria("None?field=n:string"), [])
+        muchos = [{"name": f"c{i}"} for i in range(C.MAX_CAMPOS + 1)]
+        assert "caben 200" in C.motivo_para_no_subir(memoria("Point?crs=EPSG:4326"), muchos)
+        assert C.motivo_para_no_subir(memoria("Point?crs=EPSG:4326"), muchos[:3]) is None
+
+    def test_los_errores_sin_el_codigo_y_sin_la_pagina_del_servidor(self):
+        from geosian.core.errors import ApiError, ConflictError
+        from geosian.gui.crear_capa import texto_de_error
+
+        assert texto_de_error(ConflictError(409, "Ya hay una capa «X» en este mapa.")) == "Ya hay una capa «X» en este mapa."
+        texto = texto_de_error(ApiError(502, "<html><body>Bad Gateway</body></html>"))
+        assert "error 502" in texto and "<html>" not in texto
+
     def test_un_tipo_que_no_se_lleva(self, app):
         capa = memoria("Point?crs=EPSG:4326&field=nombre:string&field=datos:binary")
 
@@ -256,6 +288,11 @@ class TestDialogo:
     def test_plantilla(self, app_gui, servidor):  # noqa: F811
         d = self.dialogo()
         d.nombre.setText("Arbolado 2027")
+        # Sin plantilla elegida de entrada: copiar una capa tiene que ser a propósito.
+        assert d.capa_plantilla.currentData() is None
+        d._crear()
+        assert d.capa_creada is None and d.estado.text() == "Elige la capa que sirve de modelo."
+        d.capa_plantilla.setCurrentIndex(d.capa_plantilla.findText("Arbolado"))
         assert d.capa_plantilla.currentData()["id"] == 11
         d.copiar_vistas.setChecked(True)
 
@@ -287,6 +324,7 @@ class TestDialogo:
         servidor.estado.sin_layer_create = True
         d = self.dialogo()
         d.nombre.setText("X")
+        d.capa_plantilla.setCurrentIndex(0)
 
         d._crear()
 

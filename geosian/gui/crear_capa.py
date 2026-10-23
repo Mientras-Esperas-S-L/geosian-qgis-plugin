@@ -23,6 +23,7 @@ from qgis.core import (
     Qgis,
     QgsApplication,
     QgsCoordinateTransform,
+    QgsCsException,
     QgsFeature,
     QgsGeometry,
     QgsMapLayerProxyModel,
@@ -52,7 +53,13 @@ from qgis.PyQt.QtWidgets import (
 from ..core import connections
 from ..core import crear_capa as C
 from ..core import importar_grande as I
-from ..core.errors import AuthError, GeosianError, NetworkError
+from ..core.errors import (
+    AuthError,
+    ForbiddenError,
+    GeosianError,
+    HttpError,
+    NetworkError,
+)
 
 PLANTILLA, DE_QGIS = 0, 1
 # El nombre de la aplicación en lo que ve el técnico.
@@ -66,7 +73,23 @@ def texto_de_error(exc):
                 "panel › Volver a entrar) y repite.")
     if isinstance(exc, NetworkError):
         return f"Sin conexión con GreenCityControl: {exc}. Comprueba la red y repite."
+    if isinstance(exc, HttpError):
+        if exc.status and exc.status >= 500:
+            # El cuerpo de un 502 es la página de error del servidor web, no un motivo.
+            return f"GreenCityControl no ha podido atenderlo ahora (error {exc.status}). Espera un poco y repite."
+        # El motivo, sin el «HTTP 409:» de delante.
+        return Exception.__str__(exc)
     return str(exc)
+
+
+def capas_para_subir():
+    """Las capas vectoriales del proyecto que no vienen ya de la aplicación."""
+    from qgis.core import QgsVectorLayer
+
+    return [
+        capa for capa in QgsProject.instance().mapLayers().values()
+        if isinstance(capa, QgsVectorLayer) and capa.providerType() != "geosian"
+    ]
 
 
 def nombres_del_mapa(cliente, map_id):
@@ -118,13 +141,16 @@ class CrearCapaDialog(QDialog):
         self.de_qgis = QRadioButton("A partir de una capa de QGIS (sus campos y, si quieres, sus elementos)")
         self.forma.addButton(self.de_plantilla, PLANTILLA)
         self.forma.addButton(self.de_qgis, DE_QGIS)
-        self.de_plantilla.setChecked(True)
+        # Si el proyecto tiene capas que llevar, lo normal es crear a partir de una.
+        (self.de_qgis if capas_para_subir() else self.de_plantilla).setChecked(True)
 
         # Plantilla: mapa y capa (por defecto, el mapa en el que se crea).
         self.caja_plantilla = QGroupBox()
         disp = QFormLayout(self.caja_plantilla)
         self.mapa_plantilla = QComboBox()
         self.capa_plantilla = QComboBox()
+        # Sin ninguna elegida de entrada: que copiar una capa sea a propósito.
+        self.capa_plantilla.setPlaceholderText("Elige la capa que sirve de modelo")
         self.copiar_vistas = QCheckBox("Copiar también sus vistas")
         disp.addRow("Mapa", self.mapa_plantilla)
         disp.addRow("Capa", self.capa_plantilla)
@@ -203,20 +229,23 @@ class CrearCapaDialog(QDialog):
             return
         for capa in sorted(capas, key=lambda c: str(c.get("name") or "").casefold()):
             self.capa_plantilla.addItem(capa.get("name") or f"Capa {capa.get('id')}", capa)
+        self.capa_plantilla.setCurrentIndex(-1)
 
     def _al_cambiar_capa_qgis(self, capa):
         self.campos, self.fuera, self.correspondencia = ([], [], {})
         self.geometria = None
         self.total_elementos = 0
+        self.motivo = None
         if capa is None:
             self.resumen.setText("No hay capas vectoriales en el proyecto.")
             self.con_elementos.setEnabled(False)
             return
         self.geometria = C.tipo_de_geometria(capa)
         self.campos, self.fuera, self.correspondencia = C.campos_de(capa)
+        self.motivo = C.motivo_para_no_subir(capa, self.campos)
         lineas = []
-        if self.geometria is None:
-            lineas.append("Esta capa no tiene geometría de punto, línea o polígono: no se puede crear.")
+        if self.motivo:
+            lineas.append(f"No se puede crear a partir de esta capa. {self.motivo}")
         else:
             lineas.append(f"Geometría: {self.geometria}.")
         if self.campos:
@@ -255,13 +284,16 @@ class CrearCapaDialog(QDialog):
                 return
             datos = {"name": nombre, "plantilla": plantilla["id"], "copiar_vistas": self.copiar_vistas.isChecked()}
         else:
-            if self.capa_qgis.currentLayer() is None or self.geometria is None:
+            if self.capa_qgis.currentLayer() is None:
                 self.estado.setText("Elige una capa de QGIS con geometría de punto, línea o polígono.")
+                return
+            if self.motivo:
+                self.estado.setText(self.motivo)
                 return
             datos = {"name": nombre, "geometry_type": self.geometria, "campos": self.campos}
             if self.con_elementos.isChecked() and self.total_elementos > C.MAX_ELEMENTOS:
                 # La crea el servidor al importar; aquí no se pide nada.
-                self.grande = datos
+                self.grande = {**datos, "elementos": self.total_elementos}
                 self.accept()
                 return
 
@@ -287,17 +319,17 @@ def subir_elementos(origen, destino, correspondencia):
     transformacion = QgsCoordinateTransform(origen.crs(), destino.crs(), QgsProject.instance())
     campos = destino.fields()
     multi = QgsWkbTypes.isMultiType(destino.wkbType())
-    nuevos = []
+    nuevos, sin_geometria, fuera_de_su_sistema = [], 0, []
     for elemento in origen.getFeatures():
         geometria = QgsGeometry(elemento.geometry())
         if geometria.isNull() or geometria.isEmpty():
+            sin_geometria += 1
             continue
-        geometria.transform(transformacion)
-        # Geosian guarda en 2D: sin quitar Z y M, QGIS no deja añadirlos a la capa.
-        geometria.get().dropZValue()
-        geometria.get().dropMValue()
-        if multi:
-            geometria.convertToMultiType()
+        try:
+            geometria = C.geometria_para_geosian(geometria, transformacion, multi)
+        except QgsCsException:
+            fuera_de_su_sistema.append(elemento.id())
+            continue
         nuevo = QgsFeature(campos)
         nuevo.setGeometry(geometria)
         for de_qgis, en_geosian in correspondencia.items():
@@ -306,6 +338,8 @@ def subir_elementos(origen, destino, correspondencia):
                 tipo = origen.fields().field(de_qgis).type()
                 nuevo.setAttribute(indice, C.valor_para_geosian(elemento[de_qgis], tipo))
         nuevos.append(nuevo)
+    if fuera_de_su_sistema:
+        return False, f"No se ha subido nada. {C.fuera_de_su_sistema(fuera_de_su_sistema)}"
     if not nuevos:
         return True, "La capa de QGIS no tiene elementos con geometría."
     if not destino.isEditable():
@@ -314,10 +348,19 @@ def subir_elementos(origen, destino, correspondencia):
         destino.rollBack()
         return False, "QGIS no pudo preparar los elementos."
     if destino.commitChanges():
-        return True, f"Subidos {len(nuevos):,} elementos.".replace(",", ".")
+        return True, f"Subidos {len(nuevos):,} elementos.".replace(",", ".") + saltados(sin_geometria)
     errores = _motivos(destino.commitErrors())
     destino.rollBack()
     return False, f"No se ha subido nada. {errores}"
+
+
+def saltados(sin_geometria):
+    """Lo que no se subió por no tener geometría, para que no parezca que faltan."""
+    if not sin_geometria:
+        return ""
+    if sin_geometria == 1:
+        return " Uno sin geometría se ha quedado fuera."
+    return f" {sin_geometria:,} sin geometría se han quedado fuera.".replace(",", ".")
 
 
 def _motivos(errores):
@@ -348,7 +391,9 @@ class ImportarCapas(QgsTask):
         self.mapa = mapa
         # La capa y el proyecto no se tocan desde el hilo de la tarea.
         self.capas = [
-            {"fuente": QgsVectorLayerFeatureSource(origen), "total": C.contar_elementos(origen),
+            {"fuente": QgsVectorLayerFeatureSource(origen),
+             # Los contó ya la ventana: con un WFS, contar otra vez es descargarlo otra vez.
+             "total": datos.get("elementos") if datos.get("elementos") is not None else C.contar_elementos(origen),
              "datos": datos, "correspondencia": correspondencia}
             for origen, datos, correspondencia in capas
         ]
@@ -377,12 +422,12 @@ class ImportarCapas(QgsTask):
             if self.isCanceled():
                 break
             base, ancho = 100 * i / n, 100 / n
-            resultado = {"nombre": capa["datos"]["name"], "final": None, "error": None}
+            resultado = {"nombre": capa["datos"]["name"], "final": None, "error": None, "sin_geometria": 0}
             self.resultados.append(resultado)
             carpeta = tempfile.mkdtemp(prefix="geosian-importar-")
             try:
                 ruta = os.path.join(carpeta, "capa.gpkg")
-                escritos, _ = I.empaquetar(
+                escritos, resultado["sin_geometria"] = I.empaquetar(
                     capa["fuente"], capa["datos"]["campos"], capa["correspondencia"], capa["datos"]["geometry_type"],
                     ruta, avance=self._fase(base, base + ancho * 0.3), cancelado=self.isCanceled,
                     total=capa["total"], contexto=self.contexto,
@@ -399,6 +444,9 @@ class ImportarCapas(QgsTask):
                 break
             except (I.NoSePuede, GeosianError) as exc:
                 resultado["error"] = texto_de_error(exc)
+                # Sin permiso o sin sesión, las demás fallarían igual tras empaquetarlas.
+                if isinstance(exc, (AuthError, ForbiddenError)):
+                    break
             except Exception as exc:
                 QgsMessageLog.logMessage(traceback.format_exc(), APP, Qgis.Critical)
                 resultado["error"] = f"fallo inesperado ({type(exc).__name__}: {exc}); el detalle está en el registro de mensajes"
@@ -442,14 +490,17 @@ class ImportarCapas(QgsTask):
         barra = self.dock.iface.messageBar()
         fallidas = [r for r in self.resultados if r["error"] is not None]
         if ok:
+            fuera = saltados(sum(r["sin_geometria"] for r in hechas))
             if len(hechas) == 1:
-                barra.pushSuccess(APP, f"Subida «{hechas[0]['nombre']}» a «{self.mapa.get('name')}».")
+                barra.pushSuccess(APP, f"Subida «{hechas[0]['nombre']}» a «{self.mapa.get('name')}».{fuera}")
             else:
-                barra.pushSuccess(APP, f"Subidas las {len(hechas)} capas a «{self.mapa.get('name')}».")
+                barra.pushSuccess(APP, f"Subidas las {len(hechas)} capas a «{self.mapa.get('name')}».{fuera}")
             return
         partes = [f"«{r['nombre']}»: {r['error']}" for r in fallidas if r["error"] != "cancelada"]
         if self.isCanceled() or any(r["error"] == "cancelada" for r in fallidas):
             partes.append("se canceló; las que faltaban no se han subido")
+        elif len(self.resultados) < len(self.capas):
+            partes.append("las demás no se han intentado")
         barra.pushWarning(APP, f"Subidas {len(hechas)} de {len(self.capas)} capas. " + "; ".join(partes) + ".")
 
 
@@ -475,7 +526,10 @@ class ImportarCapaGrande(ImportarCapas):
         nombre = self.datos["name"]
         if ok:
             total = (self.final.get("progreso") or {}).get("total") or 0
-            barra.pushSuccess(APP, f"«{nombre}» importada con sus {total:,} elementos.".replace(",", "."))
+            barra.pushSuccess(
+                APP, f"«{nombre}» importada con sus {total:,} elementos.".replace(",", ".")
+                + saltados(self.resultados[0]["sin_geometria"])
+            )
         elif self.isCanceled() or (self.resultados and self.resultados[0]["error"] == "cancelada"):
             barra.pushInfo(APP, f"Importación de «{nombre}» cancelada: no se ha creado nada.")
         else:

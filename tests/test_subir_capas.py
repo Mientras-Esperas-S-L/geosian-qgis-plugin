@@ -59,7 +59,7 @@ class TestVentana:
         assert d.tabla.item(filas["Tramos"], SC.COL_GEOMETRIA).text() == "MultiLineString"
         assert d.tabla.item(filas["origen"], SC.COL_ELEMENTOS).text() == "3"
         tabla = d.tabla.item(filas["Solo tabla"], SC.COL_CAPA)
-        assert tabla.checkState() == Qt.CheckState.Unchecked and "no se puede subir" in d.tabla.item(filas["Solo tabla"], SC.COL_AVISO).text()
+        assert tabla.checkState() == Qt.CheckState.Unchecked and "No se puede subir. No tiene geometría" in d.tabla.item(filas["Solo tabla"], SC.COL_AVISO).text()
 
         d.tabla.item(filas["Tramos"], SC.COL_NOMBRE).setText("Tramos 2027")
         d._aceptar()
@@ -92,6 +92,16 @@ class TestVentana:
         d.tabla.item(0, SC.COL_NOMBRE).setText("Arbolado de QGIS")
         d._aceptar()
         assert [datos["name"] for _, datos, _ in d.elegidas] == ["Arbolado de QGIS"]
+
+    def test_salen_marcadas_las_seleccionadas_en_el_panel_de_capas(self, app_gui, proyecto):
+        origen = proyecto(origen_con(3))
+        proyecto(lineas())
+
+        d = SC.SubirCapasDialog(MAPA, marcadas={origen.id()})
+
+        marcas = {d.tabla.item(i, SC.COL_CAPA).text(): d.tabla.item(i, SC.COL_CAPA).checkState()
+                  for i in range(d.tabla.rowCount())}
+        assert marcas == {"origen": Qt.CheckState.Checked, "Tramos": Qt.CheckState.Unchecked}
 
     def test_sin_marcar_ninguna(self, app_gui, proyecto):
         proyecto(origen_con(3))
@@ -258,3 +268,23 @@ def test_si_no_se_pueden_abrir_al_final_lo_dice_y_avisa_igual(app_gui, servidor,
     niveles = [nivel for nivel, _ in dock.barra.avisos]
     assert niveles == ["pushWarning", "pushSuccess"]
     assert "no se han podido abrir en QGIS" in dock.barra.avisos[0][1]
+
+
+def test_sin_permiso_no_empaqueta_las_demas(app_gui, servidor, proyecto, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(I, "esperar", _esperar)
+    proyecto(origen_con(3))
+    proyecto(lineas())
+    servidor.estado.sin_layer_create = True
+    d = SC.SubirCapasDialog(MAPA)
+    d._aceptar()
+    empaquetadas = []
+    original = I.empaquetar
+    monkeypatch.setattr(I, "empaquetar", lambda *a, **k: empaquetadas.append(1) or original(*a, **k))
+    dock = _Dock()
+    tarea = SC.ImportarCapas(dock, CONEXION, MAPA, d.elegidas)
+
+    tarea.finished(tarea.run())
+
+    assert len(empaquetadas) == 1
+    nivel, texto = dock.barra.avisos[-1]
+    assert nivel == "pushWarning" and "No tienes permiso" in texto and "las demás no se han intentado" in texto

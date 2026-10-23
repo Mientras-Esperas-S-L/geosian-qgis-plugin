@@ -816,6 +816,8 @@ def _confirmar_importacion(servidor, id_subida):
     imp = servidor.importaciones.get(id_subida)
     if imp is None:
         return 404, {"error": "No encuentro esa importación."}
+    if imp["estado"] != "subiendo":
+        return 409, {"error": "Esta importación ya está confirmada."}
     fichero = b"".join(imp["trozos"][n] for n in sorted(imp["trozos"]))
     if hashlib.sha256(fichero).hexdigest() != imp["datos"]["huella"]:
         imp["estado"], imp["error"] = "fallida", "El fichero llegó distinto del que se mandó."

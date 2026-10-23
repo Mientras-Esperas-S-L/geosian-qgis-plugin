@@ -10,7 +10,7 @@ from qgis.PyQt.QtCore import QDateTime
 from geosian.core import connections
 from geosian.core import crear_capa as C
 from geosian.core import importar_grande as I
-from geosian.core.errors import ForbiddenError
+from geosian.core.errors import ApiError, ConflictError, ForbiddenError, NetworkError
 from tests.test_edicion_atributos import CONEXION, servidor  # noqa: F401
 
 
@@ -70,6 +70,31 @@ class TestEmpaquetar:
         assert I.empaquetar(origen, campos, correspondencia, "Point", ruta) == (1, 0)
         [leido] = leer(ruta).getFeatures()
         assert (leido["fid_qgis"], leido["a_b"]) == ("A-1", "x")
+
+    def test_las_curvas_van_en_tramos_rectos(self, app, tmp_path):
+        # El servidor no lee curvas (CAD): con ellas, la importación fallaba al final.
+        origen = QgsVectorLayer("CurvePolygon?crs=EPSG:4326&field=n:integer", "o", "memory")
+        f = QgsFeature(origen.fields())
+        f.setGeometry(QgsGeometry.fromWkt(
+            "CURVEPOLYGON(CIRCULARSTRING(-3.7 40.4, -3.69 40.41, -3.68 40.4, -3.69 40.39, -3.7 40.4))"
+        ))
+        origen.dataProvider().addFeatures([f])
+        campos, _, correspondencia = C.campos_de(origen)
+        ruta = str(tmp_path / "c.gpkg")
+
+        assert I.empaquetar(origen, campos, correspondencia, "MultiPolygon", ruta) == (1, 0)
+        [leido] = leer(ruta).getFeatures()
+        assert leido.geometry().wkbType() == QgsWkbTypes.MultiPolygon
+
+    def test_fuera_de_su_sistema_de_coordenadas_lo_dice(self, app, tmp_path):
+        origen = QgsVectorLayer("Point?crs=EPSG:25830&field=n:integer", "o", "memory")
+        f = QgsFeature(origen.fields())
+        f.setGeometry(QgsGeometry.fromWkt("POINT(1e12 1e12)"))
+        origen.dataProvider().addFeatures([f])
+        campos, _, correspondencia = C.campos_de(origen)
+
+        with pytest.raises(I.NoSePuede, match="no se pueden pasar a coordenadas geográficas"):
+            I.empaquetar(origen, campos, correspondencia, "Point", str(tmp_path / "c.gpkg"))
 
     def test_sin_geometria_se_salta(self, app, tmp_path):
         origen = origen_con()
@@ -140,6 +165,65 @@ class TestSubir:
             I.subir(connections.client_for(CONEXION), 4, datos, ruta)
 
         assert not [r for r in servidor.rutas_pedidas() if "/trozos/" in r]
+
+    def test_un_nombre_repetido_se_dice_antes_de_subir_trozos(self, servidor, tmp_path):  # noqa: F811
+        datos, ruta = preparar(tmp_path)
+        servidor.estado.capas_extra.append({"id": 399, "name": datos["name"], "map": 4})
+
+        with pytest.raises(ConflictError, match="Ya hay una capa"):
+            I.subir(connections.client_for(CONEXION), 4, {**datos}, ruta, espera=0)
+
+        # El nombre se mira al abrir (como el backend): no se llega a subir ni un trozo.
+        assert not [r for r in servidor.rutas_pedidas() if "/trozos/" in r]
+
+    def test_un_fallo_al_confirmar_cancela_la_subida(self, servidor, tmp_path, monkeypatch):  # noqa: F811
+        datos, ruta = preparar(tmp_path)
+        cliente = connections.client_for(CONEXION)
+
+        def falla(*args):
+            raise ApiError(400, "Faltan datos.")
+
+        monkeypatch.setattr(cliente, "confirmar_importacion", falla)
+
+        with pytest.raises(ApiError):
+            I.subir(cliente, 4, datos, ruta, espera=0)
+
+        [imp] = servidor.estado.importaciones.values()
+        assert imp["estado"] == "cancelada"
+
+    def test_si_la_confirmacion_llega_pero_no_su_respuesta_no_se_repite(self, servidor, tmp_path, monkeypatch):  # noqa: F811
+        datos, ruta = preparar(tmp_path)
+        cliente = connections.client_for(CONEXION)
+        original = cliente.confirmar_importacion
+
+        def llega_sin_respuesta(*args):
+            original(*args)
+            raise NetworkError("se cortó")
+
+        monkeypatch.setattr(cliente, "confirmar_importacion", llega_sin_respuesta)
+
+        estado = I.subir(cliente, 4, datos, ruta, espera=0)
+
+        assert estado["estado"] in ("importando", "hecha")
+        confirmadas = [r for r in servidor.rutas_pedidas() if r.endswith("/confirmar/")]
+        assert len(confirmadas) == 1
+        assert [c["name"] for c in servidor.estado.capas_extra].count(datos["name"]) == 1
+
+    def test_un_502_se_repite_como_un_corte(self, servidor, tmp_path, monkeypatch):  # noqa: F811
+        datos, ruta = preparar(tmp_path)
+        cliente = connections.client_for(CONEXION)
+        original, veces = cliente.importar_trozo, []
+
+        def reiniciando(*args):
+            veces.append(1)
+            if len(veces) == 1:
+                raise ApiError(502, "<html>Bad Gateway</html>")
+            return original(*args)
+
+        monkeypatch.setattr(cliente, "importar_trozo", reiniciando)
+
+        assert I.subir(cliente, 4, datos, ruta, espera=0)["estado"] in ("importando", "hecha")
+        assert len(veces) >= 2
 
     def test_cancelar_avisa_al_servidor(self, servidor, tmp_path):  # noqa: F811
         datos, ruta = preparar(tmp_path)
