@@ -775,6 +775,12 @@ def _abrir_importacion(servidor, map_id, datos):
     """Como POST /maps/<id>/layers/importar/ (services/importar_capa.py del backend)."""
     if servidor.sin_layer_create:
         return 403, {"error": "No tienes permiso para crear capas en este mapa."}
+    if any("__" in str(c.get("name", "")) for c in datos.get("campos") or []):
+        return 400, {"error": "Un nombre de campo no puede llevar dos _ seguidos."}
+    if _nombre_usado(servidor, datos.get("name")):
+        return 409, {"error": f"Ya hay una capa «{datos['name']}» en este mapa. Elige otro nombre."}
+    if any(imp["estado"] in ("subiendo", "importando") for imp in servidor.importaciones.values()):
+        return 409, {"error": "Ya tienes una importación en marcha. Espera a que acabe o cancélala."}
     id_subida = f"sub-{len(servidor.importaciones) + 1}"
     servidor.importaciones[id_subida] = {
         "map_id": map_id, "datos": datos, "trozos": {}, "estado": "subiendo",
@@ -810,12 +816,16 @@ def _confirmar_importacion(servidor, id_subida):
     imp = servidor.importaciones.get(id_subida)
     if imp is None:
         return 404, {"error": "No encuentro esa importación."}
+    if imp["estado"] != "subiendo":
+        return 409, {"error": "Esta importación ya está confirmada."}
     fichero = b"".join(imp["trozos"][n] for n in sorted(imp["trozos"]))
     if hashlib.sha256(fichero).hexdigest() != imp["datos"]["huella"]:
         imp["estado"], imp["error"] = "fallida", "El fichero llegó distinto del que se mandó."
         return 409, {"error": imp["error"]}
     datos = imp["datos"]
-    estado, capa = _capa_creada(servidor, imp["map_id"], {k: datos[k] for k in ("name", "geometry_type", "campos")})
+    estado, capa = _capa_creada(
+        servidor, imp["map_id"], {k: datos[k] for k in ("name", "geometry_type", "campos")}, al_importar=True
+    )
     if estado != 201:
         return estado, capa
     imp["capa_id"] = capa["id"]
@@ -1033,13 +1043,21 @@ class _Servidor(HTTPServer):
         return 200, resultado
 
 
-def _capa_creada(servidor, map_id, datos):
+def _nombre_usado(servidor, nombre):
+    """Como el ``name__iexact`` del backend, entre las capas del mapa del servidor falso."""
+    nombre = str(nombre or "").strip().casefold()
+    return any(str(c.get("name")).casefold() == nombre for c in CAPAS + servidor.capas_extra)
+
+
+def _capa_creada(servidor, map_id, datos, al_importar=False):
     """Como POST /maps/<id>/layers/crear/ (services/crear_capa.py del backend)."""
     if servidor.sin_layer_create:
         return 403, {"error": "No tienes permiso para crear capas en este mapa."}
     nombre = str(datos.get("name") or "").strip()
     if not nombre:
         return 400, {"error": "Ponle un nombre a la capa."}
+    if not al_importar and _nombre_usado(servidor, nombre):
+        return 409, {"error": f"Ya hay una capa «{nombre}» en este mapa. Elige otro nombre."}
     if ("plantilla" in datos) == ("campos" in datos):
         return 400, {"error": "Elige una forma: a partir de otra capa (plantilla) o con campos."}
     if "plantilla" in datos:

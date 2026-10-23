@@ -103,6 +103,54 @@ class TestDeUnaCapaDeQgis:
 
         assert C.contar_elementos(capa) == 2
 
+    def test_sin_dos_guiones_bajos_seguidos(self, app):
+        # El importador de capas grandes junta los «__» y rechaza la subida: se quitan ya.
+        usados = set()
+
+        assert C.nombre_valido("Código _ zona", usados) == "Codigo_zona"
+        assert C.nombre_valido("COD__X", usados) == "COD_X"
+        assert C.nombre_valido("__x__", usados) == "x"
+        # Recortado a 60 y repetido: sin «_» al final, el «_2» no deja «__».
+        assert "__" not in C.nombre_valido("a" * 59 + "_c", usados) + C.nombre_valido("a" * 59 + "_d", usados)
+
+    def test_un_campo_fid_cambia_de_nombre(self, app):
+        # En el GeoPackage de las capas grandes «fid» es el número de fila.
+        campos, _, correspondencia = C.campos_de(memoria("Point?crs=EPSG:4326&field=fid:string"))
+
+        assert [c["name"] for c in campos] == ["fid_qgis"] and correspondencia == {"fid": "fid_qgis"}
+
+    @pytest.mark.parametrize("nombre", ["geom", "geometry", "adjuntos_nuevos"])
+    def test_los_nombres_que_renombra_el_proveedor_cambian_ya(self, app, nombre):
+        # Con el nombre tal cual, el proveedor lo abre como attr__… y sus valores se perdían.
+        campos, _, _ = C.campos_de(memoria(f"Point?crs=EPSG:4326&field={nombre}:string"))
+
+        assert [c["name"] for c in campos] == [f"{nombre}_qgis"]
+
+    def test_nan_e_infinito_van_vacios(self, app):
+        from qgis.PyQt.QtCore import QVariant
+
+        assert C.valor_para_geosian(float("nan"), QVariant.Double) is None
+        assert C.valor_para_geosian(float("inf"), QVariant.Double) is None
+        assert C.valor_para_geosian(2.5, QVariant.Double) == 2.5
+
+    def test_lo_que_no_se_puede_subir_se_dice_antes(self, app):
+        # Como un shapefile sin .prj (una capa en memoria sin crs= toma 4326).
+        sin_sistema = memoria("Point?field=n:string")
+        sin_sistema.setCrs(qgis_core.QgsCoordinateReferenceSystem())
+        assert "sistema de coordenadas" in C.motivo_para_no_subir(sin_sistema, [])
+        assert "geometría" in C.motivo_para_no_subir(memoria("None?field=n:string"), [])
+        muchos = [{"name": f"c{i}"} for i in range(C.MAX_CAMPOS + 1)]
+        assert "caben 200" in C.motivo_para_no_subir(memoria("Point?crs=EPSG:4326"), muchos)
+        assert C.motivo_para_no_subir(memoria("Point?crs=EPSG:4326"), muchos[:3]) is None
+
+    def test_los_errores_sin_el_codigo_y_sin_la_pagina_del_servidor(self):
+        from geosian.core.errors import ApiError, ConflictError
+        from geosian.gui.crear_capa import texto_de_error
+
+        assert texto_de_error(ConflictError(409, "Ya hay una capa «X» en este mapa.")) == "Ya hay una capa «X» en este mapa."
+        texto = texto_de_error(ApiError(502, "<html><body>Bad Gateway</body></html>"))
+        assert "error 502" in texto and "<html>" not in texto
+
     def test_un_tipo_que_no_se_lleva(self, app):
         capa = memoria("Point?crs=EPSG:4326&field=nombre:string&field=datos:binary")
 
@@ -242,6 +290,11 @@ class TestDialogo:
     def test_plantilla(self, app_gui, servidor):  # noqa: F811
         d = self.dialogo()
         d.nombre.setText("Arbolado 2027")
+        # Sin plantilla elegida de entrada: copiar una capa tiene que ser a propósito.
+        assert d.capa_plantilla.currentData() is None
+        d._crear()
+        assert d.capa_creada is None and d.estado.text() == "Elige la capa que sirve de modelo."
+        d.capa_plantilla.setCurrentIndex(d.capa_plantilla.findText("Arbolado"))
         assert d.capa_plantilla.currentData()["id"] == 11
         d.copiar_vistas.setChecked(True)
 
@@ -273,6 +326,7 @@ class TestDialogo:
         servidor.estado.sin_layer_create = True
         d = self.dialogo()
         d.nombre.setText("X")
+        d.capa_plantilla.setCurrentIndex(0)
 
         d._crear()
 
@@ -303,6 +357,51 @@ class TestDialogo:
             assert "Sin conexión con GreenCityControl" in d.estado.text()
         finally:
             connections.remove_connection("SinRed")
+
+    def test_nombre_repetido_lo_dice_sin_crear_nada(self, app_gui, servidor):  # noqa: F811
+        d = self.dialogo()
+        d.nombre.setText("arbolado ")
+
+        d._crear()
+
+        assert d.estado.text() == "Ya hay una capa «arbolado» en este mapa. Elige otro nombre."
+        assert d.capa_creada is None and d.grande is None
+        assert not any(r.endswith("/layers/crear/") for r in servidor.rutas_pedidas())
+
+    def test_si_los_elementos_no_suben_dice_que_la_capa_quedo_vacia(self, app_gui, servidor, monkeypatch):  # noqa: F811
+        from geosian.gui import crear_capa as G
+        from tests.test_importar_grande import _Dock
+
+        origen = memoria("Point?crs=EPSG:4326&field=n:string", "Bancos")
+        f = QgsFeature(origen.fields())
+        f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(-3.7, 40.4)))
+        origen.dataProvider().addFeatures([f])
+        QgsProject.instance().addMapLayer(origen)
+        monkeypatch.setattr(G, "subir_elementos", lambda *a: (False, "No se ha subido nada. Falta el código."))
+
+        class Dialogo(G.CrearCapaDialog):
+            def exec(self):
+                self.de_qgis.setChecked(True)
+                self.capa_qgis.setLayer(origen)
+                self.nombre.setText("Bancos")
+                self._crear()
+                return self.result()
+
+        class Dock(_Dock):
+            def añadir_capa(self, datos):
+                super().añadir_capa(datos)
+                return [origen]
+
+        monkeypatch.setattr(G, "CrearCapaDialog", Dialogo)
+        dock = Dock()
+        try:
+            G.crear_capa(dock, {"conexion": CONEXION, "mapa": {"id": 4, "name": "Ciudad de Ejemplo"}})
+        finally:
+            QgsProject.instance().removeMapLayer(origen.id())
+
+        nivel, texto = dock.barra.avisos[-1]
+        assert nivel == "pushWarning"
+        assert texto.startswith("La capa «Bancos» se ha creado, pero vacía. No se ha subido nada. Falta el código.")
 
     def test_sin_nombre_no_pide_nada(self, app_gui, servidor):  # noqa: F811
         d = self.dialogo()

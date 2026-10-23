@@ -5,11 +5,14 @@ crean (nombre válido para Geosian, título y tipo) y los que no se pueden lleva
 que sale es mínimo a propósito: listas, partes y fotos se añaden después en la web.
 """
 
+import math
 import re
 import unicodedata
 
-from qgis.core import QgsFeatureRequest, QgsWkbTypes
+from qgis.core import QgsFeatureRequest, QgsGeometry, QgsWkbTypes
 from qgis.PyQt.QtCore import QVariant
+
+from .schema import RESERVED_NAMES
 
 # Los tipos que admite Geosian para una capa creada desde QGIS.
 TIPOS_DE_CAMPO = ("string", "text", "number", "integer", "calendar")
@@ -20,6 +23,12 @@ RESERVADOS = frozenset({
     "updated_at_iso", "longitud", "latitud", "in_succession_group", "additional_info",
     "_thumbnail", "nfc_uuid", "spatial_history_active_id", "_polygons",
 })
+# Además, los del complemento: «fid» es el número de fila del GeoPackage de las capas
+# grandes (no se podría escribir), y «geom», «geometry» y «adjuntos_nuevos» los renombra
+# el proveedor al abrir la capa (``schema.RESERVED_NAMES``), y sus valores se perderían.
+DEL_COMPLEMENTO = frozenset({"fid"} | RESERVED_NAMES)
+# Los que admite Geosian en una capa nueva (MAX_CAMPOS de services/crear_capa.py).
+MAX_CAMPOS = 200
 # Por encima, los elementos no suben con el guardado de siempre sino como GeoPackage
 # (core/importar_grande.py). El guardado admite 20.000 por lote, pero con Nueva York
 # 20.000 tardaron 122 s con QGIS esperando, y 20.001 por GeoPackage, 10 s (22/10/2026).
@@ -39,6 +48,48 @@ def tipo_de_geometria(capa):
     if familia == QgsWkbTypes.PolygonGeometry:
         return "MultiPolygon"
     return None
+
+
+def motivo_para_no_subir(capa, campos):
+    """Por qué una capa de QGIS no se puede llevar a Geosian, o None si se puede.
+
+    Lo que el servidor rechazaría al final, dicho antes de crear o empaquetar nada.
+    """
+    if tipo_de_geometria(capa) is None:
+        return "No tiene geometría de punto, línea o polígono."
+    if not capa.crs().isValid():
+        # Sin él se tomaría por grados y los elementos caerían en otro sitio.
+        return ("No tiene sistema de coordenadas: asígnaselo en QGIS (Propiedades de la capa › "
+                "Fuente) y repite.")
+    if len(campos) > MAX_CAMPOS:
+        return f"Tiene {len(campos)} campos y caben {MAX_CAMPOS}: quita los que sobren en QGIS y repite."
+    return None
+
+
+def geometria_para_geosian(geometria, transformacion, multi):
+    """La geometría como la guarda Geosian: en 4326, en 2D, sin curvas y multi si toca.
+
+    Las curvas (CAD) se pasan a tramos rectos: el servidor no las lee y la importación
+    fallaba al final. Lanza ``QgsCsException`` si no se puede transformar.
+    """
+    geometria = QgsGeometry(geometria)
+    if QgsWkbTypes.isCurvedType(geometria.wkbType()):
+        geometria = QgsGeometry(geometria.constGet().segmentize())
+    geometria.transform(transformacion)
+    # Geosian guarda en 2D: sin quitar Z y M, QGIS no deja añadirlos a la capa.
+    geometria.get().dropZValue()
+    geometria.get().dropMValue()
+    if multi:
+        geometria.convertToMultiType()
+    return geometria
+
+
+def fuera_de_su_sistema(ids):
+    muestra = ", ".join(str(i) for i in ids[:5])
+    return (
+        f"{len(ids)} elementos no se pueden pasar a coordenadas geográficas (por ejemplo: {muestra}): "
+        "caen fuera de lo que cubre el sistema de coordenadas de la capa. Revisa que sea el suyo."
+    )
 
 
 def contar_elementos(capa):
@@ -73,11 +124,13 @@ def tipo_de_campo(campo):
 def nombre_valido(nombre, usados):
     """Un nombre que Geosian acepta: letras sin tilde, números y _, sin empezar por número."""
     limpio = unicodedata.normalize("NFKD", nombre).encode("ascii", "ignore").decode()
-    limpio = re.sub(r"[^A-Za-z0-9_]+", "_", limpio).strip("_") or "campo"
+    # Sin «__»: el importador de capas grandes los junta y el campo no casaría con su LAD.
+    limpio = re.sub(r"_+", "_", re.sub(r"[^A-Za-z0-9_]+", "_", limpio)).strip("_") or "campo"
     if limpio[0].isdigit():
         limpio = f"c_{limpio}"
-    limpio = limpio[:60]
-    if limpio.lower() in RESERVADOS or limpio.startswith("attr__"):
+    # Recortado, sin «_» al final: con el «_2» de un repetido saldría «__».
+    limpio = limpio[:60].rstrip("_") or "campo"
+    if limpio.lower() in RESERVADOS | DEL_COMPLEMENTO or limpio.startswith("attr__"):
         limpio = f"{limpio}_qgis"
     base, n = limpio, 2
     while limpio.lower() in usados:
@@ -115,6 +168,9 @@ def campos_de(capa):
 def valor_para_geosian(valor, tipo_qgis):
     """El valor de un campo de QGIS tal y como se guarda en su campo de Geosian."""
     if valor is None or (hasattr(valor, "isNull") and valor.isNull()):
+        return None
+    # NaN o infinito: el JSON del guardado no los admite y se rechazaba el lote entero.
+    if isinstance(valor, float) and not math.isfinite(valor):
         return None
     if tipo_qgis == QVariant.Bool:
         return "Sí" if valor else "No"

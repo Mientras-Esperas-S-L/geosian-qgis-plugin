@@ -6,6 +6,12 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Añadido
 
+- Crear capas en GreenCityControl desde QGIS («Crear capa en este mapa…»): a
+  partir de otra capa (formularios, partes, colores y, si se quiere, vistas) o
+  con los campos de una capa de QGIS y sus elementos. Por encima de 2.000
+  elementos suben como GeoPackage a trozos, en segundo plano.
+- «Subir capas de QGIS a este mapa…»: varias capas de una vez, una detrás de
+  otra; salen marcadas las seleccionadas en el panel de capas.
 - Edición (fase 2): altas, cambios de atributos y de geometría y retiradas,
   guardados en Geosian en un lote todo o nada. Más de 300 cambios van en segundo
   plano; el reenvío de un guardado sin respuesta no se aplica dos veces.
