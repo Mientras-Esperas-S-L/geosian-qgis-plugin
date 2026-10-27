@@ -7,6 +7,10 @@ PLUGIN_DIR   := $(QGIS_PROFILE)/python/plugins/$(PLUGIN)
 PYTHON  ?= .venv/bin/python
 BUILD   ?= $(CURDIR)/build
 VERSION := $(shell sed -n 's/^version=//p' $(PLUGIN)/metadata.txt)
+# `make package SERVIDOR=https://api.devel.greencitycontrol.com` fija el servidor en el
+# paquete (ver geosian/core/servidor.py) y lo dice en el nombre del zip.
+SERVIDOR ?=
+SUFIJO := $(if $(SERVIDOR),-$(subst .,-,$(patsubst https://%,%,$(SERVIDOR))),)
 
 export QT_QPA_PLATFORM ?= offscreen
 
@@ -17,6 +21,7 @@ help:
 	@echo "make test       Batería completa"
 	@echo "make lint       Comprobación de estilo"
 	@echo "make package    Genera $(PLUGIN)-$(VERSION).zip"
+	@echo "make package SERVIDOR=https://api.devel.greencitycontrol.com   Con el servidor fijado"
 	@echo "make install    Enlaza el complemento en el perfil de QGIS"
 	@echo "make uninstall  Quita el enlace"
 
@@ -38,9 +43,13 @@ package:
 	@mkdir -p $(BUILD)/$(PLUGIN)
 	git ls-files -z $(PLUGIN) | xargs -0 -I{} cp --parents {} $(BUILD)/
 	cp LICENSE $(BUILD)/$(PLUGIN)/LICENSE
-	cd $(BUILD) && zip -qr $(PLUGIN)-$(VERSION).zip $(PLUGIN)
+ifdef SERVIDOR
+	sed -i 's|^SERVIDOR_FIJO = ""$$|SERVIDOR_FIJO = "$(SERVIDOR)"|' $(BUILD)/$(PLUGIN)/core/servidor.py
+	@grep -q '^SERVIDOR_FIJO = "$(SERVIDOR)"$$' $(BUILD)/$(PLUGIN)/core/servidor.py || { echo "No se pudo fijar el servidor" >&2; exit 1; }
+endif
+	cd $(BUILD) && zip -qr $(PLUGIN)-$(VERSION)$(SUFIJO).zip $(PLUGIN)
 	@rm -rf $(BUILD)/$(PLUGIN)
-	@echo "$(BUILD)/$(PLUGIN)-$(VERSION).zip"
+	@echo "$(BUILD)/$(PLUGIN)-$(VERSION)$(SUFIJO).zip"
 
 install:
 	@mkdir -p $(dir $(PLUGIN_DIR))

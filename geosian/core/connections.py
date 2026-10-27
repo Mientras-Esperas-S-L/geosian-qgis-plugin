@@ -11,7 +11,7 @@ import time
 
 from qgis.core import QgsApplication, QgsAuthMethodConfig, QgsSettings
 
-from . import definitions
+from . import definitions, servidor
 from .client import GeosianClient
 
 GROUP = "geosian/connections"
@@ -235,6 +235,13 @@ def client_for(nombre):
         return None
 
     credenciales = get_credentials(nombre)
+    # Con el servidor fijado al empaquetar, una conexión guardada contra otro servidor (de
+    # una instalación anterior) va al fijado y SIN su sesión: un token de producción no
+    # puede viajar a devel. El usuario tendrá que volver a entrar.
+    if not servidor.es_el_fijo(conexion["url"]):
+        cliente = GeosianClient(servidor.fijo())
+        _clientes[nombre] = cliente
+        return cliente
     cliente = GeosianClient(conexion["url"], token=credenciales.get("token"))
     cliente.jwt = credenciales.get("jwt")
     _clientes[nombre] = cliente

@@ -21,7 +21,7 @@ from qgis.PyQt.QtWidgets import (
     QVBoxLayout,
 )
 
-from ..core import connections
+from ..core import connections, servidor
 from ..core.client import GeosianClient
 from ..core.errors import AuthError, GeosianError
 
@@ -68,6 +68,11 @@ class ConnectionDialog(QDialog):
 
         self.txt_url = QLineEdit()
         self.txt_url.setPlaceholderText("https://api.greencitycontrol.com")
+        # Paquete con servidor fijado (`make package SERVIDOR=...`): se ve a cuál se conecta,
+        # pero no se puede cambiar.
+        if servidor.fijo():
+            self.txt_url.setText(servidor.fijo())
+            self.txt_url.setReadOnly(True)
         formulario.addRow("Servidor", self.txt_url)
 
         self.txt_email = QLineEdit()
@@ -111,12 +116,12 @@ class ConnectionDialog(QDialog):
         if not conexion:
             return
         self.txt_nombre.setText(conexion["name"])
-        self.txt_url.setText(conexion["url"])
+        self.txt_url.setText(servidor.fijo() or conexion["url"])
         self.txt_email.setText(conexion.get("email", ""))
 
     def _conectar(self):
         nombre = self.txt_nombre.text().strip()
-        url = self.txt_url.text().strip()
+        url = servidor.fijo() or self.txt_url.text().strip()
         email = self.txt_email.text().strip()
         password = self.txt_password.text()
 
