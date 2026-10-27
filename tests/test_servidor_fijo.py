@@ -49,6 +49,13 @@ def test_el_dialogo_ensena_el_servidor_fijado_y_no_deja_cambiarlo(app_gui, fijad
 
     assert dialogo.txt_url.text() == DEVEL
     assert dialogo.txt_url.isReadOnly()
+    assert "DEVEL" in dialogo.windowTitle()
+
+
+def test_el_de_produccion_no_lleva_marca_de_pruebas(monkeypatch):
+    monkeypatch.setattr(servidor, "SERVIDOR_FIJO", PRODUCCION)
+    assert servidor.entorno() is None
+    assert servidor.titulo() == "GreenCityControl"
 
 
 def test_make_package_escribe_el_servidor_en_el_zip(tmp_path):
@@ -61,7 +68,10 @@ def test_make_package_escribe_el_servidor_en_el_zip(tmp_path):
     assert salida.endswith("-api-devel-greencitycontrol-com.zip")
     with zipfile.ZipFile(salida) as paquete:
         fuente = paquete.read("geosian/core/servidor.py").decode()
+        metadatos = paquete.read("geosian/metadata.txt").decode()
     assert f'SERVIDOR_FIJO = "{DEVEL}"' in fuente
+    # En el gestor de complementos se distingue del de producción.
+    assert "name=GreenCityControl DEVEL (pruebas)" in metadatos.splitlines()
     # El código fuente no se toca: solo la copia empaquetada.
     with open(os.path.join(raiz, "geosian/core/servidor.py")) as original:
         assert 'SERVIDOR_FIJO = ""' in original.read()

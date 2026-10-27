@@ -55,7 +55,7 @@ class ConnectionDialog(QDialog):
 
     def __init__(self, parent=None, nombre=None):
         super().__init__(parent)
-        self.setWindowTitle("Conectar con GreenCityControl")
+        self.setWindowTitle(f"Conectar con {servidor.titulo()}")
         self.setMinimumWidth(420)
         self._nombre_original = nombre
         self.connection_name = None
@@ -103,6 +103,11 @@ class ConnectionDialog(QDialog):
         self._botones = botones
 
         disposicion = QVBoxLayout(self)
+        if servidor.entorno():
+            marca = QLabel("Versión de PRUEBAS: se conecta a devel, no a producción. Lo que hagas aquí no llega a los datos reales.")
+            marca.setWordWrap(True)
+            marca.setStyleSheet("font-weight: bold; color: #b45309;")
+            disposicion.addWidget(marca)
         disposicion.addLayout(formulario)
         disposicion.addWidget(aviso)
         disposicion.addWidget(self.lbl_estado)

@@ -20,3 +20,20 @@ def es_el_fijo(url):
     """Si ``url`` es la del servidor fijado. Sin servidor fijado, cualquiera vale."""
     servidor = fijo()
     return servidor is None or (url or "").rstrip("/") == servidor
+
+
+def entorno():
+    """La marca "DEVEL" si el paquete va fijado a devel, o None.
+
+    El de devel tiene que distinguirse a simple vista del de producción: en el gestor de
+    complementos, en el panel y al conectar. Un técnico con los dos instalados en distintos
+    equipos no debe dudar de dónde está escribiendo.
+    """
+    servidor = fijo() or ""
+    return "DEVEL" if ".devel." in servidor else None
+
+
+def titulo(base="GreenCityControl"):
+    """El nombre con la marca del entorno de pruebas, si la hay."""
+    return f"{base} DEVEL (pruebas)" if entorno() else base
+

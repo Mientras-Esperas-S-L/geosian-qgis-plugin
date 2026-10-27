@@ -47,6 +47,10 @@ ifdef SERVIDOR
 	sed -i 's|^SERVIDOR_FIJO = ""$$|SERVIDOR_FIJO = "$(SERVIDOR)"|' $(BUILD)/$(PLUGIN)/core/servidor.py
 	@grep -q '^SERVIDOR_FIJO = "$(SERVIDOR)"$$' $(BUILD)/$(PLUGIN)/core/servidor.py || { echo "No se pudo fijar el servidor" >&2; exit 1; }
 endif
+ifneq (,$(findstring .devel.,$(SERVIDOR)))
+	sed -i -e 's|^name=GreenCityControl$$|name=GreenCityControl DEVEL (pruebas)|' -e 's|^description=|description=VERSIÓN DE PRUEBAS, conectada a devel. |' $(BUILD)/$(PLUGIN)/metadata.txt
+	@grep -q '^name=GreenCityControl DEVEL (pruebas)$$' $(BUILD)/$(PLUGIN)/metadata.txt || { echo "No se pudo marcar el paquete de devel" >&2; exit 1; }
+endif
 	cd $(BUILD) && zip -qr $(PLUGIN)-$(VERSION)$(SUFIJO).zip $(PLUGIN)
 	@rm -rf $(BUILD)/$(PLUGIN)
 	@echo "$(BUILD)/$(PLUGIN)-$(VERSION)$(SUFIJO).zip"
