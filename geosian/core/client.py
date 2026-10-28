@@ -66,6 +66,8 @@ class GeosianClient:
         self.jwt = None
         self.timeout = timeout
         self.user = None
+        # La contraseña es provisional o ha caducado: el servidor pide cambiarla antes de seguir.
+        self.requiere_cambio_contrasena = False
         self._capas = {}
         self._config_teselas = {}
         self._lads = {}
@@ -173,9 +175,32 @@ class GeosianClient:
         self._guardar_sesion(resultado)
         return resultado
 
+    def cambiar_contrasena(self, actual, nueva):
+        """Cambia la contraseña propia, la provisional del primer acceso o la caducada.
+
+        Es la misma ruta que usa la web. El cambio revoca el token que había, y el servidor
+        devuelve uno nuevo, que se guarda aquí: sin él, la siguiente petición daría 401.
+
+        Raises:
+            ApiError: con el motivo legible si el servidor la rechaza (la actual no es esa,
+                la nueva no cumple la política o repite una anterior).
+        """
+        try:
+            resultado = self._post(
+                f"{API_PREFIX}/user-management/change-own-password/",
+                {"current_password": actual, "new_password": nueva},
+            )
+        except ApiError as exc:
+            raise ApiError(exc.status, _motivo_del_rechazo(exc.body) or str(exc), exc.body, exc.url) from exc
+        self._guardar_sesion(resultado)
+        self.requiere_cambio_contrasena = False
+        return resultado
+
     def _guardar_sesion(self, resultado):
         if not isinstance(resultado, dict):
             return
+        if resultado.get("requires_password_change"):
+            self.requiere_cambio_contrasena = True
         if resultado.get("api_token"):
             self.token = resultado["api_token"]
         if resultado.get("jwt_token"):
@@ -690,6 +715,28 @@ class GeosianClient:
 
     def websocket_subprotocols(self):
         return ["geosian", f"token.{self.jwt}"] if self.jwt else ["geosian"]
+
+
+def _motivo_del_rechazo(cuerpo):
+    """El texto de un 400 de cambio de contraseña, venga como venga.
+
+    El servidor lo manda como ``{"error": "..."}`` o por campo, en listas:
+    ``{"new_password": ["Demasiado corta.", "..."]}``.
+    """
+    try:
+        datos = json.loads(cuerpo) if isinstance(cuerpo, (bytes, str)) else cuerpo
+    except (ValueError, UnicodeDecodeError):
+        return None
+    if not isinstance(datos, dict):
+        return None
+    partes = []
+    for clave in ("error", "detail", "current_password", "new_password", "non_field_errors"):
+        valor = datos.get(clave)
+        if isinstance(valor, str):
+            partes.append(valor)
+        elif isinstance(valor, list):
+            partes.extend(str(v) for v in valor)
+    return " ".join(partes) or None
 
 
 def _as_list(datos):

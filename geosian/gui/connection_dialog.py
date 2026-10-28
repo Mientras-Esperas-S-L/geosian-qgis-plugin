@@ -1,7 +1,8 @@
 """Diálogo de conexión.
 
 Pide servidor y credenciales, resuelve el segundo factor si el servidor lo
-exige y guarda la conexión.
+exige, pide una contraseña nueva si la que hay es provisional o ha caducado, y
+guarda la conexión.
 
 Avisa de algo que el usuario tiene que saber antes de pulsar: entrar desde aquí
 cierra la sesión que tenga abierta en el navegador, porque la plataforma no
@@ -23,7 +24,7 @@ from qgis.PyQt.QtWidgets import (
 
 from ..core import connections, servidor
 from ..core.client import GeosianClient
-from ..core.errors import AuthError, GeosianError
+from ..core.errors import ApiError, AuthError, GeosianError
 
 AVISO_SESION = (
     "Al entrar desde QGIS se cerrará la sesión que tengas abierta en el "
@@ -152,6 +153,11 @@ class ConnectionDialog(QDialog):
                 self.lbl_estado.setText("El servidor no devolvió ninguna credencial.")
                 return
 
+            # Contraseña provisional (alta nueva, reseteo) o caducada: igual que la web, no
+            # se entra sin cambiarla. Sin esto, quien solo usa QGIS no la cambiaría nunca.
+            if cliente.requiere_cambio_contrasena and not self._cambiar_contrasena(cliente, password):
+                return
+
             if self.chk_guardar.isChecked():
                 connections.save_connection(
                     nombre, url, email, cliente.token, cliente.jwt
@@ -169,6 +175,16 @@ class ConnectionDialog(QDialog):
             self.lbl_estado.setText(str(exc))
         finally:
             self._botones.setEnabled(True)
+
+    def _cambiar_contrasena(self, cliente, actual):
+        """Pide la contraseña nueva hasta que el servidor la acepte o se cancele."""
+        dialogo = CambioContrasenaDialog(cliente, actual, self)
+        if dialogo.exec():
+            return True
+        self.lbl_estado.setText(
+            "Para entrar hay que cambiar la contraseña provisional. Vuelve a pulsar Conectar cuando quieras hacerlo."
+        )
+        return False
 
     def _resolver_2fa(self, cliente, resultado):
         """Pide el código del segundo factor y termina el login."""
@@ -197,3 +213,78 @@ class ConnectionDialog(QDialog):
             self.lbl_estado.setText("El código no es válido o ha caducado.")
             return False
         return True
+
+
+class CambioContrasenaDialog(QDialog):
+    """La contraseña nueva, cuando la que hay es provisional o ha caducado.
+
+    La política (longitud, que no repita las anteriores…) la decide el servidor: aquí solo
+    se comprueba que las dos casillas coinciden y que no es la misma, y si el servidor la
+    rechaza se enseña su motivo y se puede volver a probar sin repetir el login.
+    """
+
+    def __init__(self, cliente, actual, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Cambia tu contraseña")
+        self.setMinimumWidth(400)
+        self._cliente = cliente
+        self._actual = actual
+
+        explicacion = QLabel(
+            "Tu contraseña es provisional o ha caducado. Elige una nueva para seguir: "
+            "es la que usarás desde ahora, también en la web."
+        )
+        explicacion.setWordWrap(True)
+
+        formulario = QFormLayout()
+        self.txt_nueva = QLineEdit()
+        self.txt_nueva.setEchoMode(QLineEdit.EchoMode.Password)
+        formulario.addRow("Contraseña nueva", self.txt_nueva)
+        self.txt_repetida = QLineEdit()
+        self.txt_repetida.setEchoMode(QLineEdit.EchoMode.Password)
+        formulario.addRow("Repítela", self.txt_repetida)
+
+        self.lbl_estado = QLabel("")
+        self.lbl_estado.setWordWrap(True)
+        self.lbl_estado.setTextFormat(Qt.TextFormat.PlainText)
+
+        botones = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, Qt.Orientation.Horizontal, self
+        )
+        botones.button(QDialogButtonBox.StandardButton.Ok).setText("Cambiar")
+        botones.accepted.connect(self._cambiar)
+        botones.rejected.connect(self.reject)
+        self._botones = botones
+
+        disposicion = QVBoxLayout(self)
+        disposicion.addWidget(explicacion)
+        disposicion.addLayout(formulario)
+        disposicion.addWidget(self.lbl_estado)
+        disposicion.addWidget(botones)
+
+    def _cambiar(self):
+        nueva = self.txt_nueva.text()
+        if not nueva:
+            self.lbl_estado.setText("Escribe la contraseña nueva.")
+            return
+        if nueva != self.txt_repetida.text():
+            self.lbl_estado.setText("Las dos contraseñas no coinciden.")
+            return
+        if nueva == self._actual:
+            self.lbl_estado.setText("La nueva tiene que ser distinta de la provisional.")
+            return
+
+        self._botones.setEnabled(False)
+        self.lbl_estado.setText("Cambiando...")
+        try:
+            self._cliente.cambiar_contrasena(self._actual, nueva)
+        except ApiError as exc:
+            # El motivo del servidor: corta, repetida, demasiado parecida al correo…
+            self.lbl_estado.setText(exc.args[0] if exc.args else str(exc))
+            return
+        except GeosianError as exc:
+            self.lbl_estado.setText(str(exc))
+            return
+        finally:
+            self._botones.setEnabled(True)
+        self.accept()
