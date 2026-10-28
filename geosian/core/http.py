@@ -12,14 +12,35 @@ El cliente de la API no sabe cuál tiene delante, así que se puede probar sin
 levantar QGIS.
 """
 
+import configparser
 import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 from .errors import NetworkError
 
 DEFAULT_TIMEOUT = 30
+
+
+def _version():
+    """La versión del complemento, la de su ``metadata.txt``."""
+    metadatos = configparser.ConfigParser(interpolation=None)
+    metadatos.read(Path(__file__).resolve().parents[1] / "metadata.txt", encoding="utf-8")
+    return metadatos.get("general", "version", fallback="desconocida")
+
+
+# La versión del complemento viaja en esta cabecera en todas sus peticiones, y el
+# servidor la añade al User-Agent que anota en sesiones y registros. No va en el
+# User-Agent directamente porque QGIS pisa el de cada petición con el suyo, y
+# su gancho para retocar peticiones (setRequestPreprocessor) tumba QGIS 3.34.
+CABECERA_MARCA = "X-GreenCityControl-Plugin"
+VERSION = _version()
+
+
+def _con_marca(headers):
+    return {**(headers or {}), CABECERA_MARCA: VERSION}
 
 
 class Response:
@@ -81,7 +102,7 @@ class UrllibTransport(Transport):
 
     def request(self, method, url, headers=None, body=None, timeout=DEFAULT_TIMEOUT):
         req = urllib.request.Request(url, data=body, method=method)
-        for key, value in (headers or {}).items():
+        for key, value in _con_marca(headers).items():
             req.add_header(key, value)
         try:
             with _ABRIDOR.open(req, timeout=timeout) as resp:
@@ -110,7 +131,7 @@ class QgisTransport(Transport):
         from qgis.PyQt.QtNetwork import QNetworkRequest
 
         request = QNetworkRequest(QUrl(url))
-        for key, value in (headers or {}).items():
+        for key, value in _con_marca(headers).items():
             request.setRawHeader(key.encode("utf-8"), str(value).encode("utf-8"))
 
         # Siempre a la red, nunca de la caché de QGIS. Sin esto, tras un aviso
@@ -210,7 +231,7 @@ def _get_many_qgis(urls, headers, timeout):
     respuestas = []
     for i, url in enumerate(urls):
         peticion = QNetworkRequest(QUrl(url))
-        for clave, valor in (headers or {}).items():
+        for clave, valor in _con_marca(headers).items():
             peticion.setRawHeader(clave.encode("utf-8"), str(valor).encode("utf-8"))
         # Igual que en ``request``: siempre a la red, nunca a la caché de Qt.
         peticion.setAttribute(
