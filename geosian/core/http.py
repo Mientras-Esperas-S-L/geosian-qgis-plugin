@@ -31,50 +31,16 @@ def _version():
     return metadatos.get("general", "version", fallback="desconocida")
 
 
-# La marca del complemento en el User-Agent. El servidor anota esa cabecera en
-# las sesiones y en los registros, y así se sabe qué versión hizo cada cosa.
-VERSION = _version()
-MARCA = f"GreenCityControl-QGIS/{VERSION}"
-
-# QGIS pisa el User-Agent de toda petición con el suyo («Mozilla/5.0 QGIS/...»).
-# Las nuestras llevan esta cabecera y el preprocesador de ``registrar_marca``
-# añade la marca detrás del User-Agent de QGIS. Comprobado: un User-Agent puesto
-# en la petición no llegaba al servidor.
+# La versión del complemento viaja en esta cabecera en todas sus peticiones, y el
+# servidor la añade al User-Agent que anota en sesiones y registros. No va en el
+# User-Agent directamente porque QGIS pisa el de cada petición con el suyo, y
+# su gancho para retocar peticiones (setRequestPreprocessor) tumba QGIS 3.34.
 CABECERA_MARCA = "X-GreenCityControl-Plugin"
-
-_preprocesador = None
+VERSION = _version()
 
 
 def _con_marca(headers):
-    return {**(headers or {}), "User-Agent": MARCA, CABECERA_MARCA: VERSION}
-
-
-def _marcar(peticion):
-    """Añade la marca al User-Agent de las peticiones del complemento."""
-    if not peticion.hasRawHeader(CABECERA_MARCA.encode("ascii")):
-        return
-    agente = bytes(peticion.rawHeader(b"User-Agent")).decode("latin-1")
-    if MARCA not in agente:
-        peticion.setRawHeader(b"User-Agent", f"{agente} {MARCA}".strip().encode("latin-1"))
-
-
-def registrar_marca():
-    """Engancha ``_marcar`` a la pila de red de QGIS. Se llama al cargar el complemento."""
-    global _preprocesador
-    from qgis.core import QgsNetworkAccessManager
-
-    if _preprocesador is None:
-        _preprocesador = QgsNetworkAccessManager.setRequestPreprocessor(_marcar)
-
-
-def quitar_marca():
-    """Lo contrario de ``registrar_marca``, al descargar el complemento."""
-    global _preprocesador
-    from qgis.core import QgsNetworkAccessManager
-
-    if _preprocesador is not None:
-        QgsNetworkAccessManager.removeRequestPreprocessor(_preprocesador)
-        _preprocesador = None
+    return {**(headers or {}), CABECERA_MARCA: VERSION}
 
 
 class Response:

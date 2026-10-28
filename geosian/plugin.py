@@ -4,7 +4,6 @@ from qgis.core import QgsMapLayerType
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QAction
 
-from .core.http import quitar_marca, registrar_marca
 from .gui import celdas, edicion, leyendas, realtime_hub, sesion
 from .gui.avisos import seguro
 from .gui.browser_dock import GeosianBrowserDock, menu_de_etiquetas
@@ -25,7 +24,6 @@ class GeosianPlugin:
         self.acciones = []
 
     def initGui(self):
-        registrar_marca()
         # El proveedor se registra al arrancar y no al abrir el panel: un
         # proyecto guardado con capas geosian:// tiene que poder abrirlas sin
         # que el usuario toque nada.
@@ -99,7 +97,6 @@ class GeosianPlugin:
             menu_de_filtros(menu, capa)
 
     def unload(self):
-        quitar_marca()
         realtime_hub.unwatch_project()
         leyendas.dejar_de_vigilar()
         edicion.dejar_de_vigilar()
