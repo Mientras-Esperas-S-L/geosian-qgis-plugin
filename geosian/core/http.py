@@ -12,14 +12,69 @@ El cliente de la API no sabe cuál tiene delante, así que se puede probar sin
 levantar QGIS.
 """
 
+import configparser
 import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 from .errors import NetworkError
 
 DEFAULT_TIMEOUT = 30
+
+
+def _version():
+    """La versión del complemento, la de su ``metadata.txt``."""
+    metadatos = configparser.ConfigParser(interpolation=None)
+    metadatos.read(Path(__file__).resolve().parents[1] / "metadata.txt", encoding="utf-8")
+    return metadatos.get("general", "version", fallback="desconocida")
+
+
+# La marca del complemento en el User-Agent. El servidor anota esa cabecera en
+# las sesiones y en los registros, y así se sabe qué versión hizo cada cosa.
+VERSION = _version()
+MARCA = f"GreenCityControl-QGIS/{VERSION}"
+
+# QGIS pisa el User-Agent de toda petición con el suyo («Mozilla/5.0 QGIS/...»).
+# Las nuestras llevan esta cabecera y el preprocesador de ``registrar_marca``
+# añade la marca detrás del User-Agent de QGIS. Comprobado: un User-Agent puesto
+# en la petición no llegaba al servidor.
+CABECERA_MARCA = "X-GreenCityControl-Plugin"
+
+_preprocesador = None
+
+
+def _con_marca(headers):
+    return {**(headers or {}), "User-Agent": MARCA, CABECERA_MARCA: VERSION}
+
+
+def _marcar(peticion):
+    """Añade la marca al User-Agent de las peticiones del complemento."""
+    if not peticion.hasRawHeader(CABECERA_MARCA.encode("ascii")):
+        return
+    agente = bytes(peticion.rawHeader(b"User-Agent")).decode("latin-1")
+    if MARCA not in agente:
+        peticion.setRawHeader(b"User-Agent", f"{agente} {MARCA}".strip().encode("latin-1"))
+
+
+def registrar_marca():
+    """Engancha ``_marcar`` a la pila de red de QGIS. Se llama al cargar el complemento."""
+    global _preprocesador
+    from qgis.core import QgsNetworkAccessManager
+
+    if _preprocesador is None:
+        _preprocesador = QgsNetworkAccessManager.setRequestPreprocessor(_marcar)
+
+
+def quitar_marca():
+    """Lo contrario de ``registrar_marca``, al descargar el complemento."""
+    global _preprocesador
+    from qgis.core import QgsNetworkAccessManager
+
+    if _preprocesador is not None:
+        QgsNetworkAccessManager.removeRequestPreprocessor(_preprocesador)
+        _preprocesador = None
 
 
 class Response:
@@ -81,7 +136,7 @@ class UrllibTransport(Transport):
 
     def request(self, method, url, headers=None, body=None, timeout=DEFAULT_TIMEOUT):
         req = urllib.request.Request(url, data=body, method=method)
-        for key, value in (headers or {}).items():
+        for key, value in _con_marca(headers).items():
             req.add_header(key, value)
         try:
             with _ABRIDOR.open(req, timeout=timeout) as resp:
@@ -110,7 +165,7 @@ class QgisTransport(Transport):
         from qgis.PyQt.QtNetwork import QNetworkRequest
 
         request = QNetworkRequest(QUrl(url))
-        for key, value in (headers or {}).items():
+        for key, value in _con_marca(headers).items():
             request.setRawHeader(key.encode("utf-8"), str(value).encode("utf-8"))
 
         # Siempre a la red, nunca de la caché de QGIS. Sin esto, tras un aviso
@@ -210,7 +265,7 @@ def _get_many_qgis(urls, headers, timeout):
     respuestas = []
     for i, url in enumerate(urls):
         peticion = QNetworkRequest(QUrl(url))
-        for clave, valor in (headers or {}).items():
+        for clave, valor in _con_marca(headers).items():
             peticion.setRawHeader(clave.encode("utf-8"), str(valor).encode("utf-8"))
         # Igual que en ``request``: siempre a la red, nunca a la caché de Qt.
         peticion.setAttribute(
