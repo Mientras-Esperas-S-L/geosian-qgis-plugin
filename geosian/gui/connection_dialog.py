@@ -69,12 +69,13 @@ class ConnectionDialog(QDialog):
 
         self.txt_url = QLineEdit()
         self.txt_url.setPlaceholderText("https://api.greencitycontrol.com")
-        # Paquete con servidor fijado (`make package SERVIDOR=...`): se ve a cuál se conecta,
-        # pero no se puede cambiar.
+        # Paquete con servidor fijado (`make package SERVIDOR=...`): la casilla ni se enseña.
+        # Aunque fuera de solo lectura, a la vista invita a probar con otra dirección.
         if servidor.fijo():
             self.txt_url.setText(servidor.fijo())
             self.txt_url.setReadOnly(True)
-        formulario.addRow("Servidor", self.txt_url)
+        else:
+            formulario.addRow("Servidor", self.txt_url)
 
         self.txt_email = QLineEdit()
         self.txt_email.setPlaceholderText("usuario@ejemplo.com")

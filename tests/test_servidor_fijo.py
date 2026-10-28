@@ -42,14 +42,26 @@ def test_una_conexion_a_otro_servidor_va_al_fijado_y_sin_su_token(app, fijado_en
     assert not getattr(cliente, "jwt", None)
 
 
-def test_el_dialogo_ensena_el_servidor_fijado_y_no_deja_cambiarlo(app_gui, fijado_en_devel):
+def test_el_dialogo_no_ensena_la_casilla_del_servidor_fijado(app_gui, fijado_en_devel):
+    from qgis.PyQt.QtWidgets import QLabel
+
     from geosian.gui.connection_dialog import ConnectionDialog
 
     dialogo = ConnectionDialog()
 
     assert dialogo.txt_url.text() == DEVEL
-    assert dialogo.txt_url.isReadOnly()
+    assert not dialogo.txt_url.isVisibleTo(dialogo)
+    assert "Servidor" not in [etiqueta.text() for etiqueta in dialogo.findChildren(QLabel)]
     assert "DEVEL" in dialogo.windowTitle()
+
+
+def test_sin_servidor_fijado_la_casilla_se_ve(app_gui):
+    from geosian.gui.connection_dialog import ConnectionDialog
+
+    dialogo = ConnectionDialog()
+
+    assert dialogo.txt_url.isVisibleTo(dialogo)
+    assert not dialogo.txt_url.isReadOnly()
 
 
 def test_el_de_produccion_no_lleva_marca_de_pruebas(monkeypatch):
