@@ -6,6 +6,8 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Añadido
 
+- Cada petición lleva la versión del complemento en la cabecera
+  `X-GreenCityControl-Plugin`; el servidor la añade al User-Agent que anota.
 - Crear capas en GreenCityControl desde QGIS («Crear capa en este mapa…»): a
   partir de otra capa (formularios, partes, colores y, si se quiere, vistas) o
   con los campos de una capa de QGIS y sus elementos. Por encima de 2.000
