@@ -267,12 +267,10 @@ class GeosianBrowserDock(QDockWidget):
                 "Añadir el mapa entero",
                 lambda: self.añadir_mapa(item.data(0, ROL_DATOS)),
             )
-            menu.addAction(
-                "Crear capa en este mapa…",
+            menu_de_crear(
+                menu,
+                (item.data(0, ROL_DATOS) or {}).get("mapa"),
                 lambda: self._crear_capa(item),
-            )
-            menu.addAction(
-                "Subir capas de QGIS a este mapa…",
                 lambda: self._subir_capas(item),
             )
         elif tipo == TIPO_CONEXION:
@@ -825,6 +823,20 @@ def _capa_de_fondo(spec):
             f"type=xyz&url={url}&zmin={spec['zmin']}&zmax={spec['zmax']}", nombre, "wms"
         )
     return capa if capa.isValid() else None
+
+
+def menu_de_crear(menu, mapa, crear, subir):
+    """Crear y subir capas en un mapa.
+
+    Si la lista de mapas dice que aquí no se puede (``puede_crear_capas``), salen
+    desactivadas y con el motivo: si no, el servidor lo rechaza después de preparar la
+    capa entera. Un servidor que no lo dice las deja como siempre.
+    """
+    puede = (mapa or {}).get("puede_crear_capas") is not False
+    menu.addAction("Crear capa en este mapa…", crear).setEnabled(puede)
+    menu.addAction("Subir capas de QGIS a este mapa…", subir).setEnabled(puede)
+    if not puede:
+        menu.addAction("No tienes permiso para crear capas en este mapa").setEnabled(False)
 
 
 def menu_de_etiquetas(menu, capa):
