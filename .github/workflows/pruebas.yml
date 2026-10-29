@@ -17,6 +17,17 @@ jobs:
       # Versión fija: las reglas por omisión cambian entre versiones (pyproject.toml).
       - run: pipx run ruff==0.16.10 check geosian tests
 
+  # El paquete de devel lleva el servidor fijado y la marca de pruebas; la fuente, no.
+  paquete:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          zip=$(make -s package SERVIDOR=https://api.devel.greencitycontrol.com | tail -1)
+          unzip -p "$zip" geosian/core/servidor.py | grep -qx 'SERVIDOR_FIJO = "https://api.devel.greencitycontrol.com"'
+          unzip -p "$zip" geosian/metadata.txt | grep -qx 'name=GreenCityControl DEVEL (pruebas)'
+          grep -qx 'SERVIDOR_FIJO = ""' geosian/core/servidor.py
+
   pytest:
     runs-on: ubuntu-latest
     strategy:

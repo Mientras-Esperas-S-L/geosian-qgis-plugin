@@ -6,6 +6,7 @@ una instalación anterior contra otro servidor no se lleva su token al fijado.
 """
 
 import os
+import shutil
 import subprocess
 import zipfile
 
@@ -70,6 +71,11 @@ def test_el_de_produccion_no_lleva_marca_de_pruebas(monkeypatch):
     assert servidor.titulo() == "GreenCityControl"
 
 
+# La imagen de QGIS del CI no trae make, git ni zip; el paquete lo comprueba el trabajo
+# "paquete" de .github/workflows/pruebas.yml.
+@pytest.mark.skipif(
+    not all(shutil.which(p) for p in ("make", "git", "zip")), reason="sin make, git o zip"
+)
 def test_make_package_escribe_el_servidor_en_el_zip(tmp_path):
     raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     salida = subprocess.run(
