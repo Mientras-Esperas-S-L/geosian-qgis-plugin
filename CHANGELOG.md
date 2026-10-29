@@ -6,6 +6,11 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Añadido
 
+- Las capas se pueden abrir en metros (ETRS89 / UTM, el huso según dónde estén):
+  casilla "Abrir las capas en metros" en el menú de la conexión. Al guardar
+  vuelven a grados, que es como las guarda GreenCityControl.
+- El paquete de pruebas lleva fijado el servidor de devel y se distingue del de
+  producción; la contraseña provisional se cambia desde QGIS, como en la web.
 - Sin permiso para crear capas en un mapa, "Crear capa" y "Subir capas" salen
   desactivadas, con el motivo, en vez de fallar al final de la subida.
 - Cada petición lleva la versión del complemento en la cabecera
