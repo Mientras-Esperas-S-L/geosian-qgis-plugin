@@ -13,6 +13,7 @@ from urllib.parse import quote
 from qgis.core import (
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
+    QgsCsException,
     QgsLayerTreeGroup,
     QgsMapBoxGlStyleConverter,
     QgsMapLayerType,
@@ -41,6 +42,7 @@ from ..core import (
     aggregated,
     basemaps,
     connections,
+    crs,
     icon_store,
     lad,
     maptree,
@@ -277,6 +279,7 @@ class GeosianBrowserDock(QDockWidget):
         elif tipo == TIPO_CONEXION:
             nombre = item.data(0, ROL_DATOS)
             menu.addAction("Volver a entrar", lambda: self._pedir_reconexion(nombre))
+            accion_en_metros(menu, nombre)
             menu.addAction("Eliminar conexión", lambda: self._eliminar(nombre))
 
         if not menu.isEmpty():
@@ -502,6 +505,7 @@ class GeosianBrowserDock(QDockWidget):
         tipos = _tipos_de_geometria(capa)
         if not tipos:
             tipos = [None]
+        sistema = _sistema_en_metros(capa) if connections.en_metros(conexion) else None
 
         añadidas = []
         for tipo in tipos:
@@ -512,6 +516,7 @@ class GeosianBrowserDock(QDockWidget):
                 capa["id"],
                 geometry_type=tipo,
                 view_id=vista.get("id") if vista else None,
+                crs=sistema,
             )
             vectorial = QgsVectorLayer(uri, nombre, "geosian")
 
@@ -756,6 +761,19 @@ def _por_teselas(proveedor):
         return True
 
 
+def _sistema_en_metros(capa):
+    """El UTM del sitio de la capa, por el centro de su extensión. Sin ella, el de la
+    España peninsular, que es donde está casi todo."""
+    bbox = (capa.get("tile_metadata") or {}).get("bbox")
+    if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
+        try:
+            oeste, sur, este, norte = (float(v) for v in bbox)
+            return crs.en_metros((oeste + este) / 2, (sur + norte) / 2)
+        except (TypeError, ValueError):
+            pass
+    return "EPSG:25830"
+
+
 def _tipos_de_geometria(capa):
     """Tipos presentes en la capa, según los metadatos que dé la API."""
     metadatos = capa.get("tile_metadata") or {}
@@ -824,6 +842,20 @@ def _capa_de_fondo(spec):
             f"type=xyz&url={url}&zmin={spec['zmin']}&zmax={spec['zmax']}", nombre, "wms"
         )
     return capa if capa.isValid() else None
+
+
+def accion_en_metros(menu, nombre):
+    """La casilla de la conexión para abrir sus capas en metros (ETRS89 / UTM).
+
+    GreenCityControl guarda en grados, y en grados no se mide: un buffer de 10 serían
+    10 grados. Vale para las capas que se añadan desde ahora; las que ya están en el
+    proyecto se quedan en su sistema.
+    """
+    accion = menu.addAction("Abrir las capas en metros (ETRS89 / UTM)")
+    accion.setCheckable(True)
+    accion.setChecked(connections.en_metros(nombre))
+    accion.toggled.connect(lambda si: connections.set_en_metros(nombre, si))
+    return accion
 
 
 def menu_de_crear(menu, mapa, crear, subir):
@@ -919,10 +951,19 @@ def _extension_de(capas):
     """
     total = QgsRectangle()
     total.setNull()
+    grados = QgsCoordinateReferenceSystem("EPSG:4326")
     for capa in capas:
         extension = capa.extent()
         if celdas.es_de_celdas(capa):
             extension = celdas.extension(capa)
+        elif not extension.isNull() and capa.crs() != grados:
+            # Una capa abierta en metros.
+            try:
+                extension = QgsCoordinateTransform(
+                    capa.crs(), grados, QgsProject.instance()
+                ).transformBoundingBox(extension)
+            except QgsCsException:
+                continue
         if extension.isNull():
             continue
         total.combineExtentWith(extension)

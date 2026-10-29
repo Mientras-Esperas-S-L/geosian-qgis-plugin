@@ -56,6 +56,15 @@ def set_ws_url(nombre, url):
     QgsSettings().setValue(f"{GROUP}/{nombre}/ws_url", url or "")
 
 
+def en_metros(nombre):
+    """Si las capas de esta conexión se abren en metros (ETRS89 / UTM) y no en grados."""
+    return QgsSettings().value(f"{GROUP}/{nombre}/en_metros", False, type=bool)
+
+
+def set_en_metros(nombre, si):
+    QgsSettings().setValue(f"{GROUP}/{nombre}/en_metros", bool(si))
+
+
 def save_connection(nombre, url, email, token=None, jwt=None):
     """Guarda la conexión y, si se puede, la credencial cifrada."""
     authcfg = ""

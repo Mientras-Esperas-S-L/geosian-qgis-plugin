@@ -447,7 +447,7 @@ class Edicion:
                 if "geometry" in cambio:
                     from ..core import compat
 
-                    nueva = compat.geometry_from_geojson(cambio["geometry"])
+                    nueva = self.en_la_capa(compat.geometry_from_geojson(cambio["geometry"]))
                     if nueva is not None:
                         registro.geometry = nueva
                 atributos = {**(cambio.get("attributes") or {}), **calculados.get(cambio["id"], {})}
