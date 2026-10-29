@@ -717,6 +717,34 @@ class Handler(BaseHTTPRequestHandler):
             self._json(cuerpo, estado)
             return
 
+        if partes.path == "/users/login/" and datos.get("email") == "provisional@ejemplo.com":
+            # Como el backend: entra, pero con la contraseña marcada para cambiar.
+            self._json(
+                {
+                    "api_token": "tok-provisional",
+                    "jwt_token": "jwt-provisional",
+                    "user": {"email": "provisional@ejemplo.com"},
+                    "requires_password_change": True,
+                },
+                202,
+            )
+            return
+
+        if partes.path == "/api/v1/user-management/change-own-password/":
+            Handler.peticiones.append((partes.path, datos))
+            if self.headers.get("Authorization") != "Token tok-provisional":
+                self._json({"detail": "Credenciales no válidas"}, 401)
+                return
+            if datos.get("current_password") != "provisional":
+                self._json({"error": "La contraseña actual es incorrecta"}, 400)
+                return
+            if len(datos.get("new_password") or "") < 12:
+                self._json({"new_password": ["La contraseña debe tener al menos 12 caracteres."]}, 400)
+                return
+            # El cambio revoca el token anterior y el servidor da uno nuevo.
+            self._json({"success": True, "api_token": "tok-nuevo", "jwt_token": "jwt-nuevo"})
+            return
+
         if partes.path == "/users/login/" and datos.get("email") == "doble@ejemplo.com":
             self._json({"mfa_required": True, "mfa_token": "mfa-de-prueba"}, 202)
             return

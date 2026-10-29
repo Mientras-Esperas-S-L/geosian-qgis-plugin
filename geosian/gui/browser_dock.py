@@ -44,6 +44,7 @@ from ..core import (
     icon_store,
     lad,
     maptree,
+    servidor,
     styles,
     symbology,
 )
@@ -98,7 +99,7 @@ class GeosianBrowserDock(QDockWidget):
     """Panel acoplable con el catálogo de Geosian."""
 
     def __init__(self, iface, parent=None):
-        super().__init__("GreenCityControl", parent)
+        super().__init__(servidor.titulo(), parent)
         self.iface = iface
         self.setObjectName("GeosianBrowserDock")
 
