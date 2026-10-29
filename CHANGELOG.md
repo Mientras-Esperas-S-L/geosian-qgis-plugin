@@ -6,6 +6,8 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Añadido
 
+- Sin permiso para crear capas en un mapa, "Crear capa" y "Subir capas" salen
+  desactivadas, con el motivo, en vez de fallar al final de la subida.
 - Cada petición lleva la versión del complemento en la cabecera
   `X-GreenCityControl-Plugin`; el servidor la añade al User-Agent que anota.
 - Crear capas en GreenCityControl desde QGIS («Crear capa en este mapa…»): a
@@ -31,6 +33,11 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 - Recargar el complemento recarga también el proveedor.
 
 ### Corregido
+
+- Datos que no casan con su campo, como "0-5 m" en un campo de número, ya no
+  cierran QGIS al guardar: se conservan si no se tocan y, si se escriben
+  nuevos, la confirmación se para con el motivo. Reescribir lo que ya había no
+  cuenta como cambio.
 
 Encontrado al probarlo por primera vez contra un Geosian real:
 
