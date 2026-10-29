@@ -94,9 +94,10 @@ ESQUEMA_ARBOLADO = {
 }
 
 MAPAS = [
-    {"id": 4, "name": "Ciudad de Ejemplo: arbolado y zonas verdes", "workspace_name": "Ayuntamiento de Ejemplo"},
+    {"id": 4, "name": "Ciudad de Ejemplo: arbolado y zonas verdes", "workspace_name": "Ayuntamiento de Ejemplo",
+     "puede_crear_capas": True},
     # Un mapa que el usuario ve pero sobre cuyas capas no tiene permiso.
-    {"id": 5, "name": "Mapa sin permiso", "workspace_name": "Otro Ayuntamiento"},
+    {"id": 5, "name": "Mapa sin permiso", "workspace_name": "Otro Ayuntamiento", "puede_crear_capas": False},
 ]
 
 CAPAS = [

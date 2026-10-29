@@ -700,6 +700,29 @@ def test_menu_de_la_capa_cambia_la_etiqueta(app_gui):
             connections.remove_connection("Etiquetas")
 
 
+def test_sin_permiso_de_crear_capas_no_se_ofrece(app_gui):
+    """Sin layer_create, el servidor rechaza la capa después de prepararla entera; el menú
+    lo dice antes. Un servidor que no manda ``puede_crear_capas`` lo deja como siempre."""
+    from qgis.PyQt.QtWidgets import QMenu
+
+    from geosian.gui.browser_dock import menu_de_crear
+    from tests.fake_server import MAPAS
+
+    def acciones(mapa):
+        menu = QMenu()
+        menu_de_crear(menu, mapa, lambda: None, lambda: None)
+        return [(a.text(), a.isEnabled()) for a in menu.actions()]
+
+    activas = [("Crear capa en este mapa…", True), ("Subir capas de QGIS a este mapa…", True)]
+    assert acciones(MAPAS[0]) == activas
+    assert acciones({"id": 4, "name": "De un servidor sin el dato"}) == activas
+    assert acciones(MAPAS[1]) == [
+        ("Crear capa en este mapa…", False),
+        ("Subir capas de QGIS a este mapa…", False),
+        ("No tienes permiso para crear capas en este mapa", False),
+    ]
+
+
 def test_informacion_adicional_va_al_final_del_mapa(app_gui):
     """El grupo se crea al añadir la primera capa con partes; las capas que vienen
     después quedaban debajo de él, en medio del mapa."""
