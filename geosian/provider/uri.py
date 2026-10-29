@@ -173,7 +173,8 @@ def _parte(texto):
 
 
 def build_uri(connection, map_id, layer_id, geometry_type=None, view_id=None,
-              info_name=None):
+              info_name=None, crs=None):
     return str(
-        LayerUri(connection, map_id, layer_id, geometry_type, view_id, info_name=info_name)
+        LayerUri(connection, map_id, layer_id, geometry_type, view_id, info_name=info_name,
+                 crs=crs or "EPSG:4326")
     )

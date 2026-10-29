@@ -17,6 +17,8 @@ import time
 from qgis.core import (
     Qgis,
     QgsCoordinateReferenceSystem,
+    QgsCoordinateTransform,
+    QgsCsException,
     QgsDataProvider,
     QgsExpressionContext,
     QgsFeature,
@@ -24,6 +26,7 @@ from qgis.core import (
     QgsField,
     QgsFields,
     QgsMessageLog,
+    QgsProject,
     QgsRectangle,
     QgsVectorDataProvider,
     QgsWkbTypes,
@@ -151,6 +154,7 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
         self._schema = {}
         self._wkb_type = QgsWkbTypes.Unknown
         self._extent = QgsRectangle()
+        self._a_la_capa = None
         self._feature_count = 0
         self._cache = {}
         self._loaded = False
@@ -208,6 +212,11 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
         self._crs = QgsCoordinateReferenceSystem(self._uri.crs)
         if not self._crs.isValid():
             self._crs = QgsCoordinateReferenceSystem("EPSG:4326")
+        # GreenCityControl sirve en grados. En otro sistema (en metros, para medir),
+        # lo que llega se transforma al leer; al guardar, edicion.py lo devuelve a 4326.
+        grados = QgsCoordinateReferenceSystem("EPSG:4326")
+        if self._crs != grados:
+            self._a_la_capa = QgsCoordinateTransform(grados, self._crs, QgsProject.instance())
 
         try:
             self._load_definition()
@@ -352,9 +361,9 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
 
         bbox = metadatos.get("bbox")
         if isinstance(bbox, (list, tuple)) and len(bbox) == 4:
-            self._extent = QgsRectangle(
+            self._extent = self._recuadro_en_la_capa(QgsRectangle(
                 float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
-            )
+            ))
 
     def _campo_de_partes(self):
         """El campo de un parte por el que colorea o pesa la vista, si lo hay.
@@ -668,7 +677,7 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
         geometria = None
         geojson = elemento.get("geometry")
         if geojson:
-            geometria = compat.geometry_from_geojson(geojson)
+            geometria = self.en_la_capa(compat.geometry_from_geojson(geojson))
 
         version = propiedades.get("updated_at_iso")
         self._cache[fid] = CachedFeature(
@@ -746,6 +755,27 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
 
             valores.append(None)
         return valores
+
+    def en_la_capa(self, geometria):
+        """Una geometría del servidor (en grados) en el sistema de la capa."""
+        if geometria is None or self._a_la_capa is None:
+            return geometria
+        try:
+            geometria.transform(self._a_la_capa)
+        except QgsCsException as exc:
+            self.log_warning(f"Un elemento no se puede pasar a {self._crs.authid()}: {exc}")
+            return None
+        return geometria
+
+    def _recuadro_en_la_capa(self, recuadro):
+        if self._a_la_capa is None:
+            return recuadro
+        try:
+            return self._a_la_capa.transformBoundingBox(recuadro)
+        except QgsCsException:
+            nulo = QgsRectangle()
+            nulo.setNull()
+            return nulo
 
     def _recompute_extent(self):
         extension = QgsRectangle()
@@ -1053,11 +1083,20 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
         """Trae lo que cae en un recuadro, si no se trajo ya."""
         if not self._red():
             return
+        # QGIS pasa el recuadro en el sistema de la capa, y el servidor lo quiere en
+        # grados, como se guardan las zonas.
+        if self._a_la_capa is not None:
+            try:
+                recuadro = self._a_la_capa.transformBoundingBox(
+                    recuadro, Qgis.TransformDirection.Reverse
+                )
+            except QgsCsException:
+                self.log_warning(f"Recuadro fuera de {self._crs.authid()} ({recuadro.toString(0)}); no se pide.")
+                return
         for zona in self._zones:
             if zona.contains(recuadro):
                 return
 
-        # QGIS pasa el recuadro en el sistema de la capa, que es EPSG:4326.
         # Cuando no puede transformar la vista (un lienzo de tamaño cero, por
         # ejemplo) llega en las unidades del proyecto, metros, y mandarlo al
         # servidor era pedirle un polígono sin sentido que tardaba minutos.
@@ -1160,9 +1199,12 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
         """
         if not self._by_zone or self._extent.isNull() or self._extent.isEmpty():
             return 0
-        latitud = math.radians(self._extent.center().y())
-        ancho = self._extent.width() * 111320 * max(math.cos(latitud), 0.01)
-        alto = self._extent.height() * 110540
+        if self._crs.isGeographic():
+            latitud = math.radians(self._extent.center().y())
+            ancho = self._extent.width() * 111320 * max(math.cos(latitud), 0.01)
+            alto = self._extent.height() * 110540
+        else:
+            ancho, alto = self._extent.width(), self._extent.height()
         densidad = self._feature_count / max(ancho * alto, 1.0)
         # Una pantalla de unos 40 x 25 cm: a escala 1:E ve 0,1·E² m².
         escala = math.sqrt(VISIBLE_TARGET / (0.1 * densidad))
