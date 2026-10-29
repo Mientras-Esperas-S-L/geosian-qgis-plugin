@@ -278,6 +278,7 @@ class GeosianBrowserDock(QDockWidget):
         elif tipo == TIPO_CONEXION:
             nombre = item.data(0, ROL_DATOS)
             menu.addAction("Volver a entrar", lambda: self._pedir_reconexion(nombre))
+            accion_en_metros(menu, nombre)
             menu.addAction("Eliminar conexión", lambda: self._eliminar(nombre))
 
         if not menu.isEmpty():
@@ -840,6 +841,20 @@ def _capa_de_fondo(spec):
             f"type=xyz&url={url}&zmin={spec['zmin']}&zmax={spec['zmax']}", nombre, "wms"
         )
     return capa if capa.isValid() else None
+
+
+def accion_en_metros(menu, nombre):
+    """La casilla de la conexión para abrir sus capas en metros (ETRS89 / UTM).
+
+    GreenCityControl guarda en grados, y en grados no se mide: un buffer de 10 serían
+    10 grados. Vale para las capas que se añadan desde ahora; las que ya están en el
+    proyecto se quedan en su sistema.
+    """
+    accion = menu.addAction("Abrir las capas en metros (ETRS89 / UTM)")
+    accion.setCheckable(True)
+    accion.setChecked(connections.en_metros(nombre))
+    accion.toggled.connect(lambda si: connections.set_en_metros(nombre, si))
+    return accion
 
 
 def menu_de_crear(menu, mapa, crear, subir):

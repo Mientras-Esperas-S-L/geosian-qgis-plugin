@@ -221,3 +221,22 @@ def test_el_mapa_entero_en_metros_se_encuadra_donde_esta(app):
         finally:
             QgsProject.instance().removeAllMapLayers()
             connections.remove_connection("Encuadre")
+
+
+def test_la_casilla_de_la_conexion_cambia_el_sistema(app):
+    from qgis.PyQt.QtWidgets import QMenu
+
+    from geosian.gui.browser_dock import accion_en_metros
+
+    connections.save_connection("Casilla", "https://ejemplo.com", "a@b.c")
+    try:
+        menu = QMenu()
+        accion = accion_en_metros(menu, "Casilla")
+        assert accion.isCheckable() and not accion.isChecked()
+
+        accion.trigger()
+        assert connections.en_metros("Casilla") is True
+
+        assert accion_en_metros(QMenu(), "Casilla").isChecked()
+    finally:
+        connections.remove_connection("Casilla")
