@@ -31,8 +31,16 @@ from tests.test_edicion_atributos import (  # noqa: F401
 from tests.test_gui import IfaceFalso
 
 URI = f"geosian://{CONEXION}/map/4/layer/11?geometry_type=points&crs=EPSG:25830"
-GRADOS = QgsCoordinateReferenceSystem("EPSG:4326")
-UTM30 = QgsCoordinateReferenceSystem("EPSG:25830")
+
+
+# Los sistemas, al usarlos y no al importar: creado antes de iniciar QGIS, QGIS 3.34
+# guarda en su caché un EPSG:4326 vacío y otras pruebas lo heredan.
+def grados():
+    return QgsCoordinateReferenceSystem("EPSG:4326")
+
+
+def utm30():
+    return QgsCoordinateReferenceSystem("EPSG:25830")
 
 
 def abrir(uri=URI):
@@ -43,7 +51,7 @@ def abrir(uri=URI):
 
 
 def a_metros(lon, lat):
-    return QgsCoordinateTransform(GRADOS, UTM30, QgsProject.instance()).transform(QgsPointXY(lon, lat))
+    return QgsCoordinateTransform(grados(), utm30(), QgsProject.instance()).transform(QgsPointXY(lon, lat))
 
 
 def cerca(una, otra, tolerancia):
@@ -53,7 +61,7 @@ def cerca(una, otra, tolerancia):
 def test_la_capa_se_abre_en_metros(servidor):  # noqa: F811
     capa = abrir()
 
-    assert capa.crs() == UTM30
+    assert capa.crs() == utm30()
     assert cerca(capa.getFeature(1001).geometry().asPoint(), a_metros(-3.70, 40.40), 1e-6)
 
 
@@ -67,7 +75,7 @@ def test_la_extension_de_los_metadatos_va_en_metros(servidor):  # noqa: F811
 def test_un_buffer_de_10_son_10_metros(servidor):  # noqa: F811
     buffer = abrir().getFeature(1001).geometry().buffer(10, 16)
 
-    buffer.transform(QgsCoordinateTransform(UTM30, GRADOS, QgsProject.instance()))
+    buffer.transform(QgsCoordinateTransform(utm30(), grados(), QgsProject.instance()))
 
     # 20 m de lado a lado, a 40° de latitud, son unas 2,4 diezmilésimas de grado.
     assert 0.0002 < buffer.boundingBox().width() < 0.00027
