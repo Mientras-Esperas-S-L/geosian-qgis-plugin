@@ -48,7 +48,7 @@ from ..core.errors import (
     NotFoundError,
 )
 from ..gui.avisos import seguro
-from .edicion import Edicion
+from .edicion import Edicion, como_numero
 from .feature_source import GeosianFeatureSource
 from .subset import parse as parse_subset
 from .subset import server_params
@@ -685,19 +685,24 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
     def _attributes_from(self, propiedades, fid):
         """Ordena las propiedades del GeoJSON según los campos de la capa."""
         valores = self._valores_de(propiedades, fid)
-        for i in self._campos_lista():
+        listas, numeros = self._campos_lista()
+        for i in listas:
             valores[i] = _como_lista(valores[i])
+        for i in numeros:
+            # "430" como 430 y "" como sin valor, para que QGIS lo calcule y lo ordene.
+            valores[i] = como_numero(valores[i], self._fields.at(i).type())
         return valores
 
     def _campos_lista(self):
-        """Índices de los campos de selección múltiple, calculados una vez por esquema."""
+        """Índices de los campos de selección múltiple y de los de número, una vez por esquema."""
         if self._listas is None or self._listas[0] is not self._fields:
-            indices = [
-                i for i in range(self._fields.count())
-                if self._fields.at(i).type() == QVariant.StringList
-            ]
-            self._listas = (self._fields, indices)
-        return self._listas[1]
+            tipos = [self._fields.at(i).type() for i in range(self._fields.count())]
+            self._listas = (
+                self._fields,
+                [i for i, t in enumerate(tipos) if t == QVariant.StringList],
+                [i for i, t in enumerate(tipos) if t in (QVariant.LongLong, QVariant.Double)],
+            )
+        return self._listas[1:]
 
     def _valores_de(self, propiedades, fid):
         valores = []

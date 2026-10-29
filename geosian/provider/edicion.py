@@ -19,7 +19,9 @@ Lo comprobó ``tests/test_lote_qgis.py`` en QGIS 3.34 y 4.
 """
 
 import json
+import math
 import time
+import traceback
 import uuid
 
 from qgis.core import (
@@ -154,6 +156,15 @@ class Edicion:
             self._foto = {"lote": self._lote_de(buffer), "error": None}
         except _NoSePuede as exc:
             self._foto = {"lote": None, "error": str(exc)}
+        except Exception as exc:
+            # Esto corre dentro de la señal de QGIS: una excepción que se escapa
+            # cierra QGIS de golpe. Mejor no guardar y decirlo.
+            self.log_error(f"Al preparar el lote: {traceback.format_exc()}")
+            self._foto = {
+                "lote": None,
+                "error": f"GreenCityControl: no se ha guardado nada por un fallo del complemento ({exc}). "
+                "Los cambios siguen pendientes.",
+            }
 
     def _lote_de(self, buffer):
         # Un alta editada antes de confirmar (id negativo) va con el alta.
@@ -210,6 +221,7 @@ class Edicion:
                 # Geosian. Llegan, por ejemplo, al pegar elementos copiados de otra capa.
                 continue
             nuevo = valor_para_api(valor, campo.type())
+            _comprobar_numero(campo, nuevo)
             _comprobar_lista(attr, campo, nuevo, None)
             atributos[attr["name"]] = nuevo
         return {"ref": str(fid), "geometry": self._geojson(feature.geometry(), "nuevo"), "attributes": atributos}
@@ -266,10 +278,11 @@ class Edicion:
         """
         salida = {}
         for indice, valor in valores.items():
+            tipo = self._fields.at(indice).type()
             if (
                 registro is not None
                 and indice < len(registro.attributes)
-                and valor_para_api(valor, self._fields.at(indice).type()) == _sin_nulo(registro.attributes[indice])
+                and valor_para_api(valor, tipo) == valor_para_api(registro.attributes[indice], tipo)
             ):
                 continue
             campo = self._fields.at(indice)
@@ -293,6 +306,7 @@ class Edicion:
                 )
             nuevo = valor_para_api(valor, campo.type())
             viejo = _sin_nulo(registro.attributes[indice]) if registro is not None and indice < len(registro.attributes) else None
+            _comprobar_numero(campo, nuevo)
             _comprobar_lista(attr, campo, nuevo, viejo)
             salida[attr["name"]] = nuevo
         return salida
@@ -614,6 +628,20 @@ def _comprobar_lista(attr, campo, nuevo, viejo):
         )
 
 
+def _comprobar_numero(campo, nuevo):
+    """Un campo de número solo admite números.
+
+    Los datos importados antes del LAD traen texto en campos de número ("0-5 m"). Eso
+    se deja estar mientras no se toque; lo que se escribe nuevo tiene que ser un número.
+    """
+    if campo.type() not in (QVariant.LongLong, QVariant.Double) or nuevo is None:
+        return
+    if isinstance(nuevo, bool) or not isinstance(nuevo, (int, float)):
+        raise _NoSePuede(
+            f"\"{campo.displayName()}\" es un número en GreenCityControl y \"{nuevo}\" no lo es."
+        )
+
+
 def _misma_geometria(una, otra):
     """Coordenada a coordenada. ``equals`` está en desuso desde QGIS 4.2."""
     exacta = getattr(una, "isExactlyEqual", None)
@@ -657,11 +685,43 @@ def valor_para_api(valor, tipo):
         return lista or None
     if tipo == QVariant.Bool:
         return bool(valor)
-    if tipo == QVariant.LongLong:
-        return int(valor)
-    if tipo == QVariant.Double:
-        return float(valor)
+    if tipo in (QVariant.LongLong, QVariant.Double):
+        return como_numero(valor, tipo)
+    if tipo == QVariant.String and isinstance(valor, (int, float)) and not isinstance(valor, bool):
+        # Un número guardado en un campo de texto: QGIS lo pasa a texto al recalcularlo,
+        # y 2.0 como "2".
+        return str(int(valor)) if isinstance(valor, float) and valor.is_integer() else str(valor)
     return valor if isinstance(valor, (str, int, float, bool, list)) else str(valor)
+
+
+def como_numero(valor, tipo):
+    """Un valor de un campo de número (``LongLong`` o ``Double``) como número.
+
+    Los datos importados antes del LAD traen números como texto ("430"), textos que
+    no son números ("0-5 m") y textos vacíos. Un texto vacío es que no hay valor; lo
+    que no es un número se queda como está, sin lanzar: ``_comprobar_numero`` decide.
+    """
+    if valor is None or isinstance(valor, bool):
+        return valor
+    texto = valor.strip() if isinstance(valor, str) else valor
+    if texto == "":
+        return None
+    if tipo == QVariant.LongLong and not isinstance(texto, float):
+        # Antes que float: un entero grande perdería cifras.
+        try:
+            return int(texto)
+        except (TypeError, ValueError):
+            pass
+    try:
+        numero = float(texto)
+    except (TypeError, ValueError):
+        return valor
+    if not math.isfinite(numero):
+        # "nan" o "inf" no caben en el JSON que espera Geosian.
+        return valor
+    if tipo == QVariant.LongLong:
+        return int(numero) if numero.is_integer() else valor
+    return numero
 
 
 def texto_de_conflicto(exc):
