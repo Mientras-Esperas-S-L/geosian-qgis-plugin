@@ -6,6 +6,9 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Añadido
 
+- Cada selección múltiple (un campo que guarda una lista, como "marked_as")
+  trae al lado un campo de texto, "<campo>_texto", que se puede clasificar por
+  categorías. Al escribir un valor que no está en la lista, QGIS avisa.
 - Las capas se pueden abrir en metros (ETRS89 / UTM, el huso según dónde estén):
   casilla "Abrir las capas en metros" en el menú de la conexión. Al guardar
   vuelven a grados, que es como las guarda GreenCityControl.
@@ -39,6 +42,11 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Corregido
 
+- El estilo por defecto no pintaba los valores de una selección múltiple: en
+  QGIS 4 una lista no se convierte en texto. Ahora casa como en la web, y una
+  lista vacía cuenta como vacía.
+- Al guardar un cambio en bloque rechazado, la barra nombraba solo el primer
+  elemento. Ahora salen juntos todos los que tienen el mismo error, y el motivo.
 - Datos que no casan con su campo, como "0-5 m" en un campo de número, ya no
   cierran QGIS al guardar: se conservan si no se tocan y, si se escriben
   nuevos, la confirmación se para con el motivo. Reescribir lo que ya había no
