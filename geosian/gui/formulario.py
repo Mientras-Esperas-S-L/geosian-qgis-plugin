@@ -18,6 +18,7 @@ def aplicar_esquema(capa):
         return
     lad.apply_editor_config(capa, esquema)
     lad.apply_form(capa, esquema)
+    lad.add_text_fields(capa, esquema)
     if media_widget.is_available():
         lad.add_media_tab(capa, esquema, media_widget.WIDGET_TYPE)
 

@@ -188,7 +188,58 @@ def apply_editor_config(layer, schema):
                 idx, QgsDefaultValue(S._quote_value(attr["default_value"]))
             )
 
+        valores = S.allowed_values(attr)
+        if S.is_multiple(attr) and valores:
+            # El editor de listas deja escribir cualquier cosa. Blanda, como la de
+            # obligatorio: un valor ya retirado de la lista se puede conservar, y al
+            # guardar el plugin rechaza lo nuevo que no esté.
+            ref = S._quote_field(fields.at(idx).name())
+            lista = ", ".join(S._quote_value(v) for v in valores)
+            layer.setConstraintExpression(
+                idx,
+                f"{ref} IS NULL OR array_length({ref}) = 0 OR array_all(array({lista}), {ref})",
+                "Solo valores de la lista: " + ", ".join(str(v) for v in valores),
+            )
+            layer.setFieldConstraint(
+                idx,
+                QgsFieldConstraints.ConstraintExpression,
+                QgsFieldConstraints.ConstraintStrengthSoft,
+            )
+
     layer.setEditFormConfig(form)
+
+
+TEXT_SUFFIX = "_texto"
+
+
+def add_text_fields(layer, schema):
+    """Un campo virtual de texto al lado de cada selección múltiple.
+
+    QGIS 4 no sabe clasificar por categorías un campo de tipo lista: pone todos los
+    elementos en «sin valor» y escribe las etiquetas letra a letra. El campo virtual
+    trae la lista como texto («Poda, Tala»), que sí se clasifica, se filtra y se
+    etiqueta. Es de la capa, no de Geosian: no se guarda ni se manda al servidor.
+    """
+    fields = layer.fields()
+    for attr in S.merged_attributes(schema):
+        if S.is_attachment(attr) or not S.is_multiple(attr):
+            continue
+        nombre = attr.get("name")
+        idx = fields.indexOf(nombre)
+        if idx < 0:
+            idx = fields.indexOf(S.RESERVED_PREFIX + str(nombre))
+        if idx < 0:
+            continue
+        campo = fields.at(idx).name()
+        virtual = campo + TEXT_SUFFIX
+        # Ya está si la capa viene de un proyecto guardado o se rehace la ficha.
+        if layer.fields().indexOf(virtual) >= 0:
+            continue
+        nuevo = QgsField(virtual, QVariant.String, "string")
+        nuevo.setAlias(f"{S.field_title(attr)} (texto)")
+        layer.addExpressionField(
+            f"nullif(array_to_string({S._quote_field(campo)}, ', '), '')", nuevo
+        )
 
 
 def _widget_setup(attr):
