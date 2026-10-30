@@ -20,7 +20,6 @@ from qgis.core import (
     QgsVectorLayerUtils,
     QgsWkbTypes,
 )
-
 from qgis.PyQt.QtGui import QColor
 
 from geosian.core import lad, symbology
