@@ -127,7 +127,7 @@ def test_expresiones_de_reglas():
         {"field": "altura", "operator": "gte", "value": 10},
     ]}
     assert styles.filter_group_expression(grupo) == (
-        "(coalesce(to_string(\"riesgo\") IN ('Alto', 'Muy alto'), FALSE)"
+        "(coalesce(try(array_to_string(\"riesgo\", ','), to_string(\"riesgo\")) IN ('Alto', 'Muy alto'), FALSE)"
         " OR coalesce(to_real(\"altura\") >= 10.0, FALSE))"
     )
     # Sin condiciones casa siempre; con un operador desconocido, nunca (como la web).

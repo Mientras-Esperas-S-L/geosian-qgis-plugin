@@ -213,10 +213,8 @@ def _rules_renderer(familia, estilo, resolver, fabrica=None):
             if otro is None:
                 continue
             lista = ", ".join(S._quote_value(v) for v in valores)
-            partes.append(
-                f"(to_string({S._quote_field(otro)}) IS NULL"
-                f" OR to_string({S._quote_field(otro)}) NOT IN ({lista}))"
-            )
+            texto = styles.texto_web(otro)
+            partes.append(f"({texto} IS NULL OR {texto} NOT IN ({lista}))")
         hijo = QgsRuleBasedRenderer.Rule(
             fabrica(regla["color"]),
             filterExp=" AND ".join(partes),

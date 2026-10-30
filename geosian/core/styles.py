@@ -532,9 +532,21 @@ def ramp_colors(nombre, n, alpha=DEFAULT_ALPHA):
 # ----------------------------------------------------------------------
 
 
+def texto_web(campo):
+    """``campo`` como texto, como lo escribe ``String()`` en la web: una lista, con sus
+    valores separados por comas (``["Poda", "Tala"]`` es ``"Poda,Tala"``).
+
+    ``to_string`` de una lista da NULL en QGIS, así que una regla sobre una selección
+    múltiple no casaba nunca. ``array_to_string`` de lo que no es lista da error, y
+    ``try`` lo deja en ``to_string``.
+    """
+    ref = S._quote_field(campo)
+    return f"try(array_to_string({ref}, ','), to_string({ref}))"
+
+
 def match_expression(campo, valor):
     """``campo`` vale ``valor``, comparando como el frontal: como texto."""
-    return f"to_string({S._quote_field(campo)}) = {S._quote_value(str(valor))}"
+    return f"{texto_web(campo)} = {S._quote_value(str(valor))}"
 
 
 def filter_group_expression(grupo, campos=None):
@@ -560,7 +572,7 @@ def filter_group_expression(grupo, campos=None):
 
 def _rule_expression(campo, operador, valor):
     ref = S._quote_field(campo)
-    texto = f"to_string({ref})"
+    texto = texto_web(campo)
     op = str(operador or "").lower()
     if op in ("equals", "=", "eq"):
         return f"{texto} = {S._quote_value(value_key(valor))}"
@@ -595,10 +607,11 @@ def _rule_expression(campo, operador, valor):
         return f"{texto_minus} LIKE '{patron}%'"
     if op == "ends_with":
         return f"{texto_minus} LIKE '%{patron}'"
+    # Con el texto y no con el campo: una lista vacía no es NULL, y su texto sí.
     if op in ("is_null", "is_empty"):
-        return f"({ref} IS NULL OR {texto} = '')"
+        return f"({texto} IS NULL OR {texto} = '')"
     if op in ("is_not_null", "is_not_empty"):
-        return f"({ref} IS NOT NULL AND {texto} <> '')"
+        return f"({texto} IS NOT NULL AND {texto} <> '')"
     return None
 
 
