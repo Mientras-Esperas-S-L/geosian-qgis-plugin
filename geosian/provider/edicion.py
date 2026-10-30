@@ -745,6 +745,12 @@ def texto_de_conflicto(exc):
     )
 
 
+def _enumerar(ids, maximo=10):
+    if len(ids) <= maximo:
+        return ", ".join(ids)
+    return ", ".join(ids[:maximo]) + f" y {len(ids) - maximo} más"
+
+
 def texto_de_error(exc):
     """El motivo de un 400 o 403 de confirmar, legible."""
     import json
@@ -755,14 +761,24 @@ def texto_de_error(exc):
         return str(exc)
     errores = cuerpo.get("errores") if isinstance(cuerpo, dict) else None
     if errores:
+        # Un cambio en bloque da el mismo error en muchos elementos: juntos, con todos
+        # sus ids, para arreglarlos de una vez y no uno a uno.
+        grupos = {}
+        for error in errores:
+            grupos.setdefault(str(error.get("error")), []).append(error)
         textos = []
-        for error in errores[:3]:
-            if error.get("id") is not None:
-                textos.append(f"elemento {error['id']}: {error.get('error')}")
-            elif error.get("ref") is not None:
-                textos.append(f"elemento nuevo: {error.get('error')}")
-            else:
-                textos.append(str(error.get("error")))
+        for texto, lista in list(grupos.items())[:3]:
+            ids = [str(e["id"]) for e in lista if e.get("id") is not None]
+            altas = sum(1 for e in lista if e.get("id") is None and e.get("ref") is not None)
+            quienes = []
+            if ids:
+                quienes.append(("elemento " if len(ids) == 1 else "elementos ") + _enumerar(ids))
+            if altas:
+                quienes.append("elemento nuevo" if altas == 1 else f"{altas} elementos nuevos")
+            textos.append(f"{' y '.join(quienes)}: {texto}" if quienes else texto)
+        total = cuerpo.get("total")
+        if isinstance(total, int) and total > len(errores):
+            textos.append(f"{total} elementos con errores en total")
         return "; ".join(textos)
     if isinstance(cuerpo, dict) and cuerpo.get("error"):
         return str(cuerpo["error"])
