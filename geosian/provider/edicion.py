@@ -306,6 +306,10 @@ class Edicion:
                 )
             nuevo = valor_para_api(valor, campo.type())
             viejo = _sin_nulo(registro.attributes[indice]) if registro is not None and indice < len(registro.attributes) else None
+            if nuevo is None and _texto_en_numero(campo, viejo):
+                # El editor de números no sabe enseñar "0-5 m" y lo devuelve vacío:
+                # al guardar la ficha por otro campo, se borraría sin que nadie lo pida.
+                continue
             _comprobar_numero(campo, nuevo)
             _comprobar_lista(attr, campo, nuevo, viejo)
             salida[attr["name"]] = nuevo
@@ -640,6 +644,13 @@ def _comprobar_numero(campo, nuevo):
         raise _NoSePuede(
             f"\"{campo.displayName()}\" es un número en GreenCityControl y \"{nuevo}\" no lo es."
         )
+
+
+def _texto_en_numero(campo, valor):
+    """Lo guardado en un campo de número es un texto que no es un número ("0-5 m")."""
+    if campo.type() not in (QVariant.LongLong, QVariant.Double) or not isinstance(valor, str):
+        return False
+    return isinstance(como_numero(valor, campo.type()), str)
 
 
 def _misma_geometria(una, otra):

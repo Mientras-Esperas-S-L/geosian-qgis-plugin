@@ -42,6 +42,12 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Corregido
 
+- El editor de las selecciones múltiples (como "marked_as") salía vacío: lo que
+  se escribía no se guardaba, sin ningún aviso, y si el elemento ya tenía
+  valores se guardaba vacío. Ahora enseña lo que hay y guarda lo escrito.
+- Guardar la ficha de un elemento después de cambiar un campo borraba los
+  números guardados como texto ("0-5 m" en la altura): su editor no sabe
+  enseñarlos y los devolvía vacíos. Ahora se conservan.
 - El estilo por defecto no pintaba los valores de una selección múltiple: en
   QGIS 4 una lista no se convierte en texto. Ahora casa como en la web, y una
   lista vacía cuenta como vacía.

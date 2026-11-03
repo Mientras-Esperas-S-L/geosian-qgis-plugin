@@ -116,3 +116,33 @@ def test_un_fallo_al_preparar_el_lote_no_cierra_qgis(servidor, monkeypatch):  # 
     assert not capa.commitChanges()
     assert lotes(servidor) == []
     assert any("algo imprevisto" in e for e in capa.commitErrors())
+
+
+@pytest.mark.parametrize("operacion", ["Poda", ["Poda"]])
+def test_guardar_la_ficha_por_otro_campo_no_borra_lo_que_no_sabe_ensenar(servidor, operacion):  # noqa: F811
+    # El 02/11/2026 una ficha guardada en devel vació los números con texto y las
+    # selecciones múltiples del elemento: sus editores los devolvían vacíos.
+    from qgis.gui import QgsAttributeEditorContext, QgsAttributeForm, QgsGui
+    from qgis.PyQt.QtWidgets import QApplication
+
+    from geosian.core import lad
+
+    QgsGui.editorWidgetRegistry().initEditors()
+    con(servidor, 1001, altura="0-5 m", operacion=operacion)
+    capa = abrir(servidor)
+    lad.apply_editor_config(capa, capa.dataProvider().schema)
+    lad.apply_form(capa, capa.dataProvider().schema)
+
+    assert capa.startEditing()
+    ficha = QgsAttributeForm(capa, capa.getFeature(1001), QgsAttributeEditorContext())
+    ficha.show()
+    QApplication.processEvents()
+    ficha.changeAttribute("observaciones", "Revisado")
+    QApplication.processEvents()
+    assert ficha.save()
+    assert capa.commitChanges(), capa.commitErrors()
+
+    guardado = elemento(servidor, 1001)
+    assert guardado["observaciones"] == "Revisado"
+    assert guardado["altura"] == "0-5 m"
+    assert guardado["operacion"] == operacion
