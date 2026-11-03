@@ -104,6 +104,10 @@ def _append_schema_fields(fields, mapa, usados, schema):
         nombre = S.field_name(attr, usados)
         tipo = _qt_type(attr)
         campo = QgsField(nombre, tipo, _type_name(tipo))
+        if tipo == QVariant.StringList:
+            # Sin el tipo de los elementos, el editor «List» de QGIS no reconoce
+            # el campo: sale vacío y devuelve una lista vacía, y lo escrito se pierde.
+            campo.setSubType(QVariant.String)
         campo.setAlias(S.field_title(attr))
         if attr.get("description"):
             campo.setComment(str(attr["description"]))

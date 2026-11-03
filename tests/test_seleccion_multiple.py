@@ -20,6 +20,7 @@ from qgis.core import (
     QgsVectorLayerUtils,
     QgsWkbTypes,
 )
+from qgis.gui import QgsGui
 from qgis.PyQt.QtGui import QColor
 
 from geosian.core import lad, symbology
@@ -141,3 +142,28 @@ def test_avisa_de_un_valor_fuera_de_la_lista(capa):
     assert cumple(None)
     assert cumple([])
     assert not cumple(["Poda", "Riego a manta"])
+
+
+@pytest.mark.parametrize(
+    "fid,nuevos",
+    [(1001, ["Poda", "Tala"]), (1003, ["Poda"]), (1002, ["Instalación anclaje"])],
+)
+def test_el_editor_de_listas_ensena_y_guarda_lo_escrito(servidor, fid, nuevos):  # noqa: F811
+    # Sin el subtipo del campo, el editor salía vacío y devolvía []: lo escrito se
+    # perdía y lo que ya había se guardaba vacío.
+    QgsGui.editorWidgetRegistry().initEditors()
+    capa = abrir(servidor)
+    lad.apply_editor_config(capa, capa.dataProvider().schema)
+    idx = capa.fields().indexOf("operacion")
+    assert QgsGui.editorWidgetRegistry().factory("List").fieldScore(capa, idx) > 0
+
+    antes = elemento(servidor, fid).get("operacion")
+    editor = QgsGui.editorWidgetRegistry().create("List", capa, idx, {}, None, None)
+    editor.setFeature(capa.getFeature(fid))
+    assert editor.value() == ([antes] if isinstance(antes, str) else antes or [])
+
+    editor.setValues(nuevos, [])
+    assert capa.startEditing()
+    assert capa.changeAttributeValue(fid, idx, editor.value())
+    assert capa.commitChanges(), capa.commitErrors()
+    assert elemento(servidor, fid)["operacion"] == nuevos
