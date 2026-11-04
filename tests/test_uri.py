@@ -126,3 +126,31 @@ def test_el_alias_de_lineas_y_poligonos_abre_su_tabla_multi(alias, tabla):
 
 def test_los_puntos_no_son_alias_de_los_multipuntos():
     assert parse_uri("geosian://Prod/map/4/layer/11?geometry_type=points").geometry_type == "points"
+
+
+ARBOL = {
+    "todas": True,
+    "condiciones": [
+        {"campo": "especie", "op": "es_uno_de", "valor": ["Pino piñonero"]},
+        {"partes": "parte_poda", "tiene": False, "periodo": {"ultimos_dias": 30}, "condiciones": []},
+    ],
+}
+
+
+def test_las_condiciones_combinadas_viajan_en_la_uri_y_se_mandan():
+    uri = LayerUri("Prueba", 4, 11, "points", filtro=ARBOL)
+    otra = parse_uri(str(uri))
+    assert otra.filtro == ARBOL
+    assert otra == uri
+    import json
+
+    assert json.loads(uri.server_filters("Europe/Madrid")["filtro"]) == ARBOL
+
+
+def test_condiciones_combinadas_estropeadas_son_una_uri_invalida():
+    with pytest.raises(ValueError, match="condiciones combinadas"):
+        parse_uri("geosian://Prueba/map/4/layer/11?filtro=%7Bno")
+    with pytest.raises(ValueError, match="condiciones combinadas"):
+        parse_uri("geosian://Prueba/map/4/layer/11?filtro=%5B%5D")
+    # Un árbol vacío es como no tenerlo.
+    assert LayerUri("Prueba", 4, 11, filtro={"todas": True, "condiciones": []}).filtro is None

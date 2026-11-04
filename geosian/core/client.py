@@ -50,6 +50,9 @@ LAYERS_TTL = 30
 DEFINITION_TIMEOUT = 15
 
 
+# Servidor -> si entiende el parámetro `filtro` (admite_filtro_en_arbol).
+_ADMITE_FILTRO = {}
+
 class GeosianClient:
     """Acceso a la API de Geosian.
 
@@ -583,6 +586,23 @@ class GeosianClient:
             params["show_retired"] = "true"
         params.update(extra or {})
         return self._get(f"{API_PREFIX}/geodata/", params)
+
+    def admite_filtro_en_arbol(self, layer_id):
+        """Si el servidor entiende las condiciones combinadas (parámetro ``filtro``).
+
+        Uno que no lo entienda lo ignoraría y la capa saldría sin filtrar, sin aviso. Se le
+        manda un árbol mal formado: el que lo entiende contesta 400 con el motivo en
+        ``filtro``; el que no, 200. Se recuerda por servidor.
+        """
+        if self.base_url not in _ADMITE_FILTRO:
+            try:
+                self._get(f"{API_PREFIX}/geodata/paginated/",
+                          {"layer_id": layer_id, "page_size": 1, "count_only": "true", "filtro": "{}"})
+                admite = False
+            except ApiError as error:
+                admite = error.status == 400 and b"filtro" in (error.body or b"")
+            _ADMITE_FILTRO[self.base_url] = admite
+        return _ADMITE_FILTRO[self.base_url]
 
     def geodata_paginated(self, layer_id, page=1, page_size=5000, data_type=None,
                           extra=None, area=None, ids=None):

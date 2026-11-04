@@ -18,6 +18,8 @@ operadores que no sean ``in``, ``contains``, ``equals``, ``gte`` o ``lte`` se
 descartan.
 """
 
+import json
+
 _SUFIJOS = {"contains": "__contains", "gte": "__gte", "lte": "__lte"}
 
 
@@ -100,6 +102,11 @@ def filter_params(filter_config):
                     f"La regla «{campo} {operador}» no se aplica: la web tampoco la aplica "
                     "al activar la vista."
                 )
+
+    # Las condiciones combinadas guardadas en la vista: van tal cual en `filtro`.
+    arbol = config.get("arbol")
+    if isinstance(arbol, dict) and arbol.get("condiciones"):
+        params["filtro"] = json.dumps(arbol, ensure_ascii=False, separators=(",", ":"))
 
     return params, avisos
 

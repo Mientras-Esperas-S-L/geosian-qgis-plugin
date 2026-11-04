@@ -53,3 +53,14 @@ def test_vista_vacia_no_filtra():
     assert views.filter_params({}) == ({}, [])
     assert views.filter_params({"query_groups": []}) == ({}, [])
 
+
+
+def test_una_vista_con_condiciones_combinadas_las_manda_en_filtro():
+    import json
+
+    from geosian.core.views import filter_params
+
+    arbol = {"todas": False, "condiciones": [{"campo": "estado", "op": "vacio"}]}
+    params, avisos = filter_params({"query_groups": [], "arbol": arbol})
+    assert json.loads(params["filtro"]) == arbol
+    assert avisos == []

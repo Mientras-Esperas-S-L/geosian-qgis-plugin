@@ -571,6 +571,16 @@ class Handler(BaseHTTPRequestHandler):
             )
 
         elif ruta == "/api/v1/geodata/paginated/":
+            if "filtro" in consulta and getattr(self.server, "admite_filtro", True):
+                # Un servidor con el filtro en árbol rechaza uno mal formado (400 con el
+                # motivo en «filtro»); el falso no lo evalúa, solo deja constancia.
+                try:
+                    arbol = json.loads(consulta["filtro"][0])
+                except ValueError:
+                    arbol = None
+                if not isinstance(arbol, dict) or not isinstance(arbol.get("condiciones"), list):
+                    self._json({"filtro": "El filtro tiene que ser un grupo con «condiciones»."}, 400)
+                    return
             self._json(_pagina_de_elementos(consulta, servidor=self.server))
 
         elif re.fullmatch(r"/api/v1/geodata/\d+/", ruta):
@@ -1181,6 +1191,8 @@ class FakeGeosian:
         # Capas que añade una prueba al mapa 4, con sus definiciones por id de capa.
         self._server.capas_extra = []
         self._server.definiciones_extra = {}
+        # Si entiende el parámetro `filtro` (servidores con el filtro en árbol).
+        self._server.admite_filtro = True
         self._hilo = threading.Thread(target=self._server.serve_forever, daemon=True)
 
     def __enter__(self):

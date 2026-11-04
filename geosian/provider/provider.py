@@ -9,6 +9,7 @@ servidor dice que el usuario puede hacer, y una confirmación entra entera o no
 entra.
 """
 
+import json
 import math
 import re
 import threading
@@ -396,6 +397,11 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
                     f"La capa no tiene partes «{tipo}» o no tienes permiso para verlos; "
                     "quita ese filtro de la capa."
                 )
+        if self._uri.filtro and not self._client.admite_filtro_en_arbol(self._uri.layer_id):
+            raise GeosianError(
+                "Este servidor de GreenCityControl todavía no admite condiciones combinadas; "
+                "quita ese filtro de la capa o actualiza el servidor."
+            )
         zona = bytes(QTimeZone.systemTimeZoneId()).decode() or None
         return self._uri.server_filters(zona)
 
@@ -566,6 +572,13 @@ class GeosianProvider(Edicion, QgsVectorDataProvider):
         if getattr(self, "_ai_attr", None):
             extra["include_ai_attr"] = ".".join(self._ai_attr)
         for clave, valor in self._filtros_uri.items():
+            if clave == "filtro" and "filtro" in extra:
+                # Vista con condiciones combinadas y capa con las suyas: las dos, con «y».
+                extra["filtro"] = json.dumps(
+                    {"todas": True, "condiciones": [json.loads(extra["filtro"]), json.loads(valor)]},
+                    ensure_ascii=False, separators=(",", ":"),
+                )
+                continue
             extra.setdefault(clave, valor)
         for clave, valor in self._subset_params.items():
             extra.setdefault(clave, valor)
