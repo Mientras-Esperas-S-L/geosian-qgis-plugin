@@ -94,7 +94,7 @@ class GeosianPlugin:
         capa = self.iface.layerTreeView().currentLayer()
         if capa is not None and capa.type() == QgsMapLayerType.VectorLayer:
             menu_de_etiquetas(menu, capa)
-            menu_de_filtros(menu, capa)
+            menu_de_filtros(menu, capa, self.iface.mainWindow())
 
     def unload(self):
         realtime_hub.unwatch_project()

@@ -42,6 +42,10 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Corregido
 
+- "Filtrar por partes y fechas…" podía cerrar QGIS de golpe en Windows al
+  aplicar el filtro: el diálogo se abría dentro de la acción del menú de la capa,
+  y QGIS borra ese menú al cerrarlo. Ahora se abre justo después y se suelta al
+  cerrarlo, en vez de quedarse en memoria.
 - El editor de las selecciones múltiples (como "marked_as") salía vacío: lo que
   se escribía no se guardaba, sin ningún aviso, y si el elemento ya tenía
   valores se guardaba vacío. Ahora enseña lo que hay y guarda lo escrito.

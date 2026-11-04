@@ -5,8 +5,8 @@ el proyecto y los resuelve el servidor: elementos con algún parte que cumpla ca
 condición, y partes entre dos fechas (o solo el más reciente).
 """
 
-from qgis.core import QgsDataProvider
-from qgis.PyQt.QtCore import QDate, Qt
+from qgis.core import QgsDataProvider, QgsProject
+from qgis.PyQt.QtCore import QDate, Qt, QTimer
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -31,14 +31,35 @@ OPERADORES = [("=", ""), ("≥", "gte"), (">", "gt"), ("≤", "lte"), ("<", "lt"
 FORMATO = "yyyy-MM-dd"
 
 
-def menu_de_filtros(menu, capa):
-    """«Filtrar por partes y fechas…» en el menú de una capa de Geosian con partes."""
+def menu_de_filtros(menu, capa, padre=None):
+    """«Filtrar por partes y fechas…» en el menú de una capa de Geosian con partes.
+
+    El diálogo no se abre dentro de la acción del menú, sino justo después. QGIS
+    borra el menú del panel de capas en cuanto se cierra, y un diálogo modal
+    abierto dentro de su acción vuelve a un menú que ya no existe: en Windows,
+    QGIS se cerraba de golpe al aplicar el filtro (04/11/2026).
+    """
     if capa is None or not capa.isValid() or capa.providerType() != "geosian":
         return
     if not _tipos(capa) or capa.dataProvider().layer_uri.info_name:
         return
     accion = menu.addAction("Filtrar por partes y fechas…")
-    accion.triggered.connect(lambda: FiltroPartesDialog(capa, menu.parentWidget()).exec())
+    capa_id = capa.id()
+    accion.triggered.connect(
+        lambda _=False: QTimer.singleShot(0, lambda: abrir_filtro(capa_id, padre))
+    )
+
+
+def abrir_filtro(capa_id, padre=None):
+    """Abre el diálogo de la capa, si sigue en el proyecto, y lo suelta al cerrarlo."""
+    capa = QgsProject.instance().mapLayer(capa_id)
+    if capa is None or not capa.isValid():
+        return
+    dialogo = FiltroPartesDialog(capa, padre)
+    try:
+        dialogo.exec()
+    finally:
+        dialogo.deleteLater()
 
 
 def _tipos(capa):
