@@ -10,7 +10,6 @@ from qgis.PyQt.QtCore import QDate, Qt, QTimer
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QCompleter,
     QDateEdit,
     QDialog,
     QDialogButtonBox,
@@ -92,17 +91,29 @@ class FiltroPartesDialog(QDialog):
             self.operador.addItem(texto, op)
         self.valor = QLineEdit()
         self.valor.setPlaceholderText("Valor")
+        # Los campos con lista de valores (una casilla por valor, un desplegable) se
+        # eligen de la lista: escribir a mano daba condiciones que nunca casan.
+        self.valor_lista = QComboBox()
+        self._con_lista = False
         boton_añadir = QPushButton("Añadir")
         boton_quitar = QPushButton("Quitar")
+        boton_quitar_todo = QPushButton("Quitar todos los filtros")
         self.tipo.currentIndexChanged.connect(self._al_cambiar_tipo)
         self.campo.currentIndexChanged.connect(self._al_cambiar_campo)
         boton_añadir.clicked.connect(self.agregar)
         boton_quitar.clicked.connect(self._quitar)
+        boton_quitar_todo.clicked.connect(self.quitar_todo)
         self._al_cambiar_tipo()
 
         condicion = QHBoxLayout()
-        for widget in (self.tipo, self.campo, self.operador, self.valor, boton_añadir):
+        for widget in (
+            self.tipo, self.campo, self.operador, self.valor, self.valor_lista, boton_añadir
+        ):
             condicion.addWidget(widget)
+        quitar = QHBoxLayout()
+        quitar.addStretch()
+        quitar.addWidget(boton_quitar)
+        quitar.addWidget(boton_quitar_todo)
 
         self.usar_desde, self.desde = self._fecha(uri.date_from)
         self.usar_hasta, self.hasta = self._fecha(uri.date_to)
@@ -113,6 +124,11 @@ class FiltroPartesDialog(QDialog):
         fechas.addRow(self.usar_hasta, self.hasta)
         self.usar_desde.setText("Partes desde")
         self.usar_hasta.setText("Partes hasta")
+        aviso_fechas = QLabel(
+            "Las fechas también filtran solas: con una marcada, solo quedan los "
+            "elementos con algún parte en ese periodo."
+        )
+        aviso_fechas.setWordWrap(True)
 
         botones = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -126,9 +142,10 @@ class FiltroPartesDialog(QDialog):
             "repetido vale cualquiera de sus valores."
         ))
         caja.addWidget(self.lista)
-        caja.addWidget(boton_quitar, 0, Qt.AlignmentFlag.AlignRight)
+        caja.addLayout(quitar)
         caja.addLayout(condicion)
         caja.addLayout(fechas)
+        caja.addWidget(aviso_fechas)
         caja.addWidget(self.ultimo)
         caja.addWidget(botones)
 
@@ -152,22 +169,48 @@ class FiltroPartesDialog(QDialog):
                 self.campo.addItem(S.field_title(attr), attr["name"])
         self._al_cambiar_campo()
 
-    def _al_cambiar_campo(self):
+    def _atributo(self):
         info = self._tipos.get(self.tipo.currentData()) or {}
-        attr = next(
+        return next(
             (a for a in S.flatten_attributes(info) if a.get("name") == self.campo.currentData()),
             {},
         )
-        valores = [str(v) for v in attr.get("allowed_values") or [] if not isinstance(v, dict)]
-        self.valor.setCompleter(QCompleter(valores, self) if valores else None)
+
+    def _al_cambiar_campo(self):
+        """Operadores y valores según el tipo del campo.
+
+        Mayor y menor solo en números y fechas: en un texto o una lista no casan
+        con nada. Y un campo con valores permitidos se elige de su lista.
+        """
+        attr = self._atributo()
+        comparable = attr.get("type") in S.NUMERIC_TYPES | S.DATE_TYPES
+        self.operador.clear()
+        for texto, op in OPERADORES if comparable else OPERADORES[:1]:
+            self.operador.addItem(texto, op)
+        self.operador.setEnabled(comparable)
+        valores = [str(v) for v in S.allowed_values(attr) if not isinstance(v, dict)]
+        self._con_lista = bool(valores)
+        self.valor_lista.clear()
+        self.valor_lista.addItems(valores)
+        self.valor_lista.setVisible(self._con_lista)
+        self.valor.setVisible(not self._con_lista)
+        self.valor.setPlaceholderText(
+            "aaaa-mm-dd" if attr.get("type") in S.DATE_TYPES else "Valor"
+        )
+
+    def _valor_elegido(self):
+        if self._con_lista:
+            return self.valor_lista.currentText().strip()
+        return self.valor.text().strip()
 
     def agregar(self):
-        if not self.campo.currentData() or not self.valor.text().strip():
+        valor = self._valor_elegido()
+        if not self.campo.currentData() or not valor:
             return
         clave = f"{self.tipo.currentData()}__{self.campo.currentData()}"
         if self.operador.currentData():
             clave += f"__{self.operador.currentData()}"
-        self._añadir_a_la_lista(clave, self.valor.text().strip())
+        self._añadir_a_la_lista(clave, valor)
         self.valor.clear()
 
     def _añadir_a_la_lista(self, clave, valor):
@@ -187,6 +230,13 @@ class FiltroPartesDialog(QDialog):
     def _quitar(self):
         for elemento in self.lista.selectedItems():
             self.lista.takeItem(self.lista.row(elemento))
+
+    def quitar_todo(self):
+        """Condiciones, fechas y «solo el más reciente»: la capa entera otra vez."""
+        self.lista.clear()
+        self.usar_desde.setChecked(False)
+        self.usar_hasta.setChecked(False)
+        self.ultimo.setChecked(False)
 
     def accept(self):
         self.aplicar()
