@@ -665,6 +665,50 @@ def test_filtrar_por_partes_y_fechas_desde_el_menu_de_la_capa(app_gui):
             connections.remove_connection("Filtros")
 
 
+def test_el_filtro_se_abre_despues_de_cerrar_el_menu(app_gui, monkeypatch):
+    """QGIS borra el menú del panel de capas al cerrarlo: el diálogo no puede
+    abrirse dentro de su acción (cerraba QGIS en Windows al filtrar)."""
+    from qgis.core import QgsProject
+    from qgis.PyQt.QtWidgets import QApplication, QMenu, QWidget
+
+    from geosian.gui import filtro_partes
+    from geosian.provider.metadata import register_provider
+
+    abiertos = []
+    monkeypatch.setattr(
+        filtro_partes.FiltroPartesDialog,
+        "exec",
+        lambda self: abiertos.append((self.capa.id(), self.parentWidget())) or 0,
+    )
+    register_provider()
+    with FakeGeosian() as fake:
+        try:
+            capa = _capa_de_prueba(fake, "Filtro diferido")
+            ventana = QWidget()
+            menu = QMenu()
+            filtro_partes.menu_de_filtros(menu, capa, ventana)
+            [accion] = menu.actions()
+            accion.trigger()
+            assert abiertos == []  # dentro de la acción, nada
+            menu.deleteLater()  # como QGIS al cerrar el menú
+            del menu, accion
+            QApplication.processEvents()
+            QApplication.processEvents()
+            assert abiertos == [(capa.id(), ventana)]
+
+            # Si la capa ya no está cuando toca abrirlo, no se abre.
+            abiertos.clear()
+            menu = QMenu()
+            filtro_partes.menu_de_filtros(menu, capa, ventana)
+            menu.actions()[0].trigger()
+            QgsProject.instance().removeMapLayer(capa.id())
+            QApplication.processEvents()
+            assert abiertos == []
+        finally:
+            QgsProject.instance().clear()
+            connections.remove_connection("Filtro diferido")
+
+
 def test_menu_de_la_capa_cambia_la_etiqueta(app_gui):
     from qgis.core import QgsProject
     from qgis.PyQt.QtWidgets import QMenu
