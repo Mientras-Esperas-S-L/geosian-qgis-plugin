@@ -630,9 +630,17 @@ def test_filtrar_por_partes_y_fechas_desde_el_menu_de_la_capa(app_gui):
             assert [dialogo.tipo.itemText(i) for i in range(dialogo.tipo.count())] == ["Parte de poda"]
             dialogo.tipo.setCurrentIndex(0)
             dialogo.campo.setCurrentIndex(dialogo.campo.findData("labor"))
-            dialogo.valor.setText("Poda")
+            # Un campo con lista: solo «=» y el valor se elige de la lista.
+            assert [dialogo.operador.itemText(i) for i in range(dialogo.operador.count())] == ["="]
+            assert dialogo._con_lista
+            assert [dialogo.valor_lista.itemText(i) for i in range(dialogo.valor_lista.count())] == [
+                "Poda", "Aclareo"
+            ]
+            dialogo.valor_lista.setCurrentIndex(dialogo.valor_lista.findText("Poda"))
             dialogo.agregar()
             dialogo.campo.setCurrentIndex(dialogo.campo.findData("horas"))
+            # Un número: los cinco operadores y el valor escrito.
+            assert dialogo.operador.count() == 5 and not dialogo._con_lista
             dialogo.operador.setCurrentIndex(dialogo.operador.findData("gte"))
             dialogo.valor.setText("2")
             dialogo.agregar()
@@ -651,12 +659,14 @@ def test_filtrar_por_partes_y_fechas_desde_el_menu_de_la_capa(app_gui):
             assert consulta["attr__parte_poda__labor"] == ["Poda"]
             assert consulta["attr__parte_poda__horas__gte"] == ["2"]
 
-            # Y se pueden quitar todos.
+            # Y se pueden quitar todos de una vez: condiciones, fechas y «el más
+            # reciente», que también filtran solos.
             dialogo = FiltroPartesDialog(capa)
-            assert dialogo.lista.count() == 2
-            dialogo.lista.clear()
-            dialogo.usar_desde.setChecked(False)
-            dialogo.ultimo.setChecked(False)
+            assert dialogo.lista.count() == 2 and dialogo.usar_desde.isChecked()
+            dialogo.quitar_todo()
+            assert dialogo.lista.count() == 0
+            assert not dialogo.usar_desde.isChecked() and not dialogo.usar_hasta.isChecked()
+            assert not dialogo.ultimo.isChecked()
             dialogo.aplicar()
             uri = capa.dataProvider().layer_uri
             assert uri.partes == [] and uri.date_from is None and not uri.most_recent

@@ -42,6 +42,12 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Corregido
 
+- En "Filtrar por partes y fechas…" se podía poner "> 1" en un campo de lista
+  (como "Poda") y la capa se quedaba vacía. Ahora mayor y menor solo salen en
+  números y fechas, y un campo con valores permitidos se elige de un desplegable.
+- Quitar las condiciones dejaba la capa filtrada si seguían marcadas las fechas,
+  que también filtran solas. Hay un botón "Quitar todos los filtros" que lo
+  limpia todo, y la ventana avisa de que las fechas filtran.
 - "Filtrar por partes y fechas…" podía cerrar QGIS de golpe en Windows al
   aplicar el filtro: el diálogo se abría dentro de la acción del menú de la capa,
   y QGIS borra ese menú al cerrarlo. Ahora se abre justo después y se suelta al
