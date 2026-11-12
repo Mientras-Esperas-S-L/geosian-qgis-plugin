@@ -11,12 +11,17 @@ Los filtros por partes del panel de la web van como ``parte=<tipo>__<campo>=<val
 mismo campo repetido es «o») y las fechas de los partes como ``date_from``,
 ``date_to`` (``AAAA-MM-DD``) y ``most_recent=1``. Los resuelve el servidor.
 
+Las condiciones combinadas (el mismo árbol que el constructor de la web, ``filtro``
+en la API) van como ``filtro=<JSON>``. Las resuelve el servidor; uno que no las
+entienda no las aplica, así que el proveedor lo comprueba antes de abrir la capa.
+
 ``<conexión>`` es el nombre de una conexión guardada en los ajustes de QGIS, no
 un servidor. Así la URI no lleva ni la dirección ni la credencial, que es lo que
 hay que evitar: un proyecto ``.qgs`` se comparte por correo y no debe llevar
 dentro el token de nadie.
 """
 
+import json
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 SCHEME = "geosian"
@@ -37,7 +42,7 @@ class LayerUri:
 
     def __init__(self, connection, map_id, layer_id, geometry_type=None,
                  view_id=None, crs="EPSG:4326", info_name=None, subset="",
-                 partes=None, date_from=None, date_to=None, most_recent=False):
+                 partes=None, date_from=None, date_to=None, most_recent=False, filtro=None):
         self.connection = connection
         self.map_id = int(map_id)
         self.layer_id = int(layer_id)
@@ -53,6 +58,8 @@ class LayerUri:
         self.date_from = date_from or None
         self.date_to = date_to or None
         self.most_recent = bool(most_recent)
+        # Condiciones combinadas: el árbol del parámetro `filtro` de la API, o None.
+        self.filtro = filtro if isinstance(filtro, dict) and filtro.get("condiciones") else None
 
     def server_filters(self, zona_horaria):
         """Los filtros por partes y fechas como los manda la web a la API.
@@ -72,6 +79,8 @@ class LayerUri:
             params["timezone"] = zona_horaria
         if self.most_recent:
             params["most_recent"] = "true"
+        if self.filtro:
+            params["filtro"] = json.dumps(self.filtro, ensure_ascii=False, separators=(",", ":"))
         return params
 
     def __str__(self):
@@ -98,6 +107,9 @@ class LayerUri:
             params.append(f"date_to={self.date_to}")
         if self.most_recent:
             params.append("most_recent=1")
+        if self.filtro:
+            texto = json.dumps(self.filtro, ensure_ascii=False, separators=(",", ":"))
+            params.append(f"filtro={quote(texto, safe='')}")
         return base + ("?" + "&".join(params) if params else "")
 
     def __eq__(self, otro):
@@ -158,7 +170,22 @@ def parse_uri(uri):
         date_from=uno("date_from"),
         date_to=uno("date_to"),
         most_recent=uno("most_recent") in ("1", "true"),
+        filtro=_filtro(uno("filtro")),
     )
+
+
+def _filtro(texto):
+    """El árbol de ``filtro=<JSON>``, o None. Uno estropeado es un error de la URI."""
+    if not texto:
+        return None
+    try:
+        arbol = json.loads(texto)
+    except ValueError:
+        raise ValueError("Las condiciones combinadas de la capa no se entienden (filtro=…)") from None
+    if not isinstance(arbol, dict) or not isinstance(arbol.get("condiciones"), list):
+        # ValueError y no TypeError: es lo que parse_uri promete para una URI mal formada.
+        raise ValueError("Las condiciones combinadas de la capa no tienen la forma esperada")  # noqa: TRY004
+    return arbol
 
 
 def _parte(texto):
