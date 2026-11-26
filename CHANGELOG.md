@@ -42,6 +42,13 @@ El formato sigue [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/).
 
 ### Corregido
 
+- Vaciar un campo de lista con un texto vacío (la calculadora de campos con '')
+  daba "«Zona»: «» no está en su lista de valores" y no guardaba. Un texto vacío
+  es dejar el campo vacío, igual que el nulo, y ya no se toma por un valor.
+- Un nulo en la calculadora de campos vaciaba un campo en toda la capa sin
+  avisar. Si un guardado deja vacío un campo que tenía valor en 10 elementos o
+  más, QGIS pregunta antes, con el campo y cuántos. Cancelar no guarda nada y
+  deja los cambios pendientes.
 - En "Filtrar por partes y fechas…" se podía poner "> 1" en un campo de lista
   (como "Poda") y la capa se quedaba vacía. Ahora mayor y menor solo salen en
   números y fechas, y un campo con valores permitidos se elige de un desplegable.

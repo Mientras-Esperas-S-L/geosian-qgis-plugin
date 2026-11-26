@@ -35,6 +35,37 @@ def preguntar_retirada(capa, cuantos):
     return respuesta == QMessageBox.StandardButton.Yes
 
 
+# Desde cuántos elementos se pregunta antes de vaciar un campo. Con la calculadora de
+# campos un nulo vacía la capa entera de una vez; con la tabla, unos pocos, a propósito.
+UMBRAL_VACIADO = 10
+
+
+def preguntar_vaciado(capa, vaciados):
+    """¿Seguir con un guardado que deja vacíos campos con valor? ``{campo: elementos}``.
+
+    Las pruebas la sustituyen, porque el diálogo esperaría a alguien.
+    """
+    from qgis.PyQt.QtWidgets import QMessageBox
+
+    lineas = "\n".join(
+        f"  · «{campo}» en {_numero(n)} elementos" for campo, n in sorted(vaciados.items(), key=lambda x: -x[1])
+    )
+    respuesta = QMessageBox.warning(
+        None,
+        "Vaciar campos en GreenCityControl",
+        f"Al guardar «{capa.name()}» se quedan vacíos campos que tenían valor:\n\n{lineas}\n\n"
+        "Si no es lo que buscabas, cancela: no se guarda nada y los cambios siguen "
+        "pendientes, para revisarlos o deshacerlos.\n\n¿Vaciarlos y guardar?",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        QMessageBox.StandardButton.Cancel,
+    )
+    return respuesta == QMessageBox.StandardButton.Yes
+
+
+def _numero(n):
+    return f"{n:,}".replace(",", ".")
+
+
 MIO = "mio"
 GEOSIAN = "geosian"
 
@@ -210,6 +241,11 @@ def _antes_de_confirmar(capa, proveedor):
         )
         return
     proveedor.preparar_lote(buffer)
+    muchos = {campo: n for campo, n in (getattr(proveedor, "vaciados", None) or {}).items() if n >= UMBRAL_VACIADO}
+    if muchos and not preguntar_vaciado(capa, muchos):
+        proveedor.cancelar_lote(
+            "No se ha guardado nada: has cancelado el vaciado. Los cambios siguen pendientes."
+        )
 
 
 def enganchar(capa):

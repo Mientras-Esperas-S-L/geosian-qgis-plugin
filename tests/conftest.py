@@ -60,6 +60,7 @@ def sin_dialogos(monkeypatch):
 
     monkeypatch.setattr(edicion, "preguntar_conflictos", lambda capa, conflictos: None)
     monkeypatch.setattr(edicion, "preguntar_retirada", lambda capa, cuantos: True)
+    monkeypatch.setattr(edicion, "preguntar_vaciado", lambda capa, vaciados: True)
     yield
     # Lo que quedó programado (el diálogo tras un 409) salta aquí, aún sustituido,
     # y no en la prueba siguiente.

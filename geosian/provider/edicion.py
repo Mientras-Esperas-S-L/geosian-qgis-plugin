@@ -69,6 +69,7 @@ class Edicion:
         # La foto de lo pendiente y lo que respondió el servidor a ese lote.
         self._foto = None
         self._hecho = None
+        self.vaciados = {}
         # Los choques del último 409 y a quién avisar (gui/edicion.py abre el diálogo).
         self.conflictos = []
         self.al_conflicto = None
@@ -152,6 +153,7 @@ class Edicion:
         llamar al servidor.
         """
         self._hecho = None
+        self.vaciados = {}
         try:
             self._foto = {"lote": self._lote_de(buffer), "error": None}
         except _NoSePuede as exc:
@@ -174,6 +176,9 @@ class Edicion:
         bajas = sorted(fid for fid in buffer.deletedFeatureIds() if fid >= 0)
         self._pedir_versiones_que_faltan(fids + bajas)
         cambiar = []
+        # {campo: elementos} que este guardado deja vacíos y tenían algo (gui/edicion.py
+        # pregunta antes si son muchos).
+        self.vaciados = {}
         for fid in fids:
             version = self.version_base(fid)
             if not version:
@@ -184,7 +189,7 @@ class Edicion:
             cambio = {"id": fid, "expected_updated_at": version}
             registro = self._cache.get(fid)
             if fid in atributos:
-                valores = self._atributos_para_api(atributos[fid], registro)
+                valores = self._atributos_para_api(atributos[fid], registro, self.vaciados)
                 if valores:
                     cambio["attributes"] = valores
             if fid in geometrias and not (
@@ -269,12 +274,13 @@ class Edicion:
             for elemento in _features_from(datos):
                 self._store(elemento)
 
-    def _atributos_para_api(self, valores, registro=None):
+    def _atributos_para_api(self, valores, registro=None, vaciados=None):
         """``{índice: valor}`` de QGIS como ``{nombre: valor}`` de la API.
 
         Con ``registro`` (lo que hay en la caché), lo que no cambia no se manda: QGIS
         apunta un cambio aunque se vuelva a poner el mismo valor, y quedarse con lo
-        de Geosian ante un conflicto es justo eso.
+        de Geosian ante un conflicto es justo eso. En ``vaciados`` se cuenta, por
+        nombre del campo en QGIS, lo que se deja vacío y tenía valor.
         """
         salida = {}
         for indice, valor in valores.items():
@@ -312,6 +318,8 @@ class Edicion:
                 continue
             _comprobar_numero(campo, nuevo)
             _comprobar_lista(attr, campo, nuevo, viejo)
+            if vaciados is not None and vacio(nuevo) and not vacio(valor_para_api(viejo, campo.type())):
+                vaciados[campo.displayName()] = vaciados.get(campo.displayName(), 0) + 1
             salida[attr["name"]] = nuevo
         return salida
 
@@ -616,15 +624,19 @@ def _comprobar_lista(attr, campo, nuevo, viejo):
     Lo que ya estaba guardado fuera de la lista se conserva (la web también), pero no
     se puede poner de nuevo. Sin lista conocida (las que dependen de otro campo), no
     se comprueba nada: se deja en lo más permisivo, como el resto del esquema.
+
+    Un texto vacío no es un valor fuera de la lista: es dejar el campo vacío, como el
+    nulo (Geosian también lo ve así). Antes salía «» no está en su lista, y ese aviso
+    llevaba a probar expresiones hasta dar con un nulo, que vaciaba igual.
     """
-    if attr.get("type") not in S.CHOICE_TYPES or S.is_boolean(attr) or nuevo is None:
+    if attr.get("type") not in S.CHOICE_TYPES or S.is_boolean(attr) or vacio(nuevo):
         return
     permitidos = {str(v) for v in S.allowed_values(attr)}
     if not permitidos:
         return
     ya = {str(v) for v in (viejo if isinstance(viejo, list) else [viejo]) if v is not None}
     valores = nuevo if isinstance(nuevo, list) else [nuevo]
-    fuera = [str(v) for v in valores if str(v) not in permitidos and str(v) not in ya]
+    fuera = [str(v) for v in valores if not vacio(v) and str(v) not in permitidos and str(v) not in ya]
     if fuera:
         raise _NoSePuede(
             f"«{campo.displayName()}»: {', '.join(f'«{v}»' for v in fuera)} no está en su lista de "
@@ -657,6 +669,17 @@ def _misma_geometria(una, otra):
     """Coordenada a coordenada. ``equals`` está en desuso desde QGIS 4.2."""
     exacta = getattr(una, "isExactlyEqual", None)
     return bool(exacta(otra)) if exacta is not None else una.equals(otra)
+
+
+def vacio(valor):
+    """Sin valor, como lo ve la web: nulo, texto vacío o en blanco, o lista vacía."""
+    if valor is None or (isinstance(valor, QVariant) and valor.isNull()):
+        return True
+    if isinstance(valor, str):
+        return valor.strip() == ""
+    if isinstance(valor, (list, tuple)):
+        return all(vacio(v) for v in valor)
+    return False
 
 
 def _sin_nulo(valor):
@@ -692,7 +715,9 @@ def valor_para_api(valor, tipo):
     if tipo == QVariant.StringList:
         if isinstance(valor, str):
             return [valor] if valor else None
-        lista = [v for v in list(valor) if v is not None]
+        # Un texto vacío dentro de la lista no es una opción: la calculadora de campos
+        # lo pone al asignar '' a un campo de lista.
+        lista = [v for v in list(valor) if not vacio(v)]
         return lista or None
     if tipo == QVariant.Bool:
         return bool(valor)
